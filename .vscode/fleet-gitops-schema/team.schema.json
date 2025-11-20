@@ -76,12 +76,13 @@
       "properties": {
         "scripts": {
           "type": "array",
-          "description": "Script paths to deploy",
+          "description": "Script paths to deploy to team hosts",
           "items": {
             "oneOf": [
               {
                 "type": "string",
-                "description": "Path to script file"
+                "description": "Path to script file",
+                "examples": ["./lib/scripts/set-timezone.sh", "./lib/scripts/install-tools.ps1"]
               },
               {
                 "type": "object",
@@ -207,31 +208,43 @@
               "url": {
                 "type": "string",
                 "description": "Package download URL",
-                "format": "uri"
+                "format": "uri",
+                "examples": [
+                  "https://example.com/packages/app-v1.0.pkg",
+                  "https://cdn.example.com/software.msi"
+                ]
               },
               "hash_sha256": {
                 "type": "string",
-                "description": "SHA256 hash for verification",
-                "pattern": "^[a-fA-F0-9]{64}$"
+                "description": "SHA256 hash for verification (generate with: shasum -a 256 file.pkg)",
+                "pattern": "^[a-fA-F0-9]{64}$",
+                "examples": [
+                  "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+                ]
               },
               "display_name": {
                 "type": "string",
-                "description": "Display name for package"
+                "description": "Display name shown to users in Fleet UI",
+                "examples": ["Google Chrome", "Zoom Client", "Microsoft Office"]
               },
               "self_service": {
                 "type": "boolean",
-                "description": "Available for user self-install"
+                "description": "Available for user self-install via Fleet Desktop",
+                "default": false
               },
               "setup_experience": {
                 "type": "boolean",
-                "description": "Install during device enrollment"
+                "description": "Install automatically during device enrollment",
+                "default": false
               },
               "categories": {
                 "type": "array",
-                "description": "Package categories",
+                "description": "Package categories for organization",
                 "items": {
-                  "type": "string"
-                }
+                  "type": "string",
+                  "examples": ["Productivity", "Security", "Development", "Communication"]
+                },
+                "examples": [["Productivity"], ["Security", "Required"]]
               },
               "pre_install_query": {
                 "type": "string",

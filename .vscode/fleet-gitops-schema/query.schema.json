@@ -9,26 +9,43 @@
     "name": {
       "type": "string",
       "description": "Query name (identifier)",
-      "minLength": 1
+      "minLength": 1,
+      "examples": [
+        "Get USB devices",
+        "Collect failed login attempts",
+        "System uptime",
+        "Installed applications"
+      ]
     },
     "description": {
       "type": "string",
-      "description": "Query description"
+      "description": "Query description - explains what data is collected and why",
+      "examples": [
+        "Collects all USB devices connected to the host for security monitoring",
+        "Tracks failed authentication attempts to detect brute force attacks"
+      ]
     },
     "query": {
       "type": "string",
-      "description": "SQL query to execute",
-      "minLength": 1
+      "description": "SQL query to execute using osquery tables",
+      "minLength": 1,
+      "examples": [
+        "SELECT * FROM usb_devices;",
+        "SELECT * FROM system_info;",
+        "SELECT username, time FROM last WHERE tty NOT LIKE '%/0';",
+        "SELECT name, version, bundle_identifier FROM apps;"
+      ]
     },
     "platform": {
       "type": "string",
-      "description": "Target platform(s) - comma-separated list",
-      "examples": ["darwin", "windows", "linux", "darwin,linux"]
+      "description": "Target platform(s) - comma-separated list or empty for all platforms",
+      "examples": ["darwin", "windows", "linux", "darwin,linux", "darwin,windows,linux"]
     },
     "interval": {
       "type": "integer",
-      "description": "Seconds between query runs",
-      "minimum": 0
+      "description": "Seconds between query runs (e.g., 3600 = 1 hour, 86400 = 1 day)",
+      "minimum": 0,
+      "examples": [3600, 86400, 14400]
     },
     "observer_can_run": {
       "type": "boolean",
@@ -44,18 +61,21 @@
       "type": "array",
       "description": "Query applies to hosts with any of these labels",
       "items": {
-        "type": "string"
-      }
+        "type": "string",
+        "examples": ["macOS", "Windows", "All Hosts", "Servers", "Workstations"]
+      },
+      "examples": [["macOS"], ["Windows", "Linux"]]
     },
     "discard_data": {
       "type": "boolean",
-      "description": "Discard query results data",
+      "description": "Discard query results data (useful for queries that trigger automations but don't need stored results)",
       "default": false
     },
     "logging": {
       "type": "string",
-      "description": "Logging configuration",
-      "enum": ["snapshot", "differential", "differential_ignore_removals"]
+      "description": "Logging mode: snapshot (full results each time), differential (only changes), differential_ignore_removals (only additions)",
+      "enum": ["snapshot", "differential", "differential_ignore_removals"],
+      "examples": ["differential", "snapshot"]
     }
   },
   "additionalProperties": false

@@ -1,0 +1,150 @@
+{
+  "Fleet Policy - Firewall Check": {
+    "prefix": "fleet-policy-firewall",
+    "body": [
+      "- name: \"${1:Platform} - Firewall enabled\"",
+      "  description: \"${2:Ensure the system firewall is enabled}\"",
+      "  query: \"${3:SELECT 1 FROM alf WHERE global_state >= 1;}\"",
+      "  platform: \"${4|darwin,windows,linux,chrome,|}\"",
+      "  critical: ${5|false,true|}"
+    ],
+    "description": "Fleet policy template for firewall check"
+  },
+  "Fleet Policy - Disk Encryption": {
+    "prefix": "fleet-policy-encryption",
+    "body": [
+      "- name: \"${1:Platform} - Disk encryption enabled\"",
+      "  description: \"${2:Verify full disk encryption is active}\"",
+      "  query: \"${3:SELECT 1 FROM disk_encryption WHERE encrypted = 1;}\"",
+      "  platform: \"${4|darwin,windows,linux,|}\"",
+      "  critical: ${5|true,false|}"
+    ],
+    "description": "Fleet policy template for disk encryption"
+  },
+  "Fleet Policy - OS Version": {
+    "prefix": "fleet-policy-os-version",
+    "body": [
+      "- name: \"${1:Platform} - Minimum OS version\"",
+      "  description: \"${2:Ensure devices are running a minimum OS version}\"",
+      "  query: \"${3:SELECT 1 FROM os_version WHERE version >= '14.0';}\"",
+      "  platform: \"${4|darwin,windows,linux,|}\"",
+      "  critical: ${5|false,true|}"
+    ],
+    "description": "Fleet policy template for OS version check"
+  },
+  "Fleet Query - USB Devices": {
+    "prefix": "fleet-query-usb",
+    "body": [
+      "- name: \"${1:Get USB devices}\"",
+      "  description: \"${2:Collect all USB devices for security monitoring}\"",
+      "  query: \"${3:SELECT * FROM usb_devices;}\"",
+      "  platform: \"${4:darwin,linux}\"",
+      "  interval: ${5:3600}",
+      "  observer_can_run: ${6|true,false|}"
+    ],
+    "description": "Fleet query template for USB devices"
+  },
+  "Fleet Query - System Info": {
+    "prefix": "fleet-query-sysinfo",
+    "body": [
+      "- name: \"${1:System information}\"",
+      "  description: \"${2:Collect basic system information}\"",
+      "  query: \"${3:SELECT * FROM system_info;}\"",
+      "  interval: ${4:86400}",
+      "  observer_can_run: ${5|true,false|}"
+    ],
+    "description": "Fleet query template for system info"
+  },
+  "Fleet Query - Failed Logins": {
+    "prefix": "fleet-query-failed-logins",
+    "body": [
+      "- name: \"${1:Failed login attempts}\"",
+      "  description: \"${2:Track failed authentication attempts}\"",
+      "  query: \"${3:SELECT username, time FROM last WHERE tty NOT LIKE '%/0' LIMIT 100;}\"",
+      "  platform: \"${4:darwin,linux}\"",
+      "  interval: ${5:3600}",
+      "  automations_enabled: ${6|true,false|}"
+    ],
+    "description": "Fleet query template for failed logins"
+  },
+  "Fleet Label - Dynamic": {
+    "prefix": "fleet-label-dynamic",
+    "body": [
+      "- name: \"${1:Label name}\"",
+      "  description: \"${2:Label description}\"",
+      "  platform: \"${3|darwin,windows,linux,chrome,|}\"",
+      "  label_membership_type: \"dynamic\"",
+      "  query: \"${4:SELECT 1 WHERE 1=1;}\""
+    ],
+    "description": "Fleet dynamic label template"
+  },
+  "Fleet Team Config - Basic": {
+    "prefix": "fleet-team-basic",
+    "body": [
+      "name: \"${1:Team Name}\"",
+      "",
+      "policies:",
+      "  $2",
+      "",
+      "queries:",
+      "  $3",
+      "",
+      "agent_options:",
+      "  path: ./lib/agent-options.yml",
+      "",
+      "team_settings:",
+      "  secrets:",
+      "    - secret: \"\\$${4:TEAM_ENROLL_SECRET}\"",
+      "  features:",
+      "    enable_host_users: true",
+      "    enable_software_inventory: true"
+    ],
+    "description": "Basic Fleet team configuration"
+  },
+  "Fleet Software - Package": {
+    "prefix": "fleet-software-package",
+    "body": [
+      "- url: \"${1:https://example.com/package.pkg}\"",
+      "  hash_sha256: \"${2:sha256hash}\"",
+      "  display_name: \"${3:Package Name}\"",
+      "  self_service: ${4|false,true|}",
+      "  setup_experience: ${5|false,true|}"
+    ],
+    "description": "Fleet software package template"
+  },
+  "Fleet Script - macOS": {
+    "prefix": "fleet-script-macos",
+    "body": [
+      "- path: ./lib/scripts/${1:script-name}.sh",
+      "  labels_include_any:",
+      "    - ${2:macOS}"
+    ],
+    "description": "Fleet script with label targeting"
+  },
+  "Fleet Agent Options - Path": {
+    "prefix": "fleet-agent-options-path",
+    "body": [
+      "agent_options:",
+      "  path: ./lib/${1:agent-options}.yml"
+    ],
+    "description": "Fleet agent options reference"
+  },
+  "Fleet macOS Update Settings": {
+    "prefix": "fleet-macos-updates",
+    "body": [
+      "macos_updates:",
+      "  deadline: \"${1:2024-12-31}\"",
+      "  minimum_version: \"${2:14.0}\""
+    ],
+    "description": "Fleet macOS update settings"
+  },
+  "Fleet Windows Update Settings": {
+    "prefix": "fleet-windows-updates",
+    "body": [
+      "windows_updates:",
+      "  deadline_days: ${1:7}",
+      "  grace_period_days: ${2:2}"
+    ],
+    "description": "Fleet Windows update settings"
+  }
+}

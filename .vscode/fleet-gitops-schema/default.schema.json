@@ -37,11 +37,17 @@
               "properties": {
                 "decorators": {
                   "type": "object",
+                  "description": "SQL queries to decorate all query results",
                   "properties": {
                     "load": {
                       "type": "array",
+                      "description": "Queries to run once on osqueryd start",
                       "items": {
-                        "type": "string"
+                        "type": "string",
+                        "examples": [
+                          "SELECT uuid AS host_uuid FROM system_info;",
+                          "SELECT hostname FROM system_info;"
+                        ]
                       }
                     }
                   }
@@ -51,22 +57,34 @@
                   "description": "osquery configuration options",
                   "properties": {
                     "distributed_interval": {
-                      "type": "integer"
+                      "type": "integer",
+                      "description": "Seconds between checking for distributed queries",
+                      "examples": [10, 60, 120]
                     },
                     "distributed_plugin": {
-                      "type": "string"
+                      "type": "string",
+                      "description": "Plugin for distributed queries",
+                      "examples": ["tls"]
                     },
                     "distributed_tls_max_attempts": {
-                      "type": "integer"
+                      "type": "integer",
+                      "description": "Max retry attempts for distributed queries",
+                      "examples": [3]
                     },
                     "logger_plugin": {
-                      "type": "string"
+                      "type": "string",
+                      "description": "Plugin for logging results",
+                      "examples": ["tls"]
                     },
                     "logger_tls_endpoint": {
-                      "type": "string"
+                      "type": "string",
+                      "description": "TLS endpoint for logging",
+                      "examples": ["/api/osquery/log"]
                     },
                     "logger_tls_period": {
-                      "type": "integer"
+                      "type": "integer",
+                      "description": "Seconds between log uploads",
+                      "examples": [10, 60]
                     }
                   }
                 }
@@ -101,7 +119,8 @@
           "properties": {
             "path": {
               "type": "string",
-              "description": "Path to agent options YAML file"
+              "description": "Path to agent options YAML file",
+              "examples": ["./lib/agent-options.yml", "./lib/agent-options-verbose.yml"]
             }
           }
         }
@@ -166,12 +185,14 @@
           "properties": {
             "deadline": {
               "type": "string",
-              "description": "Update deadline (YYYY-MM-DD)",
-              "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+              "description": "Update deadline (YYYY-MM-DD) - devices must update by this date",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+              "examples": ["2025-12-31", "2025-06-30"]
             },
             "minimum_version": {
               "type": "string",
-              "description": "Minimum macOS version"
+              "description": "Minimum macOS version required",
+              "examples": ["14.0", "13.6.1", "15.0"]
             }
           }
         },
@@ -180,13 +201,15 @@
           "properties": {
             "deadline_days": {
               "type": "integer",
-              "description": "Days until update deadline",
-              "minimum": 0
+              "description": "Days until update deadline after release",
+              "minimum": 0,
+              "examples": [7, 14, 30]
             },
             "grace_period_days": {
               "type": "integer",
-              "description": "Grace period in days",
-              "minimum": 0
+              "description": "Grace period in days before forced restart",
+              "minimum": 0,
+              "examples": [1, 2, 3]
             }
           }
         },
@@ -239,20 +262,29 @@
           "properties": {
             "server_url": {
               "type": "string",
-              "description": "Fleet server URL",
-              "format": "uri"
+              "description": "Fleet server URL - typically set via $FLEET_URL environment variable",
+              "format": "uri",
+              "examples": ["https://fleet.example.com", "$FLEET_URL"]
             },
             "live_query_disabled": {
-              "type": "boolean"
+              "type": "boolean",
+              "description": "Disable live query functionality",
+              "default": false
             },
             "enable_analytics": {
-              "type": "boolean"
+              "type": "boolean",
+              "description": "Send anonymous usage statistics to Fleet",
+              "default": true
             },
             "query_reports_disabled": {
-              "type": "boolean"
+              "type": "boolean",
+              "description": "Disable query reports",
+              "default": false
             },
             "scripts_disabled": {
-              "type": "boolean"
+              "type": "boolean",
+              "description": "Disable script execution",
+              "default": false
             }
           }
         },
@@ -261,35 +293,40 @@
           "properties": {
             "org_name": {
               "type": "string",
-              "description": "Organization name"
+              "description": "Organization name displayed in Fleet UI",
+              "examples": ["Acme Corporation", "Fleet"]
             },
             "org_logo_url": {
               "type": "string",
-              "description": "Organization logo URL",
-              "format": "uri"
+              "description": "Organization logo URL (displayed on dark backgrounds)",
+              "format": "uri",
+              "examples": ["https://example.com/logo-dark.png"]
             },
             "org_logo_url_light_background": {
               "type": "string",
               "description": "Logo for light backgrounds",
-              "format": "uri"
+              "format": "uri",
+              "examples": ["https://example.com/logo-light.png"]
             },
             "contact_url": {
               "type": "string",
-              "description": "Contact support URL",
-              "format": "uri"
+              "description": "Contact/support URL shown to end users",
+              "format": "uri",
+              "examples": ["https://support.example.com", "mailto:support@example.com"]
             }
           }
         },
         "secrets": {
           "type": "array",
-          "description": "Global enrollment secrets",
+          "description": "Global enrollment secrets - use environment variables in production",
           "items": {
             "type": "object",
             "required": ["secret"],
             "properties": {
               "secret": {
                 "type": "string",
-                "description": "Enrollment secret value"
+                "description": "Enrollment secret value - use $VARIABLE_NAME for secrets",
+                "examples": ["$FLEET_GLOBAL_ENROLL_SECRET", "$ENROLL_SECRET"]
               }
             }
           }

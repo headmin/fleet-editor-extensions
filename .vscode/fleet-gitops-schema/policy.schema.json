@@ -9,22 +9,38 @@
     "name": {
       "type": "string",
       "description": "Policy name (identifier)",
-      "minLength": 1
+      "minLength": 1,
+      "examples": [
+        "macOS - Firewall enabled",
+        "Windows - BitLocker encryption",
+        "Linux - Automatic updates enabled"
+      ]
     },
     "description": {
       "type": "string",
-      "description": "Policy description",
-      "minLength": 1
+      "description": "Policy description - explains what the policy checks and why it matters",
+      "minLength": 1,
+      "examples": [
+        "Checks if the system firewall is enabled to protect against unauthorized network access",
+        "Verifies full disk encryption is active on the device"
+      ]
     },
     "query": {
       "type": "string",
-      "description": "SQL query that determines policy compliance",
-      "minLength": 1
+      "description": "SQL query that determines policy compliance. Query should return rows when compliant (passing), no rows when non-compliant (failing)",
+      "minLength": 1,
+      "examples": [
+        "SELECT 1 FROM disk_encryption WHERE encrypted=1;",
+        "SELECT 1 FROM system_info WHERE hostname LIKE '%-MBP-%';",
+        "SELECT 1 FROM windows_security_center WHERE firewall='Good';"
+      ]
     },
     "platform": {
       "type": "string",
-      "description": "Target operating system",
-      "enum": ["darwin", "windows", "linux", "chrome", ""]
+      "description": "Target operating system - leave empty for all platforms",
+      "enum": ["", "darwin", "windows", "linux", "chrome"],
+      "default": "",
+      "examples": ["darwin", "windows", "linux"]
     },
     "critical": {
       "type": "boolean",
@@ -45,8 +61,13 @@
       "type": "array",
       "description": "Policy applies to hosts with any of these labels",
       "items": {
-        "type": "string"
-      }
+        "type": "string",
+        "examples": ["macOS", "Windows", "All Hosts", "Servers", "Workstations"]
+      },
+      "examples": [
+        ["macOS"],
+        ["Windows", "Linux"]
+      ]
     },
     "install_software": {
       "type": "object",
