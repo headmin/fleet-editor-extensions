@@ -46,6 +46,8 @@
   "editor.quickSuggestions": {
     "strings": true
   },
+  "typescript.suggest.paths": false,
+  "javascript.suggest.paths": false,
   "editor.suggest.showFiles": true,
   "editor.suggest.showFolders": true,
   "path-intellisense.autoTriggerNextSuggestion": true,
