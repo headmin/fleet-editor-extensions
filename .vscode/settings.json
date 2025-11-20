@@ -45,5 +45,19 @@
   },
   "editor.quickSuggestions": {
     "strings": true
-  }
+  },
+  "editor.suggest.showFiles": true,
+  "editor.suggest.showFolders": true,
+  "path-intellisense.autoTriggerNextSuggestion": true,
+  "path-intellisense.extensionOnImport": false,
+  "path-intellisense.showHiddenFiles": false,
+  "path-intellisense.absolutePathToWorkspace": false,
+  "path-intellisense.mappings": {
+    "./lib": "${workspaceFolder}/lib",
+    "../lib": "${workspaceFolder}/lib"
+  },
+  "yaml.suggest.parentSkeletonSelectedFirst": true,
+  "editor.parameterHints.enabled": true,
+  "editor.suggestOnTriggerCharacters": true,
+  "editor.acceptSuggestionOnEnter": "on"
 }

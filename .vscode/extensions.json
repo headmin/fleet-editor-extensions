@@ -1,6 +1,7 @@
 {
   "recommendations": [
-    "redhat.vscode-yaml"
+    "redhat.vscode-yaml",
+    "christian-kohler.path-intellisense"
   ],
   "unwantedRecommendations": []
 }
