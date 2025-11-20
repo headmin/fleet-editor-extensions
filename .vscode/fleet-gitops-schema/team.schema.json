@@ -1,0 +1,413 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://fleetdm.com/schemas/team.json",
+  "title": "Fleet Team Configuration",
+  "description": "Schema for Fleet team YAML configuration (teams/*.yml)",
+  "type": "object",
+  "required": ["name"],
+  "properties": {
+    "name": {
+      "type": "string",
+      "description": "Team name",
+      "minLength": 1
+    },
+    "policies": {
+      "type": "array",
+      "description": "Team policies",
+      "items": {
+        "$ref": "policy.schema.json"
+      }
+    },
+    "queries": {
+      "type": "array",
+      "description": "Team queries",
+      "items": {
+        "$ref": "query.schema.json"
+      }
+    },
+    "agent_options": {
+      "oneOf": [
+        {
+          "type": "object",
+          "description": "Inline osquery agent options",
+          "properties": {
+            "config": {
+              "type": "object",
+              "properties": {
+                "decorators": {
+                  "type": "object",
+                  "properties": {
+                    "load": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                },
+                "options": {
+                  "type": "object",
+                  "description": "osquery configuration options"
+                }
+              }
+            },
+            "overrides": {
+              "type": "object",
+              "description": "Platform-specific overrides"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "description": "Reference to agent options file",
+          "required": ["path"],
+          "properties": {
+            "path": {
+              "type": "string",
+              "description": "Path to agent options YAML file"
+            }
+          }
+        }
+      ]
+    },
+    "controls": {
+      "type": "object",
+      "description": "Scripts and MDM controls",
+      "properties": {
+        "scripts": {
+          "type": "array",
+          "description": "Script paths to deploy",
+          "items": {
+            "oneOf": [
+              {
+                "type": "string",
+                "description": "Path to script file"
+              },
+              {
+                "type": "object",
+                "required": ["path"],
+                "properties": {
+                  "path": {
+                    "type": "string",
+                    "description": "Path to script file"
+                  },
+                  "labels_include_all": {
+                    "type": "array",
+                    "items": {"type": "string"}
+                  },
+                  "labels_include_any": {
+                    "type": "array",
+                    "items": {"type": "string"}
+                  },
+                  "labels_exclude_any": {
+                    "type": "array",
+                    "items": {"type": "string"}
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "windows_enabled_and_configured": {
+          "type": "boolean",
+          "description": "Enable Windows MDM"
+        },
+        "windows_migration_enabled": {
+          "type": "boolean",
+          "description": "Enable Windows migration (Premium)"
+        },
+        "enable_disk_encryption": {
+          "type": "boolean",
+          "description": "Enable disk encryption (Premium)"
+        },
+        "windows_require_bitlocker_pin": {
+          "type": "boolean",
+          "description": "Require BitLocker PIN (Premium)"
+        },
+        "macos_updates": {
+          "type": "object",
+          "properties": {
+            "deadline": {
+              "type": "string",
+              "description": "Update deadline (YYYY-MM-DD)",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+            },
+            "minimum_version": {
+              "type": "string",
+              "description": "Minimum macOS version"
+            }
+          }
+        },
+        "windows_updates": {
+          "type": "object",
+          "properties": {
+            "deadline_days": {
+              "type": "integer",
+              "description": "Days until update deadline",
+              "minimum": 0
+            },
+            "grace_period_days": {
+              "type": "integer",
+              "description": "Grace period in days",
+              "minimum": 0
+            }
+          }
+        },
+        "macos_settings": {
+          "type": "object",
+          "properties": {
+            "custom_settings": {
+              "type": "array",
+              "description": "Configuration profile paths",
+              "items": {
+                "oneOf": [
+                  {
+                    "type": "string",
+                    "description": "Path to configuration profile"
+                  },
+                  {
+                    "type": "object",
+                    "required": ["path"],
+                    "properties": {
+                      "path": {
+                        "type": "string"
+                      },
+                      "labels_include_all": {
+                        "type": "array",
+                        "items": {"type": "string"}
+                      },
+                      "labels_include_any": {
+                        "type": "array",
+                        "items": {"type": "string"}
+                      },
+                      "labels_exclude_any": {
+                        "type": "array",
+                        "items": {"type": "string"}
+                      }
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "software": {
+      "type": "object",
+      "description": "Software management configuration",
+      "properties": {
+        "packages": {
+          "type": "array",
+          "description": "Software packages",
+          "items": {
+            "type": "object",
+            "required": ["url", "hash_sha256"],
+            "properties": {
+              "url": {
+                "type": "string",
+                "description": "Package download URL",
+                "format": "uri"
+              },
+              "hash_sha256": {
+                "type": "string",
+                "description": "SHA256 hash for verification",
+                "pattern": "^[a-fA-F0-9]{64}$"
+              },
+              "display_name": {
+                "type": "string",
+                "description": "Display name for package"
+              },
+              "self_service": {
+                "type": "boolean",
+                "description": "Available for user self-install"
+              },
+              "setup_experience": {
+                "type": "boolean",
+                "description": "Install during device enrollment"
+              },
+              "categories": {
+                "type": "array",
+                "description": "Package categories",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "pre_install_query": {
+                "type": "string",
+                "description": "Query to run before installation"
+              },
+              "install_script": {
+                "type": "string",
+                "description": "Custom install script"
+              },
+              "post_install_script": {
+                "type": "string",
+                "description": "Post-install script"
+              },
+              "uninstall_script": {
+                "type": "string",
+                "description": "Uninstall script"
+              }
+            }
+          }
+        },
+        "app_store_apps": {
+          "type": "array",
+          "description": "macOS App Store applications",
+          "items": {
+            "type": "object",
+            "required": ["app_store_id"],
+            "properties": {
+              "app_store_id": {
+                "type": "string",
+                "description": "App Store ID (as quoted string)",
+                "pattern": "^\\d+$"
+              },
+              "labels_include_any": {
+                "type": "array",
+                "description": "Deploy to hosts with any of these labels (Premium)",
+                "items": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "fleet_maintained_apps": {
+          "type": "array",
+          "description": "Fleet-maintained applications",
+          "items": {
+            "type": "object",
+            "required": ["slug"],
+            "properties": {
+              "slug": {
+                "type": "string",
+                "description": "Fleet app slug identifier"
+              },
+              "install_script": {
+                "type": "object",
+                "properties": {
+                  "path": {
+                    "type": "string"
+                  }
+                }
+              },
+              "uninstall_script": {
+                "type": "object",
+                "properties": {
+                  "path": {
+                    "type": "string"
+                  }
+                }
+              },
+              "post_install_script": {
+                "type": "object",
+                "properties": {
+                  "path": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "team_settings": {
+      "type": "object",
+      "description": "Team-specific settings",
+      "properties": {
+        "secrets": {
+          "type": "array",
+          "description": "Team enrollment secrets",
+          "items": {
+            "type": "object",
+            "required": ["secret"],
+            "properties": {
+              "secret": {
+                "type": "string",
+                "description": "Enrollment secret value"
+              }
+            }
+          }
+        },
+        "features": {
+          "type": "object",
+          "description": "Feature flags",
+          "properties": {
+            "enable_host_users": {
+              "type": "boolean"
+            },
+            "enable_software_inventory": {
+              "type": "boolean"
+            }
+          }
+        },
+        "host_expiry_settings": {
+          "type": "object",
+          "properties": {
+            "host_expiry_enabled": {
+              "type": "boolean"
+            },
+            "host_expiry_window": {
+              "type": "integer",
+              "description": "Days before expiry"
+            }
+          }
+        },
+        "enable_calendar_events": {
+          "type": "boolean",
+          "description": "Enable calendar event integration"
+        },
+        "webhook_url": {
+          "type": "string",
+          "description": "Webhook URL for team",
+          "format": "uri"
+        },
+        "webhook_settings": {
+          "type": "object",
+          "properties": {
+            "failing_policies_webhook": {
+              "type": "object",
+              "properties": {
+                "enable_failing_policies_webhook": {
+                  "type": "boolean"
+                },
+                "destination_url": {
+                  "type": "string",
+                  "format": "uri"
+                },
+                "policy_ids": {
+                  "type": "array",
+                  "items": {
+                    "type": "integer"
+                  }
+                },
+                "host_batch_size": {
+                  "type": "integer"
+                }
+              }
+            },
+            "vulnerabilities_webhook": {
+              "type": "object",
+              "properties": {
+                "enable_vulnerabilities_webhook": {
+                  "type": "boolean"
+                },
+                "destination_url": {
+                  "type": "string",
+                  "format": "uri"
+                },
+                "host_batch_size": {
+                  "type": "integer"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "additionalProperties": false
+}

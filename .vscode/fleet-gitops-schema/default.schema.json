@@ -1,0 +1,586 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://fleetdm.com/schemas/default.json",
+  "title": "Fleet Default Configuration",
+  "description": "Schema for Fleet default.yml (organization-wide configuration)",
+  "type": "object",
+  "properties": {
+    "policies": {
+      "type": "array",
+      "description": "Organization-wide policies (Fleet Free) or 'All teams' policies (Fleet Premium)",
+      "items": {
+        "$ref": "policy.schema.json"
+      }
+    },
+    "queries": {
+      "type": "array",
+      "description": "Organization-wide queries (Fleet Free) or 'All teams' queries (Fleet Premium)",
+      "items": {
+        "$ref": "query.schema.json"
+      }
+    },
+    "labels": {
+      "type": "array",
+      "description": "Organization-wide labels (optional - unlisted labels will be deleted)",
+      "items": {
+        "$ref": "label.schema.json"
+      }
+    },
+    "agent_options": {
+      "oneOf": [
+        {
+          "type": "object",
+          "description": "Inline osquery agent options",
+          "properties": {
+            "config": {
+              "type": "object",
+              "properties": {
+                "decorators": {
+                  "type": "object",
+                  "properties": {
+                    "load": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                },
+                "options": {
+                  "type": "object",
+                  "description": "osquery configuration options",
+                  "properties": {
+                    "distributed_interval": {
+                      "type": "integer"
+                    },
+                    "distributed_plugin": {
+                      "type": "string"
+                    },
+                    "distributed_tls_max_attempts": {
+                      "type": "integer"
+                    },
+                    "logger_plugin": {
+                      "type": "string"
+                    },
+                    "logger_tls_endpoint": {
+                      "type": "string"
+                    },
+                    "logger_tls_period": {
+                      "type": "integer"
+                    }
+                  }
+                }
+              }
+            },
+            "overrides": {
+              "type": "object",
+              "description": "Platform-specific overrides",
+              "properties": {
+                "platforms": {
+                  "type": "object",
+                  "properties": {
+                    "darwin": {
+                      "type": "object"
+                    },
+                    "windows": {
+                      "type": "object"
+                    },
+                    "linux": {
+                      "type": "object"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "description": "Reference to agent options file",
+          "required": ["path"],
+          "properties": {
+            "path": {
+              "type": "string",
+              "description": "Path to agent options YAML file"
+            }
+          }
+        }
+      ]
+    },
+    "controls": {
+      "type": "object",
+      "description": "Organization-wide scripts and MDM controls (Fleet Free only - Premium must use teams/)",
+      "properties": {
+        "scripts": {
+          "type": "array",
+          "description": "Script paths to deploy",
+          "items": {
+            "oneOf": [
+              {
+                "type": "string",
+                "description": "Path to script file"
+              },
+              {
+                "type": "object",
+                "required": ["path"],
+                "properties": {
+                  "path": {
+                    "type": "string",
+                    "description": "Path to script file"
+                  },
+                  "labels_include_all": {
+                    "type": "array",
+                    "items": {"type": "string"}
+                  },
+                  "labels_include_any": {
+                    "type": "array",
+                    "items": {"type": "string"}
+                  },
+                  "labels_exclude_any": {
+                    "type": "array",
+                    "items": {"type": "string"}
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "windows_enabled_and_configured": {
+          "type": "boolean",
+          "description": "Enable Windows MDM"
+        },
+        "windows_migration_enabled": {
+          "type": "boolean",
+          "description": "Enable Windows migration (Premium)"
+        },
+        "enable_disk_encryption": {
+          "type": "boolean",
+          "description": "Enable disk encryption (Premium)"
+        },
+        "windows_require_bitlocker_pin": {
+          "type": "boolean",
+          "description": "Require BitLocker PIN (Premium)"
+        },
+        "macos_updates": {
+          "type": "object",
+          "properties": {
+            "deadline": {
+              "type": "string",
+              "description": "Update deadline (YYYY-MM-DD)",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+            },
+            "minimum_version": {
+              "type": "string",
+              "description": "Minimum macOS version"
+            }
+          }
+        },
+        "windows_updates": {
+          "type": "object",
+          "properties": {
+            "deadline_days": {
+              "type": "integer",
+              "description": "Days until update deadline",
+              "minimum": 0
+            },
+            "grace_period_days": {
+              "type": "integer",
+              "description": "Grace period in days",
+              "minimum": 0
+            }
+          }
+        },
+        "macos_settings": {
+          "type": "object",
+          "properties": {
+            "custom_settings": {
+              "type": "array",
+              "description": "Configuration profile paths",
+              "items": {
+                "oneOf": [
+                  {
+                    "type": "string",
+                    "description": "Path to configuration profile"
+                  },
+                  {
+                    "type": "object",
+                    "required": ["path"],
+                    "properties": {
+                      "path": {
+                        "type": "string"
+                      },
+                      "labels_include_all": {
+                        "type": "array",
+                        "items": {"type": "string"}
+                      },
+                      "labels_include_any": {
+                        "type": "array",
+                        "items": {"type": "string"}
+                      },
+                      "labels_exclude_any": {
+                        "type": "array",
+                        "items": {"type": "string"}
+                      }
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "org_settings": {
+      "type": "object",
+      "description": "Organization-wide settings",
+      "properties": {
+        "server_settings": {
+          "type": "object",
+          "properties": {
+            "server_url": {
+              "type": "string",
+              "description": "Fleet server URL",
+              "format": "uri"
+            },
+            "live_query_disabled": {
+              "type": "boolean"
+            },
+            "enable_analytics": {
+              "type": "boolean"
+            },
+            "query_reports_disabled": {
+              "type": "boolean"
+            },
+            "scripts_disabled": {
+              "type": "boolean"
+            }
+          }
+        },
+        "org_info": {
+          "type": "object",
+          "properties": {
+            "org_name": {
+              "type": "string",
+              "description": "Organization name"
+            },
+            "org_logo_url": {
+              "type": "string",
+              "description": "Organization logo URL",
+              "format": "uri"
+            },
+            "org_logo_url_light_background": {
+              "type": "string",
+              "description": "Logo for light backgrounds",
+              "format": "uri"
+            },
+            "contact_url": {
+              "type": "string",
+              "description": "Contact support URL",
+              "format": "uri"
+            }
+          }
+        },
+        "secrets": {
+          "type": "array",
+          "description": "Global enrollment secrets",
+          "items": {
+            "type": "object",
+            "required": ["secret"],
+            "properties": {
+              "secret": {
+                "type": "string",
+                "description": "Enrollment secret value"
+              }
+            }
+          }
+        },
+        "features": {
+          "type": "object",
+          "description": "Feature toggles for host data collection",
+          "properties": {
+            "enable_host_users": {
+              "type": "boolean",
+              "description": "Collect user data from hosts"
+            },
+            "enable_software_inventory": {
+              "type": "boolean",
+              "description": "Collect software inventory"
+            }
+          }
+        },
+        "fleet_desktop": {
+          "type": "object",
+          "properties": {
+            "transparency_url": {
+              "type": "string",
+              "description": "URL shown to end users",
+              "format": "uri"
+            }
+          }
+        },
+        "host_expiry_settings": {
+          "type": "object",
+          "properties": {
+            "host_expiry_enabled": {
+              "type": "boolean",
+              "description": "Enable automatic host removal"
+            },
+            "host_expiry_window": {
+              "type": "integer",
+              "description": "Days before inactive hosts are removed",
+              "minimum": 0
+            }
+          }
+        },
+        "sso_settings": {
+          "type": "object",
+          "description": "SAML/SSO configuration",
+          "properties": {
+            "enable_sso": {
+              "type": "boolean"
+            },
+            "enable_sso_idp_login": {
+              "type": "boolean"
+            },
+            "enable_jit_provisioning": {
+              "type": "boolean"
+            },
+            "entity_id": {
+              "type": "string"
+            },
+            "issuer_uri": {
+              "type": "string",
+              "format": "uri"
+            },
+            "idp_image_url": {
+              "type": "string",
+              "format": "uri"
+            },
+            "metadata": {
+              "type": "string",
+              "description": "SAML metadata XML"
+            },
+            "metadata_url": {
+              "type": "string",
+              "format": "uri"
+            }
+          }
+        },
+        "integrations": {
+          "type": "object",
+          "properties": {
+            "google_calendar": {
+              "type": "object",
+              "properties": {
+                "enable_calendar_events": {
+                  "type": "boolean"
+                },
+                "webhook_url": {
+                  "type": "string",
+                  "format": "uri"
+                }
+              }
+            },
+            "jira": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "url": {
+                    "type": "string",
+                    "format": "uri"
+                  },
+                  "username": {
+                    "type": "string"
+                  },
+                  "api_token": {
+                    "type": "string"
+                  },
+                  "project_key": {
+                    "type": "string"
+                  },
+                  "enable_software_vulnerabilities": {
+                    "type": "boolean"
+                  }
+                }
+              }
+            },
+            "zendesk": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "url": {
+                    "type": "string",
+                    "format": "uri"
+                  },
+                  "email": {
+                    "type": "string",
+                    "format": "email"
+                  },
+                  "api_token": {
+                    "type": "string"
+                  },
+                  "group_id": {
+                    "type": "integer"
+                  },
+                  "enable_software_vulnerabilities": {
+                    "type": "boolean"
+                  }
+                }
+              }
+            },
+            "conditional_access": {
+              "type": "object",
+              "properties": {
+                "enable_conditional_access": {
+                  "type": "boolean"
+                }
+              }
+            }
+          }
+        },
+        "certificate_authorities": {
+          "type": "object",
+          "properties": {
+            "digicert": {
+              "type": "object",
+              "properties": {
+                "api_key": {
+                  "type": "string"
+                },
+                "account_id": {
+                  "type": "string"
+                }
+              }
+            },
+            "ndes_scep": {
+              "type": "object",
+              "properties": {
+                "url": {
+                  "type": "string",
+                  "format": "uri"
+                },
+                "challenge": {
+                  "type": "string"
+                }
+              }
+            },
+            "smallstep": {
+              "type": "object",
+              "properties": {
+                "url": {
+                  "type": "string",
+                  "format": "uri"
+                },
+                "username": {
+                  "type": "string"
+                },
+                "password": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "webhook_settings": {
+          "type": "object",
+          "properties": {
+            "host_status_webhook": {
+              "type": "object",
+              "properties": {
+                "enable_host_status_webhook": {
+                  "type": "boolean"
+                },
+                "destination_url": {
+                  "type": "string",
+                  "format": "uri"
+                },
+                "host_percentage": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 100
+                },
+                "days_count": {
+                  "type": "integer"
+                }
+              }
+            },
+            "failing_policies_webhook": {
+              "type": "object",
+              "properties": {
+                "enable_failing_policies_webhook": {
+                  "type": "boolean"
+                },
+                "destination_url": {
+                  "type": "string",
+                  "format": "uri"
+                },
+                "policy_ids": {
+                  "type": "array",
+                  "items": {
+                    "type": "integer"
+                  }
+                },
+                "host_batch_size": {
+                  "type": "integer"
+                }
+              }
+            },
+            "vulnerabilities_webhook": {
+              "type": "object",
+              "properties": {
+                "enable_vulnerabilities_webhook": {
+                  "type": "boolean"
+                },
+                "destination_url": {
+                  "type": "string",
+                  "format": "uri"
+                },
+                "host_batch_size": {
+                  "type": "integer"
+                }
+              }
+            }
+          }
+        },
+        "mdm": {
+          "type": "object",
+          "properties": {
+            "apple_bm_default_team": {
+              "type": "string",
+              "description": "Default team for Apple Business Manager devices"
+            },
+            "apple_bm_enabled_and_configured": {
+              "type": "boolean"
+            },
+            "vpp_enabled": {
+              "type": "boolean",
+              "description": "Enable Volume Purchase Program"
+            },
+            "end_user_authentication": {
+              "type": "object",
+              "properties": {
+                "entity_id": {
+                  "type": "string"
+                },
+                "issuer_uri": {
+                  "type": "string",
+                  "format": "uri"
+                },
+                "metadata": {
+                  "type": "string"
+                },
+                "metadata_url": {
+                  "type": "string",
+                  "format": "uri"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "additionalProperties": false
+}

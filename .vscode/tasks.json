@@ -1,0 +1,103 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Fleet: Validate GitOps (dry-run)",
+      "type": "shell",
+      "command": "fleetctl",
+      "args": [
+        "gitops",
+        "--dry-run"
+      ],
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "new"
+      },
+      "group": {
+        "kind": "test",
+        "isDefault": false
+      }
+    },
+    {
+      "label": "Fleet: Apply GitOps Configuration",
+      "type": "shell",
+      "command": "fleetctl",
+      "args": [
+        "gitops"
+      ],
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "new"
+      },
+      "group": {
+        "kind": "build",
+        "isDefault": false
+      }
+    },
+    {
+      "label": "Fleet: Validate default.yml",
+      "type": "shell",
+      "command": "fleetctl",
+      "args": [
+        "apply",
+        "--dry-run",
+        "-f",
+        "default.yml"
+      ],
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "new"
+      }
+    },
+    {
+      "label": "Fleet: Validate Team Config",
+      "type": "shell",
+      "command": "fleetctl",
+      "args": [
+        "apply",
+        "--dry-run",
+        "-f",
+        "${file}"
+      ],
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "new"
+      }
+    },
+    {
+      "label": "Fleet: Generate GitOps Files",
+      "type": "shell",
+      "command": "fleetctl",
+      "args": [
+        "generate",
+        "git-ops",
+        "--output",
+        "."
+      ],
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "new"
+      }
+    },
+    {
+      "label": "Fleet: Check Connection",
+      "type": "shell",
+      "command": "fleetctl",
+      "args": [
+        "config",
+        "get",
+        "address"
+      ],
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "new"
+      }
+    }
+  ]
+}

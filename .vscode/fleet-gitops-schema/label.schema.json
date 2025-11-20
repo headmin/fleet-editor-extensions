@@ -1,0 +1,92 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://fleetdm.com/schemas/label.json",
+  "title": "Fleet Label",
+  "description": "Schema for Fleet label configuration",
+  "type": "object",
+  "required": ["name", "label_membership_type"],
+  "properties": {
+    "name": {
+      "type": "string",
+      "description": "Label name (identifier)",
+      "minLength": 1
+    },
+    "description": {
+      "type": "string",
+      "description": "Label description"
+    },
+    "platform": {
+      "type": "string",
+      "description": "Target platform",
+      "enum": ["darwin", "windows", "ubuntu", "centos", "linux", "chrome", ""]
+    },
+    "label_membership_type": {
+      "type": "string",
+      "description": "Type of label membership",
+      "enum": ["dynamic", "manual", "host_vitals"]
+    },
+    "query": {
+      "type": "string",
+      "description": "SQL query for dynamic labels (required when label_membership_type is 'dynamic')"
+    },
+    "hosts": {
+      "type": "array",
+      "description": "Host IDs for manual labels (required when label_membership_type is 'manual')",
+      "items": {
+        "type": "integer"
+      }
+    },
+    "criteria": {
+      "type": "object",
+      "description": "Criteria for host_vitals labels (required when label_membership_type is 'host_vitals')",
+      "properties": {
+        "vital": {
+          "type": "string",
+          "description": "Vital type"
+        },
+        "value": {
+          "description": "Vital value"
+        }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "label_membership_type": {
+            "const": "dynamic"
+          }
+        }
+      },
+      "then": {
+        "required": ["query"]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "label_membership_type": {
+            "const": "manual"
+          }
+        }
+      },
+      "then": {
+        "required": ["hosts"]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "label_membership_type": {
+            "const": "host_vitals"
+          }
+        }
+      },
+      "then": {
+        "required": ["criteria"]
+      }
+    }
+  ],
+  "additionalProperties": false
+}

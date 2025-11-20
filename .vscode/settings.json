@@ -1,0 +1,49 @@
+{
+  "yaml.schemas": {
+    ".vscode/fleet-gitops-schema/default.schema.json": [
+      "default.yml",
+      "default.yaml"
+    ],
+    ".vscode/fleet-gitops-schema/team.schema.json": [
+      "teams/*.yml",
+      "teams/*.yaml"
+    ],
+    ".vscode/fleet-gitops-schema/policy.schema.json": [
+      "lib/policies/*.yml",
+      "lib/policies/*.yaml"
+    ],
+    ".vscode/fleet-gitops-schema/query.schema.json": [
+      "lib/queries/*.yml",
+      "lib/queries/*.yaml"
+    ],
+    ".vscode/fleet-gitops-schema/label.schema.json": [
+      "lib/labels/*.yml",
+      "lib/labels/*.yaml"
+    ]
+  },
+  "yaml.validate": true,
+  "yaml.completion": true,
+  "yaml.hover": true,
+  "yaml.format.enable": true,
+  "yaml.customTags": [
+    "!secret scalar"
+  ],
+  "[yaml]": {
+    "editor.defaultFormatter": "redhat.vscode-yaml",
+    "editor.formatOnSave": true,
+    "editor.autoIndent": "advanced",
+    "editor.insertSpaces": true,
+    "editor.tabSize": 2
+  },
+  "files.associations": {
+    "**/teams/*.yml": "yaml",
+    "**/teams/*.yaml": "yaml",
+    "default.yml": "yaml",
+    "default.yaml": "yaml",
+    "**/lib/**/*.yml": "yaml",
+    "**/lib/**/*.yaml": "yaml"
+  },
+  "editor.quickSuggestions": {
+    "strings": true
+  }
+}

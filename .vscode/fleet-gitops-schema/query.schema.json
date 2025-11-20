@@ -1,0 +1,62 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://fleetdm.com/schemas/query.json",
+  "title": "Fleet Query",
+  "description": "Schema for Fleet query configuration",
+  "type": "object",
+  "required": ["name", "query"],
+  "properties": {
+    "name": {
+      "type": "string",
+      "description": "Query name (identifier)",
+      "minLength": 1
+    },
+    "description": {
+      "type": "string",
+      "description": "Query description"
+    },
+    "query": {
+      "type": "string",
+      "description": "SQL query to execute",
+      "minLength": 1
+    },
+    "platform": {
+      "type": "string",
+      "description": "Target platform(s) - comma-separated list",
+      "examples": ["darwin", "windows", "linux", "darwin,linux"]
+    },
+    "interval": {
+      "type": "integer",
+      "description": "Seconds between query runs",
+      "minimum": 0
+    },
+    "observer_can_run": {
+      "type": "boolean",
+      "description": "Allow observer role to run this query",
+      "default": false
+    },
+    "automations_enabled": {
+      "type": "boolean",
+      "description": "Enable automations for this query",
+      "default": false
+    },
+    "labels_include_any": {
+      "type": "array",
+      "description": "Query applies to hosts with any of these labels",
+      "items": {
+        "type": "string"
+      }
+    },
+    "discard_data": {
+      "type": "boolean",
+      "description": "Discard query results data",
+      "default": false
+    },
+    "logging": {
+      "type": "string",
+      "description": "Logging configuration",
+      "enum": ["snapshot", "differential", "differential_ignore_removals"]
+    }
+  },
+  "additionalProperties": false
+}

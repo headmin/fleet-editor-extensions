@@ -1,0 +1,89 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://fleetdm.com/schemas/policy.json",
+  "title": "Fleet Policy",
+  "description": "Schema for Fleet policy configuration",
+  "type": "object",
+  "required": ["name", "description", "query"],
+  "properties": {
+    "name": {
+      "type": "string",
+      "description": "Policy name (identifier)",
+      "minLength": 1
+    },
+    "description": {
+      "type": "string",
+      "description": "Policy description",
+      "minLength": 1
+    },
+    "query": {
+      "type": "string",
+      "description": "SQL query that determines policy compliance",
+      "minLength": 1
+    },
+    "platform": {
+      "type": "string",
+      "description": "Target operating system",
+      "enum": ["darwin", "windows", "linux", "chrome", ""]
+    },
+    "critical": {
+      "type": "boolean",
+      "description": "Mark policy as critical",
+      "default": false
+    },
+    "calendar_events_enabled": {
+      "type": "boolean",
+      "description": "Enable calendar events for this policy",
+      "default": false
+    },
+    "conditional_access_enabled": {
+      "type": "boolean",
+      "description": "Enable conditional access for this policy",
+      "default": false
+    },
+    "labels_include_any": {
+      "type": "array",
+      "description": "Policy applies to hosts with any of these labels",
+      "items": {
+        "type": "string"
+      }
+    },
+    "install_software": {
+      "type": "object",
+      "description": "Software to install when policy fails (Premium feature, team-level only)",
+      "oneOf": [
+        {
+          "required": ["package_path"],
+          "properties": {
+            "package_path": {
+              "type": "string",
+              "description": "Path to software package"
+            }
+          }
+        },
+        {
+          "required": ["hash_sha256"],
+          "properties": {
+            "hash_sha256": {
+              "type": "string",
+              "description": "SHA256 hash of software package",
+              "pattern": "^[a-fA-F0-9]{64}$"
+            }
+          }
+        }
+      ]
+    },
+    "run_script": {
+      "type": "object",
+      "description": "Script to run when policy fails (Premium feature, team-level only)",
+      "required": ["path"],
+      "properties": {
+        "path": {
+          "type": "string",
+          "description": "Path to script file"
+        }
+      }
+    }
+  },
+  "additionalProperties": false
+}
