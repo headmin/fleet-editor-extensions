@@ -1,6 +1,6 @@
 use anyhow::Result;
 use indexmap::IndexMap;
-use crate::schema::types::{FleetSchema, SchemaDefinition, SchemaMetadata, YamlEnhancement};
+use crate::schema::types::{FleetSchema, SchemaDefinition, SchemaMetadata, YamlEnhancement, AdditionalProperties};
 use crate::sources::yaml_defs;
 use chrono::Utc;
 
@@ -22,7 +22,10 @@ pub fn merge_schemas(
     apply_enhancements(&mut base_schema, &enhancements)?;
 
     // Split into specialized schemas for different file types
-    let default_schema = base_schema.clone();
+    let mut default_schema = base_schema.clone();
+
+    // Enable strict validation for default schema
+    default_schema.additional_properties = Some(AdditionalProperties::Boolean(false));
     let team_schema = create_team_schema(&base_schema);
     let policy_schema = create_policy_schema(&enhancements);
     let query_schema = create_query_schema(&enhancements);
@@ -104,12 +107,15 @@ fn create_team_schema(base: &SchemaDefinition) -> SchemaDefinition {
 
     // Teams don't have certain top-level fields
     if let Some(props) = &mut team.properties {
-        props.remove("org_settings");
-        props.remove("controls");
+        props.swap_remove("org_settings");
+        props.swap_remove("controls");
     }
 
     team.title = Some("Fleet Team Configuration".to_string());
     team.description = Some("Schema for Fleet team YAML files (teams/*.yml)".to_string());
+
+    // Enable strict validation
+    team.additional_properties = Some(AdditionalProperties::Boolean(false));
 
     team
 }
@@ -158,6 +164,7 @@ fn create_policy_schema(enhancements: &IndexMap<String, YamlEnhancement>) -> Sch
         type_: Some(SchemaType::Single("object".to_string())),
         properties: Some(properties),
         required: Some(vec!["name".to_string(), "query".to_string()]),
+        additional_properties: Some(AdditionalProperties::Boolean(false)),
         ..Default::default()
     }
 }
@@ -204,6 +211,7 @@ fn create_query_schema(enhancements: &IndexMap<String, YamlEnhancement>) -> Sche
         type_: Some(SchemaType::Single("object".to_string())),
         properties: Some(properties),
         required: Some(vec!["name".to_string(), "query".to_string()]),
+        additional_properties: Some(AdditionalProperties::Boolean(false)),
         ..Default::default()
     }
 }
@@ -246,6 +254,7 @@ fn create_label_schema(enhancements: &IndexMap<String, YamlEnhancement>) -> Sche
         type_: Some(SchemaType::Single("object".to_string())),
         properties: Some(properties),
         required: Some(vec!["name".to_string(), "query".to_string()]),
+        additional_properties: Some(AdditionalProperties::Boolean(false)),
         ..Default::default()
     }
 }

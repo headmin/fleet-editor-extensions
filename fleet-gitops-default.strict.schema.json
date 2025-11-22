@@ -1,0 +1,461 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.com/schemas/fleet-gitops-default.strict.json",
+  "title": "Fleet GitOps default.yml (strict)",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "labels": { "$ref": "#/$defs/labelsList" },
+    "policies": { "$ref": "#/$defs/policiesList" },
+    "queries": { "$ref": "#/$defs/queriesList" },
+    "agent_options": { "$ref": "#/$defs/agentOptionsRefOrInline" },
+    "controls": { "$ref": "#/$defs/controls" },
+    "software": {
+      "type": "object",
+      "description": "Software configuration. Kept loose: spec is evolving.",
+      "additionalProperties": true
+    },
+    "org_settings": { "$ref": "#/$defs/orgSettingsStrict" },
+    "team_settings": { "$ref": "#/$defs/teamSettingsStrict" }
+  },
+  "required": [
+    "policies",
+    "queries",
+    "agent_options",
+    "controls",
+    "software",
+    "org_settings"
+  ],
+
+  "$defs": {
+    /* --- labels (unchanged but strict) --- */
+    "labelsList": {
+      "type": "array",
+      "items": {
+        "oneOf": [
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "name": { "type": "string" },
+              "description": { "type": "string" },
+              "platform": {
+                "type": "string",
+                "pattern": "^(|darwin|windows|ubuntu|centos)(,(darwin|windows|ubuntu|centos))*$"
+              },
+              "label_membership_type": {
+                "type": "string",
+                "enum": ["dynamic", "manual", "host_vitals"]
+              },
+              "query": { "type": "string" },
+              "hosts": {
+                "type": "array",
+                "items": { "type": "string" }
+              },
+              "criteria": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "vital": { "type": "string" },
+                  "value": { "type": "string" }
+                },
+                "required": ["vital", "value"]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "path": { "type": "string" }
+            },
+            "required": ["path"]
+          }
+        ]
+      }
+    },
+
+    /* --- policies / queries (same as before, but no unknown keys) --- */
+    "policiesList": {
+      "type": "array",
+      "items": {
+        "oneOf": [
+          { "$ref": "#/$defs/policyInlineStrict" },
+          { "$ref": "#/$defs/policiesRef" }
+        ]
+      }
+    },
+    "policyInlineStrict": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "name": { "type": "string" },
+        "description": { "type": "string" },
+        "resolution": { "type": "string" },
+        "query": { "type": "string" },
+        "platform": { "type": "string" },
+        "critical": { "type": "boolean" },
+        "calendar_events_enabled": { "type": "boolean" },
+        "conditional_access_enabled": { "type": "boolean" },
+        "labels_include_any": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "labels_include_all": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "labels_exclude_any": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "run_script": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "path": { "type": "string" }
+          },
+          "required": ["path"]
+        },
+        "install_software": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "package_path": { "type": "string" },
+            "hash_sha256": { "type": "string" }
+          }
+        }
+      },
+      "required": ["name", "query"]
+    },
+    "policiesRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "path": { "type": "string" }
+      },
+      "required": ["path"]
+    },
+
+    "queriesList": {
+      "type": "array",
+      "items": {
+        "oneOf": [
+          { "$ref": "#/$defs/queryInlineStrict" },
+          { "$ref": "#/$defs/queriesRef" }
+        ]
+      }
+    },
+    "queryInlineStrict": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "name": { "type": "string" },
+        "description": { "type": "string" },
+        "query": { "type": "string" },
+        "platform": { "type": "string" },
+        "interval": { "type": "integer", "minimum": 0 },
+        "observer_can_run": { "type": "boolean" },
+        "automations_enabled": { "type": "boolean" },
+        "labels_include_any": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      },
+      "required": ["name", "query"]
+    },
+    "queriesRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "path": { "type": "string" }
+      },
+      "required": ["path"]
+    },
+
+    /* --- agent_options: still loose inside config, but shape enforced --- */
+    "agentOptionsInline": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "config": { "type": "object" }
+      }
+    },
+    "agentOptionsRefOrInline": {
+      "oneOf": [
+        { "$ref": "#/$defs/agentOptionsInline" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "path": { "type": "string" }
+          },
+          "required": ["path"]
+        }
+      ]
+    },
+
+    /* --- controls: strict keys as per docs --- */
+    "controlsScriptTargeting": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "path": { "type": "string" },
+        "labels_include_all": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "labels_include_any": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "labels_exclude_any": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      },
+      "required": ["path"]
+    },
+
+    "controls": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "scripts": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/controlsScriptTargeting" }
+        },
+        "windows_enabled_and_configured": { "type": "boolean" },
+        "windows_migration_enabled": { "type": "boolean" },
+        "enable_disk_encryption": { "type": "boolean" },
+        "windows_require_bitlocker_pin": { "type": "boolean" },
+
+        "macos_updates": { "$ref": "#/$defs/macosUpdates" },
+        "ios_updates": { "$ref": "#/$defs/macosUpdates" },
+        "ipados_updates": { "$ref": "#/$defs/macosUpdates" },
+        "windows_updates": { "$ref": "#/$defs/windowsUpdates" },
+
+        "macos_settings": { "$ref": "#/$defs/osSettings" },
+        "windows_settings": { "$ref": "#/$defs/osSettings" },
+        "android_settings": { "$ref": "#/$defs/osSettings" },
+
+        "macos_setup": { "$ref": "#/$defs/macosSetup" },
+        "macos_migration": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enable": { "type": "boolean" },
+            "mode": { "type": "string", "enum": ["voluntary", "forced"] },
+            "webhook_url": { "type": "string" }
+          }
+        }
+      }
+    },
+
+    "macosUpdates": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "deadline": { "type": "string" },
+        "minimum_version": { "type": "string" }
+      }
+    },
+    "windowsUpdates": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "deadline_days": { "type": ["integer", "null"] },
+        "grace_period_days": { "type": ["integer", "null"] }
+      }
+    },
+
+    "osSettings": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "custom_settings": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/controlsScriptTargeting" }
+        }
+      }
+    },
+
+    "macosSetup": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "bootstrap_package": { "type": "string" },
+        "manual_agent_install": { "type": "boolean" },
+        "enable_end_user_authentication": { "type": "boolean" },
+        "require_all_software": { "type": "boolean" },
+        "enable_release_device_manually": { "type": "boolean" },
+        "macos_setup_assistant": { "type": "string" },
+        "script": { "type": "string" }
+      }
+    },
+
+    /* --- org_settings: strict, based on docs --- */
+    "orgSettingsStrict": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "features": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "additional_queries": {
+              "type": "object",
+              "additionalProperties": { "type": "string" }
+            },
+            "enable_host_users": { "type": "boolean" },
+            "enable_software_inventory": { "type": "boolean" }
+          }
+        },
+        "fleet_desktop": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "transparency_url": { "type": "string" }
+          }
+        },
+        "host_expiry_settings": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "host_expiry_enabled": { "type": "boolean" },
+            "host_expiry_window": { "type": "integer", "minimum": 0 }
+          }
+        },
+        "org_info": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "org_name": { "type": "string" },
+            "org_logo_url": { "type": "string" },
+            "org_logo_url_light_background": { "type": "string" },
+            "contact_url": { "type": "string" }
+          }
+        },
+        "secrets": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "secret": { "type": "string" }
+            },
+            "required": ["secret"]
+          }
+        },
+        "server_settings": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "ai_features_disabled": { "type": "boolean" },
+            "enable_analytics": { "type": "boolean" },
+            "live_query_disabled": { "type": "boolean" },
+            "query_reports_disabled": { "type": "boolean" },
+            "query_report_cap": { "type": "integer" },
+            "scripts_disabled": { "type": "boolean" },
+            "server_url": { "type": "string" }
+          }
+        },
+        "sso_settings": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enable_sso": { "type": "boolean" },
+            "idp_name": { "type": "string" },
+            "idp_image_url": { "type": "string" },
+            "entity_id": { "type": "string" },
+            "metadata": { "type": "string" },
+            "metadata_url": { "type": "string" },
+            "enable_jit_provisioning": { "type": "boolean" },
+            "enable_sso_idp_login": { "type": "boolean" },
+            "sso_server_url": { "type": "string" }
+          }
+        },
+        "integrations": { "$ref": "#/$defs/integrationsStrict" },
+        "certificate_authorities": {
+          "type": "object",
+          "description": "CA integrations: Digicert, NDES, Smallstep, etc.",
+          "additionalProperties": true
+        },
+        "gitops": {
+          "type": "object",
+          "description": "GitOps mode flags from app config.",
+          "additionalProperties": false,
+          "properties": {
+            "gitops_mode_enabled": { "type": "boolean" },
+            "repository_url": { "type": "string" }
+          }
+        }
+      }
+    },
+
+    /* --- team_settings: only subset allowed in teams/no-team.yml --- */
+    "teamSettingsStrict": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "features": { "$ref": "#/$defs/orgSettingsStrict/properties/features" },
+        "host_expiry_settings": { "$ref": "#/$defs/orgSettingsStrict/properties/host_expiry_settings" },
+        "secrets": { "$ref": "#/$defs/orgSettingsStrict/properties/secrets" },
+        "integrations": { "$ref": "#/$defs/integrationsStrict" },
+        "webhook_settings": {
+          "type": "object",
+          "description": "Webhook settings; spec is not fully documented, keep flexible for now.",
+          "additionalProperties": true
+        }
+      }
+    },
+
+    /* --- integrations: strict layout --- */
+    "integrationsStrict": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "conditional_access_enabled": { "type": "boolean" },
+        "google_calendar": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "api_key_json": { "type": "string" },
+              "domain": { "type": "string" },
+              "enable_calendar_events": { "type": "boolean" },
+              "webhook_url": { "type": "string" }
+            }
+          }
+        },
+        "jira": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "url": { "type": "string" },
+              "username": { "type": "string" },
+              "api_token": { "type": "string" },
+              "project_key": { "type": "string" }
+            }
+          }
+        },
+        "zendesk": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "url": { "type": "string" },
+              "email": { "type": "string" },
+              "api_token": { "type": "string" },
+              "group_id": {}
+            }
+          }
+        }
+      }
+    }
+  }
+}
