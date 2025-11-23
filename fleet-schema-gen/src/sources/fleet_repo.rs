@@ -109,6 +109,12 @@ impl FleetRepo {
 
     /// Checkout a specific version (tag or commit)
     fn checkout_version(&self, version: &str) -> Result<()> {
+        // Handle "latest" as a special case - just pull main
+        if version == "latest" {
+            self.update_repo()?;
+            return Ok(());
+        }
+
         println!("  → Checking out Fleet version: {}", version);
 
         let output = Command::new("git")

@@ -35,6 +35,10 @@ enum Commands {
         /// Schema definitions directory
         #[arg(short, long, default_value = "./schema-defs")]
         schema_defs: PathBuf,
+
+        /// Schema source: go (parse Fleet Go code), examples (infer from YAML), hybrid (both), or docs (scrape docs)
+        #[arg(long, default_value = "hybrid")]
+        source: String,
     },
 
     /// Update schemas from specific source
@@ -126,14 +130,15 @@ async fn main() -> Result<()> {
     let cli = Cli::parse();
 
     match cli.command {
-        Commands::Generate { fleet_version, output, editor, schema_defs } => {
+        Commands::Generate { fleet_version, output, editor, schema_defs, source } => {
             println!("Generating schemas for Fleet version: {}",
                 fleet_version.as_deref().unwrap_or("latest"));
             println!("Output directory: {}", output.display());
             println!("Editor format: {}", editor);
+            println!("Schema source: {}", source);
 
             // Load and merge schema sources
-            let schema = schema::build_schema(fleet_version, &schema_defs).await?;
+            let schema = schema::build_schema(fleet_version, &schema_defs, &source).await?;
 
             // Generate based on editor choice
             match editor.as_str() {

@@ -4,6 +4,171 @@ use crate::schema::types::{FleetSchema, SchemaDefinition, SchemaMetadata, YamlEn
 use crate::sources::yaml_defs;
 use chrono::Utc;
 
+/// Merge Go-parsed schema with local enhancements
+pub fn merge_with_go_schema(
+    go_schema: SchemaDefinition,
+    enhancements: IndexMap<String, YamlEnhancement>,
+    version: &str,
+) -> Result<FleetSchema> {
+    let mut base_schema = go_schema;
+
+    // Apply manual enhancements from YAML files
+    apply_enhancements(&mut base_schema, &enhancements)?;
+
+    // Split into specialized schemas
+    let mut default_schema = base_schema.clone();
+    default_schema.additional_properties = Some(AdditionalProperties::Boolean(true));
+
+    let team_schema = create_team_schema(&base_schema);
+    let policy_schema = create_policy_schema(&enhancements);
+    let query_schema = create_query_schema(&enhancements);
+    let label_schema = create_label_schema(&enhancements);
+
+    let metadata = SchemaMetadata {
+        generated_at: Utc::now().to_rfc3339(),
+        fleet_version: version.to_string(),
+        sources: vec![
+            "Fleet Go Source Code".to_string(),
+            "Local YAML Enhancements".to_string(),
+        ],
+    };
+
+    Ok(FleetSchema {
+        version: version.to_string(),
+        default_schema,
+        team_schema,
+        policy_schema,
+        query_schema,
+        label_schema,
+        metadata,
+    })
+}
+
+/// Merge example-based schema with local enhancements
+pub fn merge_with_examples(
+    github_schema: SchemaDefinition,
+    enhancements: IndexMap<String, YamlEnhancement>,
+    version: &str,
+) -> Result<FleetSchema> {
+    let mut base_schema = github_schema;
+    apply_enhancements(&mut base_schema, &enhancements)?;
+
+    let mut default_schema = base_schema.clone();
+    default_schema.additional_properties = Some(AdditionalProperties::Boolean(true));
+
+    let team_schema = create_team_schema(&base_schema);
+    let policy_schema = create_policy_schema(&enhancements);
+    let query_schema = create_query_schema(&enhancements);
+    let label_schema = create_label_schema(&enhancements);
+
+    let metadata = SchemaMetadata {
+        generated_at: Utc::now().to_rfc3339(),
+        fleet_version: version.to_string(),
+        sources: vec![
+            "GitHub Examples (Inferred)".to_string(),
+            "Local YAML Enhancements".to_string(),
+        ],
+    };
+
+    Ok(FleetSchema {
+        version: version.to_string(),
+        default_schema,
+        team_schema,
+        policy_schema,
+        query_schema,
+        label_schema,
+        metadata,
+    })
+}
+
+/// Merge docs-scraped schema with local enhancements
+pub fn merge_with_docs(
+    docs_schema: SchemaDefinition,
+    enhancements: IndexMap<String, YamlEnhancement>,
+    version: &str,
+) -> Result<FleetSchema> {
+    let mut base_schema = docs_schema;
+    apply_enhancements(&mut base_schema, &enhancements)?;
+
+    let mut default_schema = base_schema.clone();
+    default_schema.additional_properties = Some(AdditionalProperties::Boolean(true));
+
+    let team_schema = create_team_schema(&base_schema);
+    let policy_schema = create_policy_schema(&enhancements);
+    let query_schema = create_query_schema(&enhancements);
+    let label_schema = create_label_schema(&enhancements);
+
+    let metadata = SchemaMetadata {
+        generated_at: Utc::now().to_rfc3339(),
+        fleet_version: version.to_string(),
+        sources: vec![
+            "Fleet Documentation (Scraped)".to_string(),
+            "Local YAML Enhancements".to_string(),
+        ],
+    };
+
+    Ok(FleetSchema {
+        version: version.to_string(),
+        default_schema,
+        team_schema,
+        policy_schema,
+        query_schema,
+        label_schema,
+        metadata,
+    })
+}
+
+/// Merge all sources with priority: Go > Docs > Examples > Local
+pub fn merge_all_sources(
+    go_schema: SchemaDefinition,
+    docs_schema: SchemaDefinition,
+    github_schema: SchemaDefinition,
+    enhancements: IndexMap<String, YamlEnhancement>,
+    version: &str,
+) -> Result<FleetSchema> {
+    // Start with Go schema (most authoritative)
+    let mut base_schema = go_schema;
+
+    // Merge docs (for descriptions, examples not in Go)
+    merge_schema_definitions(&mut base_schema, docs_schema);
+
+    // Merge GitHub examples (for edge cases)
+    merge_schema_definitions(&mut base_schema, github_schema);
+
+    // Apply manual enhancements
+    apply_enhancements(&mut base_schema, &enhancements)?;
+
+    let mut default_schema = base_schema.clone();
+    default_schema.additional_properties = Some(AdditionalProperties::Boolean(true));
+
+    let team_schema = create_team_schema(&base_schema);
+    let policy_schema = create_policy_schema(&enhancements);
+    let query_schema = create_query_schema(&enhancements);
+    let label_schema = create_label_schema(&enhancements);
+
+    let metadata = SchemaMetadata {
+        generated_at: Utc::now().to_rfc3339(),
+        fleet_version: version.to_string(),
+        sources: vec![
+            "Fleet Go Source Code".to_string(),
+            "Fleet Documentation".to_string(),
+            "GitHub Examples".to_string(),
+            "Local YAML Enhancements".to_string(),
+        ],
+    };
+
+    Ok(FleetSchema {
+        version: version.to_string(),
+        default_schema,
+        team_schema,
+        policy_schema,
+        query_schema,
+        label_schema,
+        metadata,
+    })
+}
+
+/// Legacy merge function (kept for compatibility)
 pub fn merge_schemas(
     docs_schema: SchemaDefinition,
     github_schema: SchemaDefinition,
