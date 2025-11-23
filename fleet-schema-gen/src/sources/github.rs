@@ -105,22 +105,113 @@ async fn fetch_file_from_repo(repo: &str, path: &str, branch: &str) -> Result<St
 }
 
 fn infer_schema_from_examples(examples: Vec<String>) -> Result<SchemaDefinition> {
-    // Parse YAML examples and infer schema structure
-    let mut schema = SchemaDefinition {
-        schema: Some("https://json-schema.org/draft-07/schema#".to_string()),
-        ..Default::default()
-    };
+    use indexmap::IndexMap;
+    use crate::schema::types::{SchemaProperty, SchemaType};
 
-    // Parse each example YAML
+    let mut all_properties: IndexMap<String, SchemaProperty> = IndexMap::new();
+
+    // Parse each example YAML and extract properties
     for example in examples {
-        if let Ok(yaml) = serde_yaml::from_str::<serde_json::Value>(&example) {
-            // Extract structure from parsed YAML
-            // This is simplified - real implementation would recursively analyze structure
-            println!("  → Parsed example YAML");
+        if let Ok(yaml) = serde_yaml::from_str::<serde_yaml::Value>(&example) {
+            if let serde_yaml::Value::Mapping(map) = yaml {
+                extract_properties(&map, &mut all_properties, "");
+            }
         }
     }
 
+    let schema = SchemaDefinition {
+        schema: Some("https://json-schema.org/draft-07/schema#".to_string()),
+        title: Some("Fleet Configuration (Inferred)".to_string()),
+        description: Some("Schema inferred from Fleet example files".to_string()),
+        schema_type: Some(SchemaType::Object),
+        properties: if all_properties.is_empty() { None } else { Some(all_properties) },
+        additional_properties: Some(crate::schema::types::AdditionalProperties::Boolean(true)),
+        ..Default::default()
+    };
+
     Ok(schema)
+}
+
+fn extract_properties(
+    map: &serde_yaml::Mapping,
+    all_properties: &mut indexmap::IndexMap<String, crate::schema::types::SchemaProperty>,
+    _prefix: &str,
+) {
+    use crate::schema::types::{SchemaProperty, SchemaType};
+
+    for (key, value) in map {
+        if let serde_yaml::Value::String(prop_name) = key {
+            let property = infer_property_from_value(value);
+
+            // Merge with existing property if present
+            if let Some(existing) = all_properties.get_mut(prop_name) {
+                // If we see a property multiple times, make it more permissive
+                if existing.schema_type != property.schema_type {
+                    existing.schema_type = SchemaType::Any;
+                }
+            } else {
+                all_properties.insert(prop_name.clone(), property);
+            }
+        }
+    }
+}
+
+fn infer_property_from_value(value: &serde_yaml::Value) -> crate::schema::types::SchemaProperty {
+    use crate::schema::types::{SchemaProperty, SchemaType};
+    use indexmap::IndexMap;
+
+    match value {
+        serde_yaml::Value::String(_) => SchemaProperty {
+            schema_type: SchemaType::String,
+            description: None,
+            ..Default::default()
+        },
+        serde_yaml::Value::Bool(_) => SchemaProperty {
+            schema_type: SchemaType::Boolean,
+            description: None,
+            ..Default::default()
+        },
+        serde_yaml::Value::Number(_) => SchemaProperty {
+            schema_type: SchemaType::Integer,
+            description: None,
+            ..Default::default()
+        },
+        serde_yaml::Value::Sequence(seq) => {
+            let items = if !seq.is_empty() {
+                Some(Box::new(infer_property_from_value(&seq[0])))
+            } else {
+                None
+            };
+
+            SchemaProperty {
+                schema_type: SchemaType::Array,
+                items,
+                description: None,
+                ..Default::default()
+            }
+        },
+        serde_yaml::Value::Mapping(map) => {
+            let mut nested_props = IndexMap::new();
+            extract_properties(map, &mut nested_props, "");
+
+            SchemaProperty {
+                schema_type: SchemaType::Object,
+                properties: if nested_props.is_empty() { None } else { Some(nested_props) },
+                description: None,
+                ..Default::default()
+            }
+        },
+        serde_yaml::Value::Null => SchemaProperty {
+            schema_type: SchemaType::Null,
+            description: None,
+            ..Default::default()
+        },
+        _ => SchemaProperty {
+            schema_type: SchemaType::Any,
+            description: None,
+            ..Default::default()
+        },
+    }
 }
 
 pub async fn list_releases() -> Result<Vec<GitHubRelease>> {

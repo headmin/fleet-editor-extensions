@@ -7,7 +7,9 @@ use crate::schema::types::FleetSchema;
 pub fn generate(schema: &FleetSchema, output_dir: &Path) -> Result<()> {
     println!("\n=== Generating VSCode Schemas ===");
 
-    let schema_dir = output_dir.join("fleet-gitops-schema");
+    // Create .vscode directory structure
+    let vscode_dir = output_dir.join(".vscode");
+    let schema_dir = vscode_dir.join("fleet-gitops-schema");
     fs::create_dir_all(&schema_dir)?;
 
     // Generate individual schema files
@@ -17,13 +19,13 @@ pub fn generate(schema: &FleetSchema, output_dir: &Path) -> Result<()> {
     generate_schema_file(&schema.query_schema, &schema_dir.join("query.schema.json"), "Fleet Query")?;
     generate_schema_file(&schema.label_schema, &schema_dir.join("label.schema.json"), "Fleet Label")?;
 
-    // Generate VSCode settings.json
-    generate_settings_file(output_dir)?;
+    // Generate VSCode settings.json in .vscode/
+    generate_settings_file(&vscode_dir)?;
 
     // Generate metadata file
     generate_metadata(schema, &schema_dir)?;
 
-    println!("✓ VSCode schemas generated at: {}", output_dir.display());
+    println!("✓ VSCode schemas generated in: {}/.vscode/", output_dir.display());
 
     Ok(())
 }
@@ -44,14 +46,14 @@ fn generate_schema_file(
     Ok(())
 }
 
-fn generate_settings_file(output_dir: &Path) -> Result<()> {
+fn generate_settings_file(vscode_dir: &Path) -> Result<()> {
     let settings = json!({
         "yaml.schemas": {
-            "./fleet-gitops-schema/default.schema.json": ["default.yml", "default.yaml"],
-            "./fleet-gitops-schema/team.schema.json": ["teams/*.yml", "teams/*.yaml"],
-            "./fleet-gitops-schema/policy.schema.json": ["lib/policies/*.yml", "lib/policies/*.yaml"],
-            "./fleet-gitops-schema/query.schema.json": ["lib/queries/*.yml", "lib/queries/*.yaml"],
-            "./fleet-gitops-schema/label.schema.json": ["lib/labels/*.yml", "lib/labels/*.yaml"]
+            ".vscode/fleet-gitops-schema/default.schema.json": ["default.yml", "default.yaml"],
+            ".vscode/fleet-gitops-schema/team.schema.json": ["teams/*.yml", "teams/*.yaml"],
+            ".vscode/fleet-gitops-schema/policy.schema.json": ["lib/policies/*.yml", "lib/policies/*.yaml"],
+            ".vscode/fleet-gitops-schema/query.schema.json": ["lib/queries/*.yml", "lib/queries/*.yaml"],
+            ".vscode/fleet-gitops-schema/label.schema.json": ["lib/labels/*.yml", "lib/labels/*.yaml"]
         },
         "yaml.validate": true,
         "yaml.completion": true,
@@ -62,11 +64,11 @@ fn generate_settings_file(output_dir: &Path) -> Result<()> {
         }
     });
 
-    let settings_path = output_dir.join("settings.json");
+    let settings_path = vscode_dir.join("settings.json");
     let json = serde_json::to_string_pretty(&settings)?;
     fs::write(&settings_path, json)?;
 
-    println!("  ✓ settings.json");
+    println!("  ✓ .vscode/settings.json");
 
     Ok(())
 }

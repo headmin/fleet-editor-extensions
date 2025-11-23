@@ -105,17 +105,16 @@ fn create_team_schema(base: &SchemaDefinition) -> SchemaDefinition {
     // Team schema is similar to default but without some fields
     let mut team = base.clone();
 
-    // Teams don't have certain top-level fields
+    // Teams don't have org_settings (but DO have controls, agent_options, etc.)
     if let Some(props) = &mut team.properties {
         props.swap_remove("org_settings");
-        props.swap_remove("controls");
     }
 
     team.title = Some("Fleet Team Configuration".to_string());
     team.description = Some("Schema for Fleet team YAML files (teams/*.yml)".to_string());
 
-    // Enable strict validation
-    team.additional_properties = Some(AdditionalProperties::Boolean(false));
+    // Allow additional properties since Fleet team schema is complex and evolving
+    team.additional_properties = Some(AdditionalProperties::Boolean(true));
 
     team
 }
