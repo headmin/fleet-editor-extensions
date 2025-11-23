@@ -10,6 +10,8 @@ use std::path::PathBuf;
 
 #[derive(Parser)]
 #[command(name = "fleet-schema-gen")]
+#[command(author = env!("CARGO_PKG_AUTHORS"))]
+#[command(version = concat!(env!("CARGO_PKG_VERSION"), "+", env!("BUILD_TIMESTAMP")))]
 #[command(about = "Generate Fleet GitOps schemas for multiple editors", long_about = None)]
 struct Cli {
     #[command(subcommand)]
