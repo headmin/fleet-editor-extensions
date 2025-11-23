@@ -3,6 +3,10 @@ name = "fleet-schema-gen"
 version = "0.1.0"
 edition = "2021"
 
+[lib]
+name = "fleet_schema_gen"
+path = "src/lib.rs"
+
 [dependencies]
 clap = { version = "4.5", features = ["derive"] }
 serde = { version = "1.0", features = ["derive"] }

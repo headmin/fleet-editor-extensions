@@ -31,7 +31,7 @@ pub struct GoField {
 pub struct FleetGoParser {
     parser: Parser,
     /// Maps struct names to their definitions
-    struct_cache: HashMap<String, GoStruct>,
+    pub struct_cache: HashMap<String, GoStruct>,
 }
 
 impl FleetGoParser {
@@ -79,7 +79,7 @@ impl FleetGoParser {
     }
 
     /// Parse a single Go file
-    fn parse_file(&mut self, file_path: &Path) -> Result<()> {
+    pub fn parse_file(&mut self, file_path: &Path) -> Result<()> {
         let source = fs::read_to_string(file_path)?;
         let tree = self
             .parser
@@ -200,9 +200,18 @@ impl FleetGoParser {
                         | "map_type"
                         | "qualified_type"
                         | "interface_type"
+                        | "struct_type"
                 )
-            })
-            .ok_or_else(|| anyhow!("No type found for field {}", field_name))?;
+            });
+
+        // If we can't find the type, skip this field
+        let type_node = match type_node {
+            Some(node) => node,
+            None => {
+                eprintln!("  ⚠ Could not parse type for field: {}", field_name);
+                return Ok(None);
+            }
+        };
 
         let go_type = type_node.utf8_text(source.as_bytes())?;
 
@@ -396,14 +405,21 @@ impl FleetGoParser {
 }
 
 /// Fetch Fleet repository from GitHub and parse schemas
-pub async fn fetch_from_fleet_repo(version: &str) -> Result<SchemaDefinition> {
-    println!("  → Cloning/updating Fleet repository...");
+pub async fn fetch_from_fleet_repo(version: Option<&str>) -> Result<SchemaDefinition> {
+    use crate::sources::fleet_repo::FleetRepo;
 
-    // TODO: Clone Fleet repo if not exists, or update if exists
-    // For now, assume user has Fleet repo locally
-    let fleet_repo_path = std::env::var("FLEET_REPO_PATH")
-        .unwrap_or_else(|_| "/tmp/fleet".to_string());
+    println!("  → Preparing Fleet repository...");
+
+    // Use FleetRepo to manage cloning/updating
+    let fleet_repo = FleetRepo::new();
+    fleet_repo.ensure_repo(version)?;
+
+    // Get actual version for metadata
+    let actual_version = fleet_repo.get_current_tag()?
+        .unwrap_or_else(|| fleet_repo.get_current_version().unwrap_or_else(|_| "unknown".to_string()));
+
+    println!("  → Using Fleet version: {}", actual_version);
 
     let mut parser = FleetGoParser::new()?;
-    parser.parse_fleet_repo(Path::new(&fleet_repo_path))
+    parser.parse_fleet_repo(fleet_repo.path())
 }
