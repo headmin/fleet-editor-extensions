@@ -1,0 +1,75 @@
+defaultSnippets:
+  - label: "macOS policy"
+    description: "Create a macOS security policy"
+    body:
+      name: "$1"
+      description: "$2"
+      query: "$3"
+      platform: "darwin"
+      critical: false
+  - label: "Windows policy"
+    description: "Create a Windows security policy"
+    body:
+      name: "$1"
+      description: "$2"
+      query: "$3"
+      platform: "windows"
+      critical: false
+  - label: "Cross-platform policy"
+    description: "Policy for all platforms"
+    body:
+      name: "$1"
+      description: "$2"
+      query: "$3"
+      critical: false
+
+fields:
+  name:
+    description: "Human-readable policy name shown in Fleet UI"
+    examples:
+      - "macOS - Firewall enabled"
+      - "Windows - BitLocker encryption"
+      - "Linux - SSH hardening"
+    vscode_hint: "Use descriptive names that indicate platform and check"
+
+  description:
+    description: "Detailed explanation of what the policy checks"
+    examples:
+      - "Ensures the system firewall is enabled and running"
+      - "Verifies full disk encryption is active"
+
+  query:
+    description: "SQL query that returns data if policy passes"
+    examples:
+      - "SELECT 1 FROM alf WHERE global_state >= 1;"
+      - "SELECT 1 FROM bitlocker_info WHERE protection_status = 1;"
+    vscode_hint: "Query should return rows when compliant, empty when failing"
+
+  platform:
+    description: "Target operating system for this policy"
+    enum:
+      - darwin
+      - windows
+      - linux
+      - chrome
+    examples:
+      - "darwin"
+      - "windows"
+
+  critical:
+    description: "If true, hosts failing this policy are marked as 'failing'"
+    default: false
+    examples:
+      - false
+      - true
+    vscode_hint: "Set to true for critical security policies"
+
+  resolution:
+    description: "Instructions for resolving policy failures"
+    examples:
+      - "Enable the system firewall in System Preferences > Security & Privacy"
+      - "Contact IT to enable BitLocker encryption"
+
+  calendar_events_enabled:
+    description: "Enable calendar event creation for policy failures"
+    default: false

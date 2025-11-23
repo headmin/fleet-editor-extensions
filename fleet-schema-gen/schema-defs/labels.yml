@@ -1,0 +1,40 @@
+defaultSnippets:
+  - label: "Basic label"
+    description: "Create a simple label"
+    body:
+      name: "$1"
+      query: "$2"
+  - label: "Label with description"
+    description: "Label with full details"
+    body:
+      name: "$1"
+      description: "$2"
+      query: "$3"
+
+fields:
+  name:
+    description: "Label name"
+    examples:
+      - "macOS laptops"
+      - "Windows servers"
+      - "Devices with full disk encryption"
+
+  query:
+    description: "SQL query that determines label membership"
+    examples:
+      - "SELECT 1 FROM system_info WHERE hardware_model LIKE '%Book%';"
+      - "SELECT 1 FROM bitlocker_info WHERE protection_status = 1;"
+    vscode_hint: "Query should return rows for hosts that match this label"
+
+  description:
+    description: "What this label represents"
+    examples:
+      - "All macOS laptop devices"
+      - "Servers running Windows"
+
+  label_type:
+    description: "Type of label"
+    enum:
+      - regular
+      - builtin
+    default: "regular"

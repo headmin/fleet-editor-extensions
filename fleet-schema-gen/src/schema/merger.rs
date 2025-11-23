@@ -247,10 +247,16 @@ fn apply_enhancements(
 ) -> Result<()> {
     // Apply field-level enhancements
     for (name, enhancement) in enhancements {
-        if let Some(fields) = &enhancement.fields {
-            // Apply to matching properties in schema
-            if let Some(props) = &mut schema.properties {
-                if let Some(prop) = props.get_mut(name) {
+        // Apply to matching properties in schema
+        if let Some(props) = &mut schema.properties {
+            if let Some(prop) = props.get_mut(name) {
+                // Apply top-level defaultSnippets to the property itself
+                if let Some(snippets) = &enhancement.default_snippets {
+                    prop.default_snippets = Some(snippets.clone());
+                }
+
+                // Apply field-level enhancements
+                if let Some(fields) = &enhancement.fields {
                     for (field_name, field_enhancement) in fields {
                         if let Some(field_props) = &mut prop.properties {
                             if let Some(field_prop) = field_props.get_mut(field_name) {
@@ -290,7 +296,8 @@ fn create_policy_schema(enhancements: &IndexMap<String, YamlEnhancement>) -> Sch
     let mut properties = IndexMap::new();
 
     // Get policy enhancements if available
-    let policy_enhancements = enhancements.get("policies")
+    let policy_enhancement = enhancements.get("policies");
+    let policy_enhancements = policy_enhancement
         .and_then(|e| e.fields.as_ref());
 
     // Define policy fields
@@ -321,6 +328,10 @@ fn create_policy_schema(enhancements: &IndexMap<String, YamlEnhancement>) -> Sch
         properties.insert(name.to_string(), prop);
     }
 
+    // Apply top-level defaultSnippets from enhancement file
+    let default_snippets = policy_enhancement
+        .and_then(|e| e.default_snippets.clone());
+
     SchemaDefinition {
         schema: Some("https://json-schema.org/draft-07/schema#".to_string()),
         title: Some("Fleet Policy".to_string()),
@@ -329,6 +340,7 @@ fn create_policy_schema(enhancements: &IndexMap<String, YamlEnhancement>) -> Sch
         properties: Some(properties),
         required: Some(vec!["name".to_string(), "query".to_string()]),
         additional_properties: Some(AdditionalProperties::Boolean(false)),
+        default_snippets,
         ..Default::default()
     }
 }
@@ -338,7 +350,8 @@ fn create_query_schema(enhancements: &IndexMap<String, YamlEnhancement>) -> Sche
 
     let mut properties = IndexMap::new();
 
-    let query_enhancements = enhancements.get("queries")
+    let query_enhancement = enhancements.get("queries");
+    let query_enhancements = query_enhancement
         .and_then(|e| e.fields.as_ref());
 
     let fields = vec![
@@ -368,6 +381,10 @@ fn create_query_schema(enhancements: &IndexMap<String, YamlEnhancement>) -> Sche
         properties.insert(name.to_string(), prop);
     }
 
+    // Apply top-level defaultSnippets from enhancement file
+    let default_snippets = query_enhancement
+        .and_then(|e| e.default_snippets.clone());
+
     SchemaDefinition {
         schema: Some("https://json-schema.org/draft-07/schema#".to_string()),
         title: Some("Fleet Query".to_string()),
@@ -376,6 +393,7 @@ fn create_query_schema(enhancements: &IndexMap<String, YamlEnhancement>) -> Sche
         properties: Some(properties),
         required: Some(vec!["name".to_string(), "query".to_string()]),
         additional_properties: Some(AdditionalProperties::Boolean(false)),
+        default_snippets,
         ..Default::default()
     }
 }
@@ -385,7 +403,8 @@ fn create_label_schema(enhancements: &IndexMap<String, YamlEnhancement>) -> Sche
 
     let mut properties = IndexMap::new();
 
-    let label_enhancements = enhancements.get("labels")
+    let label_enhancement = enhancements.get("labels");
+    let label_enhancements = label_enhancement
         .and_then(|e| e.fields.as_ref());
 
     let fields = vec![
@@ -411,6 +430,10 @@ fn create_label_schema(enhancements: &IndexMap<String, YamlEnhancement>) -> Sche
         properties.insert(name.to_string(), prop);
     }
 
+    // Apply top-level defaultSnippets from enhancement file
+    let default_snippets = label_enhancement
+        .and_then(|e| e.default_snippets.clone());
+
     SchemaDefinition {
         schema: Some("https://json-schema.org/draft-07/schema#".to_string()),
         title: Some("Fleet Label".to_string()),
@@ -419,6 +442,7 @@ fn create_label_schema(enhancements: &IndexMap<String, YamlEnhancement>) -> Sche
         properties: Some(properties),
         required: Some(vec!["name".to_string(), "query".to_string()]),
         additional_properties: Some(AdditionalProperties::Boolean(false)),
+        default_snippets,
         ..Default::default()
     }
 }

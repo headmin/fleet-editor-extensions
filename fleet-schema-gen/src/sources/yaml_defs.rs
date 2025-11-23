@@ -226,4 +226,8 @@ pub fn merge_field_enhancement(
     if let Some(default) = &enhancement.default {
         field.default = Some(default.clone());
     }
+
+    if let Some(snippets) = &enhancement.default_snippets {
+        field.default_snippets = Some(snippets.clone());
+    }
 }

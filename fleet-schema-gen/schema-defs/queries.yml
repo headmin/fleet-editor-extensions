@@ -1,0 +1,75 @@
+defaultSnippets:
+  - label: "Simple query"
+    description: "Create a basic osquery"
+    body:
+      name: "$1"
+      query: "$2"
+  - label: "Scheduled query"
+    description: "Query with interval and platform"
+    body:
+      name: "$1"
+      query: "$2"
+      interval: 3600
+      platform: "$3"
+  - label: "Advanced query"
+    description: "Query with full options"
+    body:
+      name: "$1"
+      description: "$2"
+      query: "$3"
+      interval: 3600
+      platform: "$4"
+      logging: "snapshot"
+
+fields:
+  name:
+    description: "Unique query name"
+    examples:
+      - "get_usb_devices"
+      - "chrome_extensions"
+      - "running_containers"
+
+  query:
+    description: "SQL query using osquery tables"
+    examples:
+      - "SELECT * FROM usb_devices;"
+      - "SELECT * FROM chrome_extensions WHERE name LIKE '%admin%';"
+    vscode_hint: "Use osquery table documentation for reference"
+
+  description:
+    description: "What information this query retrieves"
+    examples:
+      - "Lists all connected USB devices"
+      - "Shows installed Chrome extensions"
+
+  interval:
+    description: "Query execution interval in seconds"
+    default: 3600
+    examples:
+      - 3600
+      - 86400
+    vscode_hint: "3600 = 1 hour, 86400 = 1 day"
+
+  platform:
+    description: "Target operating system"
+    enum:
+      - darwin
+      - windows
+      - linux
+      - chrome
+
+  observer_can_run:
+    description: "Whether Fleet observers can run this query"
+    default: false
+
+  automations_enabled:
+    description: "Enable automations for query results"
+    default: false
+
+  logging:
+    description: "Logging type for query results"
+    enum:
+      - snapshot
+      - differential
+      - differential_ignore_removals
+    default: "snapshot"

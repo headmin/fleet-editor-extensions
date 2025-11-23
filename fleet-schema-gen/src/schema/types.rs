@@ -54,6 +54,20 @@ pub struct SchemaDefinition {
 
     #[serde(rename = "anyOf", skip_serializing_if = "Option::is_none")]
     pub any_of: Option<Vec<SchemaDefinition>>,
+
+    #[serde(rename = "defaultSnippets", skip_serializing_if = "Option::is_none")]
+    pub default_snippets: Option<Vec<DefaultSnippet>>,
+}
+
+/// VSCode YAML extension defaultSnippet for autocomplete
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DefaultSnippet {
+    pub label: String,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+
+    pub body: serde_json::Value,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -96,6 +110,9 @@ pub struct SchemaMetadata {
 pub struct YamlEnhancement {
     pub fields: Option<IndexMap<String, FieldEnhancement>>,
     pub nested: Option<IndexMap<String, YamlEnhancement>>,
+
+    #[serde(rename = "defaultSnippets", skip_serializing_if = "Option::is_none")]
+    pub default_snippets: Option<Vec<DefaultSnippet>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -120,4 +137,7 @@ pub struct FieldEnhancement {
 
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sublime_hint: Option<String>,
+
+    #[serde(rename = "defaultSnippets", skip_serializing_if = "Option::is_none")]
+    pub default_snippets: Option<Vec<DefaultSnippet>>,
 }

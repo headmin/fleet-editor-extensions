@@ -1,0 +1,65 @@
+defaultSnippets:
+  - label: "packages"
+    description: "Add software packages"
+    body:
+      packages:
+      - path: "$1"
+
+fields:
+  packages:
+    description: "Software packages to install on endpoints"
+    defaultSnippets:
+      - label: "Single package"
+        description: "Add a single software package"
+        body:
+          path: "$1"
+      - label: "Package with name"
+        description: "Package with custom name"
+        body:
+          path: "$1"
+          name: "$2"
+
+nested:
+  packages:
+    fields:
+      path:
+        description: "Relative or absolute path to the software package file"
+        examples:
+          - "lib/software/chrome.pkg"
+          - "../shared/packages/firefox.pkg"
+          - "/opt/packages/zoom.pkg"
+        vscode_hint: "Path to .pkg, .msi, .deb, .rpm, or other installer file"
+
+      name:
+        description: "Custom name for the software package (optional)"
+        examples:
+          - "Google Chrome"
+          - "Mozilla Firefox"
+          - "Zoom Client"
+        vscode_hint: "If not specified, name is derived from filename"
+
+      version:
+        description: "Software version (optional, for documentation)"
+        examples:
+          - "120.0.6099.109"
+          - "121.0"
+          - "5.16.10"
+        vscode_hint: "Helps track which version is deployed"
+
+      install_script:
+        description: "Custom installation script (optional)"
+        examples:
+          - "#!/bin/bash\ninstaller -pkg $INSTALLER_PATH -target /"
+        vscode_hint: "Override default installation behavior"
+
+      pre_install_query:
+        description: "Osquery to check before installation (optional)"
+        examples:
+          - "SELECT 1 FROM apps WHERE name = 'Google Chrome';"
+        vscode_hint: "Skip installation if query returns results"
+
+      post_install_script:
+        description: "Script to run after installation (optional)"
+        examples:
+          - "#!/bin/bash\ndefaults write com.google.Chrome DefaultBrowserSettingEnabled -bool false"
+        vscode_hint: "Configure software after installation"

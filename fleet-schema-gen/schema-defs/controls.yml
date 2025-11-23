@@ -1,0 +1,99 @@
+defaultSnippets:
+  - label: "macos_settings"
+    description: "Add macOS configuration profiles"
+    body:
+      macos_settings:
+        custom_settings:
+        - path: "$1"
+  - label: "scripts"
+    description: "Add scripts to run on endpoints"
+    body:
+      scripts:
+      - path: "$1"
+
+fields:
+  macos_settings:
+    description: "macOS configuration profiles and settings"
+    defaultSnippets:
+      - label: "Custom settings"
+        description: "Add custom macOS settings"
+        body:
+          custom_settings:
+            - path: "$1"
+      - label: "FileVault settings"
+        description: "Configure FileVault encryption"
+        body:
+          enable_disk_encryption: true
+
+  macos_setup:
+    description: "macOS setup and onboarding configuration"
+    defaultSnippets:
+      - label: "Bootstrap package"
+        description: "Add bootstrap package for setup"
+        body:
+          bootstrap_package: "$1"
+      - label: "Setup assistant"
+        description: "Configure setup assistant screens"
+        body:
+          macos_setup_assistant:
+            - "$1"
+
+  windows_settings:
+    description: "Windows configuration and group policies"
+    defaultSnippets:
+      - label: "Custom settings"
+        description: "Add custom Windows settings"
+        body:
+          custom_settings:
+            - path: "$1"
+
+  scripts:
+    description: "Scripts to run on endpoints"
+    defaultSnippets:
+      - label: "Script path"
+        description: "Add a script"
+        body:
+          path: "$1"
+      - label: "Script with name"
+        description: "Script with custom name"
+        body:
+          path: "$1"
+          name: "$2"
+
+nested:
+  scripts:
+    fields:
+      path:
+        description: "Path to the script file"
+        examples:
+          - "lib/scripts/install-tools.sh"
+          - "../shared/scripts/configure-firewall.ps1"
+        vscode_hint: "Relative or absolute path to shell script"
+
+      name:
+        description: "Human-readable script name"
+        examples:
+          - "Install development tools"
+          - "Configure Windows Firewall"
+
+  custom_settings:
+    fields:
+      path:
+        description: "Path to configuration profile or settings file"
+        examples:
+          - "lib/macos-settings/wifi.mobileconfig"
+          - "lib/windows-settings/security.xml"
+        vscode_hint: "Path to .mobileconfig (macOS) or .xml (Windows)"
+
+      labels_include:
+        description: "Only apply to hosts with these labels"
+        examples:
+          - "All laptops"
+          - "Engineering team"
+        vscode_hint: "Comma-separated label names"
+
+      labels_exclude:
+        description: "Exclude hosts with these labels"
+        examples:
+          - "Servers"
+          - "Test devices"
