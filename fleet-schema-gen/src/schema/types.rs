@@ -56,7 +56,7 @@ pub struct SchemaDefinition {
     pub any_of: Option<Vec<SchemaDefinition>>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(untagged)]
 pub enum SchemaType {
     Single(String),

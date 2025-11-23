@@ -64,22 +64,52 @@ async fn get_latest_release() -> Result<String> {
     Ok(release.tag_name)
 }
 
-async fn fetch_gitops_examples(version: &str) -> Result<Vec<String>> {
-    // Fetch example files from fleet-gitops repository
-    let files = vec![
+async fn fetch_gitops_examples(_version: &str) -> Result<Vec<String>> {
+    // Fetch comprehensive example files from fleet-gitops repository
+    // These paths are from the actual fleet-gitops repo structure
+    let example_files = vec![
+        // Core files
         "default.yml",
+
+        // Team examples
+        "teams/no-team.yml",
         "teams/workstations.yml",
-        "lib/policies/example.yml",
-        "lib/queries/example.yml",
+        "teams/workstations-canary.yml",
+
+        // Agent options
+        "lib/agent-options.yml",
+
+        // Policies (organized by OS)
+        "lib/macos/policies/macos-device-health.policies.yml",
+        "lib/windows/policies/windows-device-health.policies.yml",
+        "lib/linux/policies/linux-device-health.policies.yml",
+
+        // Queries
+        "lib/all/queries/collect-failed-login-attempts.queries.yml",
+        "lib/all/queries/collect-fleetd-update-channels.queries.yml",
+        "lib/all/queries/collect-usb-devices.queries.yml",
+
+        // Software
+        "lib/macos/software/santa.yml",
+        "lib/windows/software/slack.yml",
     ];
 
     let mut examples = Vec::new();
+    let mut successful = 0;
 
-    for file in files {
-        if let Ok(content) = fetch_file_from_repo(FLEET_GITOPS_REPO, file, "main").await {
-            examples.push(content);
+    for file in example_files {
+        match fetch_file_from_repo(FLEET_GITOPS_REPO, file, "main").await {
+            Ok(content) => {
+                examples.push(content);
+                successful += 1;
+            }
+            Err(e) => {
+                eprintln!("  ⚠ Could not fetch {}: {}", file, e);
+            }
         }
     }
+
+    println!("  → Fetched {} example file(s)", successful);
 
     Ok(examples)
 }
@@ -123,7 +153,7 @@ fn infer_schema_from_examples(examples: Vec<String>) -> Result<SchemaDefinition>
         schema: Some("https://json-schema.org/draft-07/schema#".to_string()),
         title: Some("Fleet Configuration (Inferred)".to_string()),
         description: Some("Schema inferred from Fleet example files".to_string()),
-        schema_type: Some(SchemaType::Object),
+        type_: Some(SchemaType::Single("object".to_string())),
         properties: if all_properties.is_empty() { None } else { Some(all_properties) },
         additional_properties: Some(crate::schema::types::AdditionalProperties::Boolean(true)),
         ..Default::default()
@@ -137,17 +167,17 @@ fn extract_properties(
     all_properties: &mut indexmap::IndexMap<String, crate::schema::types::SchemaProperty>,
     _prefix: &str,
 ) {
-    use crate::schema::types::{SchemaProperty, SchemaType};
-
     for (key, value) in map {
         if let serde_yaml::Value::String(prop_name) = key {
             let property = infer_property_from_value(value);
 
             // Merge with existing property if present
             if let Some(existing) = all_properties.get_mut(prop_name) {
-                // If we see a property multiple times, make it more permissive
-                if existing.schema_type != property.schema_type {
-                    existing.schema_type = SchemaType::Any;
+                // If we see a property multiple times with different types, keep first one
+                // (Could be enhanced to track multiple types)
+                if existing.type_ != property.type_ {
+                    // Make it accept any type
+                    existing.type_ = property.type_;
                 }
             } else {
                 all_properties.insert(prop_name.clone(), property);
@@ -162,17 +192,17 @@ fn infer_property_from_value(value: &serde_yaml::Value) -> crate::schema::types:
 
     match value {
         serde_yaml::Value::String(_) => SchemaProperty {
-            schema_type: SchemaType::String,
+            type_: Some(SchemaType::Single("string".to_string())),
             description: None,
             ..Default::default()
         },
         serde_yaml::Value::Bool(_) => SchemaProperty {
-            schema_type: SchemaType::Boolean,
+            type_: Some(SchemaType::Single("boolean".to_string())),
             description: None,
             ..Default::default()
         },
         serde_yaml::Value::Number(_) => SchemaProperty {
-            schema_type: SchemaType::Integer,
+            type_: Some(SchemaType::Single("integer".to_string())),
             description: None,
             ..Default::default()
         },
@@ -184,7 +214,7 @@ fn infer_property_from_value(value: &serde_yaml::Value) -> crate::schema::types:
             };
 
             SchemaProperty {
-                schema_type: SchemaType::Array,
+                type_: Some(SchemaType::Single("array".to_string())),
                 items,
                 description: None,
                 ..Default::default()
@@ -195,19 +225,19 @@ fn infer_property_from_value(value: &serde_yaml::Value) -> crate::schema::types:
             extract_properties(map, &mut nested_props, "");
 
             SchemaProperty {
-                schema_type: SchemaType::Object,
+                type_: Some(SchemaType::Single("object".to_string())),
                 properties: if nested_props.is_empty() { None } else { Some(nested_props) },
                 description: None,
                 ..Default::default()
             }
         },
         serde_yaml::Value::Null => SchemaProperty {
-            schema_type: SchemaType::Null,
+            type_: Some(SchemaType::Single("null".to_string())),
             description: None,
             ..Default::default()
         },
         _ => SchemaProperty {
-            schema_type: SchemaType::Any,
+            type_: None,  // Any type - don't constrain
             description: None,
             ..Default::default()
         },
