@@ -1,0 +1,34 @@
+# Fleet GitOps Schema Migrations
+# This file defines migrations between different Fleet versions
+
+[[migration]]
+id = "software-package-restructure"
+from_version = "4.73.0"
+to_version = "4.74.0"
+description = "Move team-specific software settings from package files to team files"
+
+[[migration.transformations]]
+type = "field_move"
+source_pattern = "lib/software/**/*.yml"
+target_pattern = "teams/**/*.yml"
+match_strategy = "path_reference"
+target_location = "software.packages"
+fields = [
+    "self_service",
+    "categories",
+    "labels_include_any",
+    "labels_exclude_any"
+]
+
+# Future migration example (Fleet 4.29 → 4.30)
+# [[migration]]
+# id = "disk-encryption-settings"
+# from_version = "4.29.0"
+# to_version = "4.30.0"
+# description = "Disk encryption settings moved to macos_settings"
+#
+# [[migration.transformations]]
+# type = "field_rename"
+# pattern = "teams/**/*.yml"
+# old_path = "enable_disk_encryption"
+# new_path = "macos_settings.enable_disk_encryption"

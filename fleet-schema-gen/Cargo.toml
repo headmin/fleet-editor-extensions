@@ -17,6 +17,13 @@ indexmap = { version = "2.7", features = ["serde"] }
 regex = "1.11"
 chrono = { version = "0.4", features = ["serde"] }
 semver = "1.0"
+annotate-snippets = "0.11"
+colored = "2.1"
+notify = "7.0"
+similar = "2.6"
+toml = "0.8"
+once_cell = "1.20"
+git2 = { version = "0.19", default-features = false, features = ["vendored-openssl", "vendored-libgit2"] }
 
 [dev-dependencies]
 tempfile = "3.14"
