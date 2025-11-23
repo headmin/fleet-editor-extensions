@@ -9,6 +9,9 @@ on:
 jobs:
   build-linux-x86_64:
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: fleet-schema-gen
 
     steps:
       - name: Checkout repository
@@ -26,8 +29,8 @@ jobs:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-            target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+            fleet-schema-gen/target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('fleet-schema-gen/Cargo.lock') }}
 
       - name: Run tests
         run: cargo test --release
@@ -55,5 +58,5 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: fleet-schema-gen-linux
-          path: dist/*.tar.gz
+          path: fleet-schema-gen/dist/*.tar.gz
           retention-days: 90
