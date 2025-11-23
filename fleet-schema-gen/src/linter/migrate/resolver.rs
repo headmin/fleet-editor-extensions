@@ -121,15 +121,19 @@ mod tests {
     #[test]
     fn test_resolve_path() {
         let temp = TempDir::new().unwrap();
-        let base = temp.path().join("teams/engineering.yml");
+        let base = temp.path().join("teams/team1.yml");
+
+        // Create directory structure and files
         fs::create_dir_all(temp.path().join("teams")).unwrap();
+        fs::create_dir_all(temp.path().join("shared/packages")).unwrap();
         fs::File::create(&base).unwrap();
+        fs::File::create(temp.path().join("shared/packages/example.yml")).unwrap();
 
         let resolver = PathResolver::new();
-        let resolved = resolver.resolve_path(&base, "../lib/software/chrome.yml").unwrap();
+        let resolved = resolver.resolve_path(&base, "../shared/packages/example.yml").unwrap();
 
-        assert!(resolved.to_string_lossy().contains("lib"));
-        assert!(resolved.to_string_lossy().contains("software"));
+        assert!(resolved.to_string_lossy().contains("shared"));
+        assert!(resolved.to_string_lossy().contains("packages"));
     }
 
     #[test]
@@ -138,24 +142,24 @@ mod tests {
 
         // Create structure
         fs::create_dir_all(temp.path().join("teams")).unwrap();
-        fs::create_dir_all(temp.path().join("lib/software")).unwrap();
+        fs::create_dir_all(temp.path().join("shared/packages")).unwrap();
 
         // Create team file with path reference
-        let team_file = temp.path().join("teams/engineering.yml");
+        let team_file = temp.path().join("teams/team1.yml");
         let mut f = fs::File::create(&team_file).unwrap();
         writeln!(f, "software:").unwrap();
         writeln!(f, "  packages:").unwrap();
-        writeln!(f, "    - path: ../lib/software/chrome.yml").unwrap();
+        writeln!(f, "    - path: ../shared/packages/example.yml").unwrap();
 
         // Create referenced file
-        let software_file = temp.path().join("lib/software/chrome.yml");
+        let software_file = temp.path().join("shared/packages/example.yml");
         let mut f = fs::File::create(&software_file).unwrap();
-        writeln!(f, "url: https://example.com/chrome.pkg").unwrap();
+        writeln!(f, "url: https://example.com/package.pkg").unwrap();
 
         let mut resolver = PathResolver::new();
         let referenced = resolver.find_referenced_files(&team_file).unwrap();
 
         assert_eq!(referenced.len(), 1);
-        assert!(referenced[0].to_string_lossy().contains("chrome.yml"));
+        assert!(referenced[0].to_string_lossy().contains("example.yml"));
     }
 }

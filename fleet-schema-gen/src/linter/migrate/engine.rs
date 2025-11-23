@@ -18,36 +18,9 @@ pub struct MigrationEngine {
 impl MigrationEngine {
     pub fn new() -> Self {
         Self {
-            migrations: Self::load_builtin_migrations(),
+            migrations: Vec::new(),
             resolver: PathResolver::new(),
         }
-    }
-
-    /// Load built-in migrations (will be replaced by migrations.toml loader)
-    fn load_builtin_migrations() -> Vec<Migration> {
-        vec![
-            // Fleet 4.73 → 4.74: Software package restructure
-            Migration {
-                id: "software-package-restructure".to_string(),
-                from_version: Version::new(4, 73, 0),
-                to_version: Version::new(4, 74, 0),
-                description: "Move team-specific software settings from package files to team files".to_string(),
-                transformations: vec![
-                    Transformation::FieldMove {
-                        source_pattern: "lib/software/**/*.yml".to_string(),
-                        target_pattern: "teams/**/*.yml".to_string(),
-                        fields: vec![
-                            "self_service".to_string(),
-                            "categories".to_string(),
-                            "labels_include_any".to_string(),
-                            "labels_exclude_any".to_string(),
-                        ],
-                        match_strategy: super::types::MatchStrategy::PathReference,
-                        target_location: "software.packages".to_string(),
-                    },
-                ],
-            },
-        ]
     }
 
     /// Load migrations from a list

@@ -80,7 +80,7 @@ pub enum Transformation {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "snake_case")]
 pub enum MatchStrategy {
-    /// Match via path references (e.g., `path: ../lib/software/chrome.yml`)
+    /// Match via path references (e.g., `path: ../shared/packages/example.yml`)
     PathReference,
     /// Match by file name
     FileName,
