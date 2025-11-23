@@ -1,0 +1,59 @@
+name: Build Linux Binary
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  build-linux-x86_64:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          override: true
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Run tests
+        run: cargo test --release
+
+      - name: Build binary
+        run: cargo build --release
+
+      - name: Create distribution
+        run: |
+          mkdir -p dist
+          cp target/release/fleet-schema-gen dist/
+          strip dist/fleet-schema-gen
+
+          VERSION=$(grep '^version' Cargo.toml | head -n1 | cut -d'"' -f2)
+          cd dist
+          sha256sum fleet-schema-gen > fleet-schema-gen.sha256
+          tar -czf fleet-schema-gen-${VERSION}-linux-x86_64.tar.gz \
+            fleet-schema-gen \
+            fleet-schema-gen.sha256
+
+      - name: Test binary
+        run: ./dist/fleet-schema-gen --version
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: fleet-schema-gen-linux
+          path: dist/*.tar.gz
+          retention-days: 90
