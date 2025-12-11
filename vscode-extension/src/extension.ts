@@ -9,10 +9,10 @@ import {
     OutputChannel,
 } from 'vscode';
 import {
+    Executable,
     LanguageClient,
     LanguageClientOptions,
     ServerOptions,
-    TransportKind,
 } from 'vscode-languageclient/node';
 
 let client: LanguageClient | undefined;
@@ -48,18 +48,20 @@ export async function activate(context: ExtensionContext): Promise<void> {
         return;
     }
 
-    // Create server options
+    // Create server options (using Executable type like typos-lsp)
+    const run: Executable = {
+        command: serverPath,
+        args: ['lsp'],
+    };
+
+    const debug: Executable = {
+        command: serverPath,
+        args: ['lsp', '--debug'],
+    };
+
     const serverOptions: ServerOptions = {
-        run: {
-            command: serverPath,
-            args: ['lsp'],
-            transport: TransportKind.stdio,
-        },
-        debug: {
-            command: serverPath,
-            args: ['lsp', '--debug'],
-            transport: TransportKind.stdio,
-        },
+        run,
+        debug,
     };
 
     // Create client options
