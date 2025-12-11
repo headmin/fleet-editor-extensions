@@ -303,6 +303,7 @@ impl Rule for TypeValidationRule {
                                     file,
                                 )
                                 .with_help("Valid logging types: snapshot, differential, differential_ignore_removals")
+                                .with_suggestion(find_similar_logging(logging))
                             );
                         }
                     }
@@ -393,15 +394,43 @@ fn check_query_platform_compat(
     errors
 }
 
+/// Find the most similar valid logging type for a suggestion.
+fn find_similar_logging(input: &str) -> String {
+    let input_lower = input.to_lowercase();
+
+    if input_lower.contains("diff") {
+        if input_lower.contains("ignore") {
+            return "differential_ignore_removals".to_string();
+        }
+        return "differential".to_string();
+    }
+    if input_lower.contains("snap") {
+        return "snapshot".to_string();
+    }
+
+    // Default to snapshot
+    "snapshot".to_string()
+}
+
+/// Find the most similar valid platform for a suggestion.
+/// Returns the platform name itself (not a message) for use in code actions.
 fn find_similar_platform(input: &str) -> String {
     let platforms = ["darwin", "windows", "linux", "chrome"];
     let input_lower = input.to_lowercase();
 
+    // Check for common typos and variations
     for platform in &platforms {
         if platform.starts_with(&input_lower) || input_lower.starts_with(platform) {
-            return format!("Did you mean '{}'?", platform);
+            return (*platform).to_string();
         }
     }
 
-    "Use one of: darwin, windows, linux, chrome".to_string()
+    // Check for common aliases
+    match input_lower.as_str() {
+        "macos" | "mac" | "osx" | "apple" => "darwin".to_string(),
+        "win" | "win32" | "win64" => "windows".to_string(),
+        "ubuntu" | "debian" | "centos" | "redhat" | "fedora" => "linux".to_string(),
+        "chromeos" | "chromebook" => "chrome".to_string(),
+        _ => "darwin".to_string(), // Default suggestion
+    }
 }
