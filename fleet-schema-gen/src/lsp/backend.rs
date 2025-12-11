@@ -4,16 +4,24 @@ use dashmap::DashMap;
 use tower_lsp::jsonrpc::Result;
 use tower_lsp::lsp_types::{
     CodeActionParams, CodeActionProviderCapability, CodeActionResponse,
+    CompletionOptions, CompletionParams, CompletionResponse,
     Diagnostic, DidChangeTextDocumentParams, DidCloseTextDocumentParams,
-    DidOpenTextDocumentParams, InitializeParams, InitializeResult, InitializedParams,
-    MessageType, ServerCapabilities, ServerInfo, TextDocumentSyncCapability, TextDocumentSyncKind,
-    Url, Position, Range, DiagnosticSeverity,
+    DidOpenTextDocumentParams, DocumentSymbol, DocumentSymbolParams,
+    DocumentSymbolResponse, GotoDefinitionParams, GotoDefinitionResponse,
+    Hover, HoverParams, HoverProviderCapability,
+    InitializeParams, InitializeResult, InitializedParams,
+    MessageType, OneOf, ServerCapabilities, ServerInfo, TextDocumentSyncCapability,
+    TextDocumentSyncKind, Url, Position, Range, DiagnosticSeverity,
 };
 use tower_lsp::{Client, LanguageServer};
 
 use crate::linter::Linter;
 use super::code_actions::generate_code_actions;
+use super::completion::complete_at;
 use super::diagnostics::lint_error_to_diagnostic;
+use super::hover::hover_at;
+use super::symbols::document_symbols;
+use super::workspace::{get_path_definition, validate_path_references};
 
 /// Fleet LSP backend that handles document events and publishes diagnostics.
 pub struct FleetLspBackend {
@@ -60,23 +68,25 @@ impl FleetLspBackend {
             .map(|p| p.display().to_string())
             .unwrap_or_else(|| uri.to_string());
 
+        let file_path_buf = std::path::PathBuf::from(&file_path);
+
         // Use the linter's lint_content method
-        match self.linter.lint_content(content, std::path::Path::new(&file_path)) {
+        let mut diagnostics = match self.linter.lint_content(content, std::path::Path::new(&file_path)) {
             Ok(report) => {
                 // Convert all errors to diagnostics
-                let mut diagnostics = Vec::new();
+                let mut diags = Vec::new();
 
                 for error in &report.errors {
-                    diagnostics.push(lint_error_to_diagnostic(error, content));
+                    diags.push(lint_error_to_diagnostic(error, content));
                 }
                 for warning in &report.warnings {
-                    diagnostics.push(lint_error_to_diagnostic(warning, content));
+                    diags.push(lint_error_to_diagnostic(warning, content));
                 }
                 for info in &report.infos {
-                    diagnostics.push(lint_error_to_diagnostic(info, content));
+                    diags.push(lint_error_to_diagnostic(info, content));
                 }
 
-                diagnostics
+                diags
             }
             Err(e) => {
                 // Parse error - create a single diagnostic at the start
@@ -91,7 +101,17 @@ impl FleetLspBackend {
                     ..Default::default()
                 }]
             }
-        }
+        };
+
+        // Add path reference validation diagnostics
+        let workspace_root = file_path_buf.parent();
+        diagnostics.extend(validate_path_references(
+            content,
+            &file_path_buf,
+            workspace_root,
+        ));
+
+        diagnostics
     }
 }
 
@@ -103,8 +123,23 @@ impl LanguageServer for FleetLspBackend {
                 text_document_sync: Some(TextDocumentSyncCapability::Kind(
                     TextDocumentSyncKind::FULL,
                 )),
+                // Enable hover for documentation tooltips
+                hover_provider: Some(HoverProviderCapability::Simple(true)),
                 // Enable code actions for quick-fixes
                 code_action_provider: Some(CodeActionProviderCapability::Simple(true)),
+                // Enable autocompletion
+                completion_provider: Some(CompletionOptions {
+                    trigger_characters: Some(vec![
+                        ":".to_string(),
+                        " ".to_string(),
+                        "-".to_string(),
+                    ]),
+                    ..Default::default()
+                }),
+                // Enable document symbols for outline view
+                document_symbol_provider: Some(OneOf::Left(true)),
+                // Enable go-to-definition for path references
+                definition_provider: Some(OneOf::Left(true)),
                 ..Default::default()
             },
             server_info: Some(ServerInfo {
@@ -156,6 +191,77 @@ impl LanguageServer for FleetLspBackend {
             Ok(None)
         } else {
             Ok(Some(actions))
+        }
+    }
+
+    async fn hover(&self, params: HoverParams) -> Result<Option<Hover>> {
+        let uri = params.text_document_position_params.text_document.uri.to_string();
+        let position = params.text_document_position_params.position;
+
+        // Get document content from cache
+        if let Some(content) = self.documents.get(&uri) {
+            Ok(hover_at(&content, position))
+        } else {
+            Ok(None)
+        }
+    }
+
+    async fn completion(&self, params: CompletionParams) -> Result<Option<CompletionResponse>> {
+        let uri = params.text_document_position.text_document.uri.to_string();
+        let position = params.text_document_position.position;
+
+        // Get document content from cache
+        if let Some(content) = self.documents.get(&uri) {
+            let items = complete_at(&content, position);
+            if items.is_empty() {
+                Ok(None)
+            } else {
+                Ok(Some(CompletionResponse::Array(items)))
+            }
+        } else {
+            Ok(None)
+        }
+    }
+
+    async fn document_symbol(
+        &self,
+        params: DocumentSymbolParams,
+    ) -> Result<Option<DocumentSymbolResponse>> {
+        let uri = params.text_document.uri.to_string();
+
+        // Get document content from cache
+        if let Some(content) = self.documents.get(&uri) {
+            let symbols = document_symbols(&content);
+            if symbols.is_empty() {
+                Ok(None)
+            } else {
+                Ok(Some(DocumentSymbolResponse::Nested(symbols)))
+            }
+        } else {
+            Ok(None)
+        }
+    }
+
+    async fn goto_definition(
+        &self,
+        params: GotoDefinitionParams,
+    ) -> Result<Option<GotoDefinitionResponse>> {
+        let uri = params.text_document_position_params.text_document.uri.to_string();
+        let position = params.text_document_position_params.position;
+
+        // Get document content from cache
+        if let Some(content) = self.documents.get(&uri) {
+            // Get file path for resolution
+            let file_path = Url::parse(&uri)
+                .ok()
+                .and_then(|u| u.to_file_path().ok())
+                .unwrap_or_default();
+
+            let workspace_root = file_path.parent();
+
+            Ok(get_path_definition(&content, position, &file_path, workspace_root))
+        } else {
+            Ok(None)
         }
     }
 }

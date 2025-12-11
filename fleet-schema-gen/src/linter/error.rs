@@ -59,6 +59,19 @@ impl LintError {
         }
     }
 
+    pub fn info(message: impl Into<String>, file: impl Into<PathBuf>) -> Self {
+        Self {
+            severity: Severity::Info,
+            message: message.into(),
+            file: file.into(),
+            line: None,
+            column: None,
+            context: None,
+            help: None,
+            suggestion: None,
+        }
+    }
+
     pub fn with_location(mut self, line: usize, column: usize) -> Self {
         self.line = Some(line);
         self.column = Some(column);

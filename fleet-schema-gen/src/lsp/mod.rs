@@ -5,8 +5,13 @@
 
 pub mod backend;
 pub mod code_actions;
+pub mod completion;
 pub mod diagnostics;
+pub mod hover;
 pub mod position;
+pub mod schema;
+pub mod symbols;
+pub mod workspace;
 
 use anyhow::Result;
 use tower_lsp::{LspService, Server};

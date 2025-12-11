@@ -42,6 +42,9 @@ impl RuleSet {
         set.add_rule(Box::new(PlatformCompatibilityRule));
         set.add_rule(Box::new(TypeValidationRule));
         set.add_rule(Box::new(SecurityRule));
+        set.add_rule(Box::new(IntervalValidationRule));
+        set.add_rule(Box::new(DuplicateNamesRule));
+        set.add_rule(Box::new(QuerySyntaxRule));
 
         set
     }
@@ -433,4 +436,277 @@ fn find_similar_platform(input: &str) -> String {
         "chromeos" | "chromebook" => "chrome".to_string(),
         _ => "darwin".to_string(), // Default suggestion
     }
+}
+
+// ============================================================================
+// Additional Rules
+// ============================================================================
+
+/// Check query interval values for sensible ranges
+pub struct IntervalValidationRule;
+
+impl Rule for IntervalValidationRule {
+    fn name(&self) -> &'static str {
+        "interval-validation"
+    }
+
+    fn description(&self) -> &'static str {
+        "Validates query intervals are within sensible ranges"
+    }
+
+    fn check(&self, config: &FleetConfig, file: &Path, _source: &str) -> Vec<LintError> {
+        let mut errors = Vec::new();
+
+        if let Some(queries) = &config.queries {
+            for query_or_path in queries {
+                if let super::fleet_config::QueryOrPath::Query(query) = query_or_path {
+                    if let Some(interval) = query.interval {
+                        let name = query.name.as_deref().unwrap_or("unnamed");
+
+                        if interval < 60 {
+                            errors.push(
+                                LintError::warning(
+                                    format!(
+                                        "Query '{}' has very short interval ({} seconds). This may cause high resource usage.",
+                                        name, interval
+                                    ),
+                                    file,
+                                )
+                                .with_help("Consider using an interval of at least 60 seconds")
+                                .with_suggestion("interval: 60")
+                            );
+                        } else if interval > 86400 {
+                            errors.push(
+                                LintError::info(
+                                    format!(
+                                        "Query '{}' has interval > 24 hours ({} seconds). Events may be missed.",
+                                        name, interval
+                                    ),
+                                    file,
+                                )
+                                .with_help("Consider using a shorter interval for time-sensitive data")
+                            );
+                        }
+                    }
+                }
+            }
+        }
+
+        errors
+    }
+}
+
+/// Check for duplicate names across policies, queries, and labels
+pub struct DuplicateNamesRule;
+
+impl Rule for DuplicateNamesRule {
+    fn name(&self) -> &'static str {
+        "duplicate-names"
+    }
+
+    fn description(&self) -> &'static str {
+        "Detects duplicate names within policies, queries, or labels"
+    }
+
+    fn check(&self, config: &FleetConfig, file: &Path, _source: &str) -> Vec<LintError> {
+        use std::collections::HashSet;
+        let mut errors = Vec::new();
+
+        // Check policies
+        if let Some(policies) = &config.policies {
+            let mut seen = HashSet::new();
+            for policy_or_path in policies {
+                if let super::fleet_config::PolicyOrPath::Policy(policy) = policy_or_path {
+                    if let Some(name) = &policy.name {
+                        if !seen.insert(name.clone()) {
+                            errors.push(
+                                LintError::error(
+                                    format!("Duplicate policy name: '{}'", name),
+                                    file,
+                                )
+                                .with_help("Policy names must be unique within the organization")
+                            );
+                        }
+                    }
+                }
+            }
+        }
+
+        // Check queries
+        if let Some(queries) = &config.queries {
+            let mut seen = HashSet::new();
+            for query_or_path in queries {
+                if let super::fleet_config::QueryOrPath::Query(query) = query_or_path {
+                    if let Some(name) = &query.name {
+                        if !seen.insert(name.clone()) {
+                            errors.push(
+                                LintError::error(
+                                    format!("Duplicate query name: '{}'", name),
+                                    file,
+                                )
+                                .with_help("Query names must be unique within the organization")
+                            );
+                        }
+                    }
+                }
+            }
+        }
+
+        // Check labels
+        if let Some(labels) = &config.labels {
+            let mut seen = HashSet::new();
+            for label_or_path in labels {
+                if let super::fleet_config::LabelOrPath::Label(label) = label_or_path {
+                    if let Some(name) = &label.name {
+                        if !seen.insert(name.clone()) {
+                            errors.push(
+                                LintError::error(
+                                    format!("Duplicate label name: '{}'", name),
+                                    file,
+                                )
+                                .with_help("Label names must be unique within the organization")
+                            );
+                        }
+                    }
+                }
+            }
+        }
+
+        errors
+    }
+}
+
+/// Check SQL query syntax for common issues
+pub struct QuerySyntaxRule;
+
+impl Rule for QuerySyntaxRule {
+    fn name(&self) -> &'static str {
+        "query-syntax"
+    }
+
+    fn description(&self) -> &'static str {
+        "Validates basic SQL query syntax"
+    }
+
+    fn check(&self, config: &FleetConfig, file: &Path, _source: &str) -> Vec<LintError> {
+        let mut errors = Vec::new();
+
+        // Check policies
+        if let Some(policies) = &config.policies {
+            for policy_or_path in policies {
+                if let super::fleet_config::PolicyOrPath::Policy(policy) = policy_or_path {
+                    if let Some(query) = &policy.query {
+                        let name = policy.name.as_deref().unwrap_or("unnamed");
+                        errors.extend(check_query_syntax(query, &format!("Policy '{}'", name), file));
+                    }
+                }
+            }
+        }
+
+        // Check queries
+        if let Some(queries) = &config.queries {
+            for query_or_path in queries {
+                if let super::fleet_config::QueryOrPath::Query(query) = query_or_path {
+                    if let Some(query_sql) = &query.query {
+                        let name = query.name.as_deref().unwrap_or("unnamed");
+                        errors.extend(check_query_syntax(query_sql, &format!("Query '{}'", name), file));
+                    }
+                }
+            }
+        }
+
+        // Check labels
+        if let Some(labels) = &config.labels {
+            for label_or_path in labels {
+                if let super::fleet_config::LabelOrPath::Label(label) = label_or_path {
+                    if let Some(query) = &label.query {
+                        let name = label.name.as_deref().unwrap_or("unnamed");
+                        errors.extend(check_query_syntax(query, &format!("Label '{}'", name), file));
+                    }
+                }
+            }
+        }
+
+        errors
+    }
+}
+
+fn check_query_syntax(query: &str, item_name: &str, file: &Path) -> Vec<LintError> {
+    let mut errors = Vec::new();
+    let query_upper = query.to_uppercase();
+    let query_trimmed = query.trim();
+
+    // Check for SELECT keyword
+    if !query_upper.contains("SELECT") {
+        errors.push(
+            LintError::error(
+                format!("{} query does not contain SELECT statement", item_name),
+                file,
+            )
+            .with_help("osquery queries must be SELECT statements")
+        );
+    }
+
+    // Warn about SELECT * (performance concern)
+    let select_star_pattern = regex::Regex::new(r"(?i)SELECT\s+\*\s+FROM").unwrap();
+    if select_star_pattern.is_match(query) {
+        errors.push(
+            LintError::info(
+                format!("{} uses SELECT * which may return unnecessary data", item_name),
+                file,
+            )
+            .with_help("Consider selecting only the columns you need for better performance")
+        );
+    }
+
+    // Check for unbalanced parentheses
+    let open_parens = query.matches('(').count();
+    let close_parens = query.matches(')').count();
+    if open_parens != close_parens {
+        errors.push(
+            LintError::error(
+                format!("{} has unbalanced parentheses ({} open, {} close)",
+                    item_name, open_parens, close_parens),
+                file,
+            )
+            .with_help("Check that all parentheses are properly matched")
+        );
+    }
+
+    // Check for unbalanced quotes (simple check)
+    let single_quotes = query.matches('\'').count();
+    if single_quotes % 2 != 0 {
+        errors.push(
+            LintError::error(
+                format!("{} has unbalanced single quotes", item_name),
+                file,
+            )
+            .with_help("Check that all string literals are properly quoted")
+        );
+    }
+
+    // Check for common dangerous patterns
+    if query_upper.contains("DROP ") || query_upper.contains("DELETE ") || query_upper.contains("INSERT ") || query_upper.contains("UPDATE ") {
+        errors.push(
+            LintError::error(
+                format!("{} contains non-SELECT SQL statement", item_name),
+                file,
+            )
+            .with_help("osquery only supports SELECT queries")
+        );
+    }
+
+    // Check that query doesn't end with semicolon (osquery doesn't require it and some clients have issues)
+    if query_trimmed.ends_with(';') {
+        errors.push(
+            LintError::info(
+                format!("{} ends with semicolon", item_name),
+                file,
+            )
+            .with_help("Trailing semicolons are optional and can sometimes cause issues")
+            .with_suggestion(query_trimmed.trim_end_matches(';').to_string())
+        );
+    }
+
+    errors
 }
