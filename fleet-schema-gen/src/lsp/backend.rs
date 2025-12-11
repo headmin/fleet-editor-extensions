@@ -12,6 +12,8 @@ use tower_lsp::lsp_types::{
     InitializeParams, InitializeResult, InitializedParams,
     MessageType, OneOf, ServerCapabilities, ServerInfo, TextDocumentSyncCapability,
     TextDocumentSyncKind, Url, Position, Range, DiagnosticSeverity,
+    SemanticTokens, SemanticTokensFullOptions, SemanticTokensOptions,
+    SemanticTokensParams, SemanticTokensResult, SemanticTokensServerCapabilities,
 };
 use tower_lsp::{Client, LanguageServer};
 
@@ -20,6 +22,7 @@ use super::code_actions::generate_code_actions;
 use super::completion::complete_at;
 use super::diagnostics::lint_error_to_diagnostic;
 use super::hover::hover_at;
+use super::semantic_tokens::{compute_semantic_tokens, create_legend};
 use super::symbols::document_symbols;
 use super::workspace::{get_path_definition, validate_path_references};
 
@@ -140,6 +143,17 @@ impl LanguageServer for FleetLspBackend {
                 document_symbol_provider: Some(OneOf::Left(true)),
                 // Enable go-to-definition for path references
                 definition_provider: Some(OneOf::Left(true)),
+                // Enable semantic tokens for syntax highlighting
+                semantic_tokens_provider: Some(
+                    SemanticTokensServerCapabilities::SemanticTokensOptions(
+                        SemanticTokensOptions {
+                            legend: create_legend(),
+                            full: Some(SemanticTokensFullOptions::Bool(true)),
+                            range: None,
+                            ..Default::default()
+                        },
+                    ),
+                ),
                 ..Default::default()
             },
             server_info: Some(ServerInfo {
@@ -260,6 +274,21 @@ impl LanguageServer for FleetLspBackend {
             let workspace_root = file_path.parent();
 
             Ok(get_path_definition(&content, position, &file_path, workspace_root))
+        } else {
+            Ok(None)
+        }
+    }
+
+    async fn semantic_tokens_full(
+        &self,
+        params: SemanticTokensParams,
+    ) -> Result<Option<SemanticTokensResult>> {
+        let uri = params.text_document.uri.to_string();
+
+        // Get document content from cache
+        if let Some(content) = self.documents.get(&uri) {
+            let tokens = compute_semantic_tokens(&content);
+            Ok(Some(SemanticTokensResult::Tokens(tokens)))
         } else {
             Ok(None)
         }

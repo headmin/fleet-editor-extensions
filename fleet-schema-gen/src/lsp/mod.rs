@@ -10,6 +10,7 @@ pub mod diagnostics;
 pub mod hover;
 pub mod position;
 pub mod schema;
+pub mod semantic_tokens;
 pub mod symbols;
 pub mod workspace;
 
