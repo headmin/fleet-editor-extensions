@@ -3,6 +3,7 @@ mod schema;
 mod generators;
 mod utils;
 mod linter;
+mod lsp;
 
 use clap::{Parser, Subcommand};
 use anyhow::Result;
@@ -124,6 +125,17 @@ enum Commands {
         /// Show side-by-side diff
         #[arg(short, long)]
         side_by_side: bool,
+    },
+
+    /// Start LSP server for editor integration
+    ///
+    /// This command starts a Language Server Protocol (LSP) server that
+    /// provides real-time Fleet GitOps YAML validation to editors like
+    /// VS Code, Neovim, Sublime Text, etc.
+    Lsp {
+        /// Enable debug logging to stderr
+        #[arg(long)]
+        debug: bool,
     },
 }
 
@@ -519,6 +531,17 @@ async fn main() -> Result<()> {
                 "Tip:".blue().bold(),
                 "migrate --dry-run".yellow()
             );
+        }
+
+        Commands::Lsp { debug } => {
+            // Set up logging if debug mode is enabled
+            if debug {
+                eprintln!("Fleet LSP server starting in debug mode...");
+                // TODO: Set up tracing/logging to stderr
+            }
+
+            // Start the LSP server - this blocks until the client disconnects
+            lsp::start_server().await?;
         }
     }
 

@@ -16,7 +16,12 @@ reqwest = { version = "0.12", features = ["blocking", "json"] }
 scraper = "0.20"
 anyhow = "1.0"
 thiserror = "1.0"
-tokio = { version = "1.42", features = ["full"] }
+tokio = { version = "1.42", features = ["full", "io-std"] }
+
+# LSP Server
+tower-lsp = "0.20"
+# Note: tower-lsp 0.20 re-exports lsp-types, so we use that instead of importing directly
+dashmap = "5.5"
 indexmap = { version = "2.7", features = ["serde"] }
 regex = "1.11"
 chrono = { version = "0.4", features = ["serde"] }

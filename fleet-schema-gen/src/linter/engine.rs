@@ -26,15 +26,23 @@ impl Linter {
         let source = fs::read_to_string(file_path)
             .with_context(|| format!("Failed to read file: {}", file_path.display()))?;
 
+        self.lint_content(&source, file_path)
+    }
+
+    /// Lint content directly (for LSP - content already in memory).
+    ///
+    /// This method is useful when the file content is already available,
+    /// such as in an LSP server where the client sends document content.
+    pub fn lint_content(&self, content: &str, file_path: &Path) -> Result<LintReport> {
         // Parse YAML
-        let config: FleetConfig = serde_yaml::from_str(&source)
+        let config: FleetConfig = serde_yaml::from_str(content)
             .with_context(|| format!("Failed to parse YAML: {}", file_path.display()))?;
 
         // Run all rules
         let mut report = LintReport::new();
 
         for rule in self.rules.rules() {
-            let errors = rule.check(&config, file_path, &source);
+            let errors = rule.check(&config, file_path, content);
             for error in errors {
                 report.add(error);
             }
