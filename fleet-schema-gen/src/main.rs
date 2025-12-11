@@ -136,6 +136,10 @@ enum Commands {
         /// Enable debug logging to stderr
         #[arg(long)]
         debug: bool,
+
+        /// Use stdio transport (default, accepted for compatibility)
+        #[arg(long)]
+        stdio: bool,
     },
 }
 
@@ -533,7 +537,7 @@ async fn main() -> Result<()> {
             );
         }
 
-        Commands::Lsp { debug } => {
+        Commands::Lsp { debug, stdio: _ } => {
             // Set up logging if debug mode is enabled
             if debug {
                 eprintln!("Fleet LSP server starting in debug mode...");
@@ -541,6 +545,7 @@ async fn main() -> Result<()> {
             }
 
             // Start the LSP server - this blocks until the client disconnects
+            // Note: stdio transport is always used, the --stdio flag is accepted for compatibility
             lsp::start_server().await?;
         }
     }
