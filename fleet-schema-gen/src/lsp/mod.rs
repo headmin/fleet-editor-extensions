@@ -4,6 +4,7 @@
 //! through the standard Language Server Protocol.
 
 pub mod backend;
+pub mod code_actions;
 pub mod diagnostics;
 pub mod position;
 

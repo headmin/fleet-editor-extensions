@@ -3,6 +3,7 @@
 use dashmap::DashMap;
 use tower_lsp::jsonrpc::Result;
 use tower_lsp::lsp_types::{
+    CodeActionParams, CodeActionProviderCapability, CodeActionResponse,
     Diagnostic, DidChangeTextDocumentParams, DidCloseTextDocumentParams,
     DidOpenTextDocumentParams, InitializeParams, InitializeResult, InitializedParams,
     MessageType, ServerCapabilities, ServerInfo, TextDocumentSyncCapability, TextDocumentSyncKind,
@@ -11,6 +12,7 @@ use tower_lsp::lsp_types::{
 use tower_lsp::{Client, LanguageServer};
 
 use crate::linter::Linter;
+use super::code_actions::generate_code_actions;
 use super::diagnostics::lint_error_to_diagnostic;
 
 /// Fleet LSP backend that handles document events and publishes diagnostics.
@@ -101,8 +103,8 @@ impl LanguageServer for FleetLspBackend {
                 text_document_sync: Some(TextDocumentSyncCapability::Kind(
                     TextDocumentSyncKind::FULL,
                 )),
-                // Code actions will be added in Phase 3
-                // code_action_provider: Some(CodeActionProviderCapability::Simple(true)),
+                // Enable code actions for quick-fixes
+                code_action_provider: Some(CodeActionProviderCapability::Simple(true)),
                 ..Default::default()
             },
             server_info: Some(ServerInfo {
@@ -145,6 +147,15 @@ impl LanguageServer for FleetLspBackend {
         // Clear diagnostics
         if let Ok(url) = Url::parse(&uri) {
             self.client.publish_diagnostics(url, vec![], None).await;
+        }
+    }
+
+    async fn code_action(&self, params: CodeActionParams) -> Result<Option<CodeActionResponse>> {
+        let actions = generate_code_actions(&params);
+        if actions.is_empty() {
+            Ok(None)
+        } else {
+            Ok(Some(actions))
         }
     }
 }

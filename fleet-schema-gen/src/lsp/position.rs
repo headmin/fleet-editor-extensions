@@ -8,15 +8,20 @@ use tower_lsp::lsp_types::Position;
 ///
 /// Returns the position of the first character of the key name.
 pub fn find_yaml_key(source: &str, key: &str, occurrence: usize) -> Option<(usize, usize)> {
-    let pattern = format!(r"(?m)^\s*{}:", regex::escape(key));
+    // Match key at start of line with optional whitespace and optional list marker
+    // Use a capturing group around the key to get its exact position
+    let pattern = format!(r"(?m)^\s*(?:-\s*)?({}:)", regex::escape(key));
     let re = regex::Regex::new(&pattern).ok()?;
 
-    let matches: Vec<_> = re.find_iter(source).collect();
-    matches.get(occurrence).map(|m| {
-        let line = source[..m.start()].matches('\n').count() + 1;
-        let line_start = source[..m.start()].rfind('\n').map(|i| i + 1).unwrap_or(0);
-        let col = m.start() - line_start + 1;
-        (line, col)
+    let captures: Vec<_> = re.captures_iter(source).collect();
+    captures.get(occurrence).and_then(|cap| {
+        // Get the position of the capturing group (the key itself)
+        cap.get(1).map(|key_match| {
+            let line = source[..key_match.start()].matches('\n').count() + 1;
+            let line_start = source[..key_match.start()].rfind('\n').map(|i| i + 1).unwrap_or(0);
+            let col = key_match.start() - line_start + 1;
+            (line, col)
+        })
     })
 }
 
