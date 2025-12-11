@@ -15,7 +15,25 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 EXTENSION_DIR="$PROJECT_ROOT/vscode-extension"
+RUST_DIR="$PROJECT_ROOT/fleet-schema-gen"
 DIST_DIR="$PROJECT_ROOT/dist"
+
+# Detect architecture
+ARCH=$(uname -m)
+case "$ARCH" in
+    x86_64)
+        BINARY_SUFFIX="darwin-x64"
+        RUST_TARGET="x86_64-apple-darwin"
+        ;;
+    arm64)
+        BINARY_SUFFIX="darwin-arm64"
+        RUST_TARGET="aarch64-apple-darwin"
+        ;;
+    *)
+        BINARY_SUFFIX="$ARCH"
+        RUST_TARGET=""
+        ;;
+esac
 
 # Colors for output
 RED='\033[0;31m'
@@ -82,6 +100,7 @@ OPTIONS:
     -r, --release          Create GitHub pre-release after building
     -t, --tag TAG          Release tag (default: v{version} from package.json)
     -f, --force            Force recreate release if exists
+    --skip-rust            Skip Rust binary build (use existing binary)
     --skip-install         Skip pnpm install (use if dependencies are already installed)
     -h, --help             Show this help message
 
@@ -105,6 +124,7 @@ EOF
 CREATE_RELEASE=false
 TAG_NAME=""
 FORCE=false
+SKIP_RUST=false
 SKIP_INSTALL=false
 
 while [[ $# -gt 0 ]]; do
@@ -119,6 +139,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         -f|--force)
             FORCE=true
+            shift
+            ;;
+        --skip-rust)
+            SKIP_RUST=true
             shift
             ;;
         --skip-install)
@@ -169,15 +193,48 @@ echo "============================================================"
 echo "Extension: $EXTENSION_NAME"
 echo "Version: $VERSION"
 echo "Tag: $TAG_NAME"
+echo "Architecture: $ARCH ($BINARY_SUFFIX)"
 echo "============================================================"
 echo ""
 
 # ============================================================
-# STEP 1: Install dependencies
+# STEP 1: Build Rust binary (fleet-schema-gen)
+# ============================================================
+
+if [ "$SKIP_RUST" = false ]; then
+    log_step "Building fleet-schema-gen (Rust)..."
+
+    if [ ! -d "$RUST_DIR" ]; then
+        log_error "Rust project not found at $RUST_DIR"
+        exit 1
+    fi
+
+    cd "$RUST_DIR"
+    cargo build --release
+
+    # Copy binary to extension bin directory
+    BINARY_NAME="fleet-schema-gen-$BINARY_SUFFIX"
+    mkdir -p "$EXTENSION_DIR/bin"
+    cp "$RUST_DIR/target/release/fleet-schema-gen" "$EXTENSION_DIR/bin/$BINARY_NAME"
+    chmod +x "$EXTENSION_DIR/bin/$BINARY_NAME"
+
+    log_info "Rust binary built and copied: $BINARY_NAME"
+    ls -lh "$EXTENSION_DIR/bin/$BINARY_NAME"
+else
+    log_info "Skipping Rust build (--skip-rust)"
+    if [ ! -f "$EXTENSION_DIR/bin/fleet-schema-gen-$BINARY_SUFFIX" ]; then
+        log_warn "Binary not found at $EXTENSION_DIR/bin/fleet-schema-gen-$BINARY_SUFFIX"
+    fi
+fi
+
+echo ""
+
+# ============================================================
+# STEP 2: Install pnpm dependencies
 # ============================================================
 
 if [ "$SKIP_INSTALL" = false ]; then
-    log_step "Installing dependencies..."
+    log_step "Installing pnpm dependencies..."
     cd "$EXTENSION_DIR"
     $PNPM install
     log_info "Dependencies installed"
@@ -186,7 +243,7 @@ else
 fi
 
 # ============================================================
-# STEP 2: Compile TypeScript
+# STEP 3: Compile TypeScript
 # ============================================================
 
 log_step "Compiling TypeScript..."
@@ -195,7 +252,7 @@ $PNPM run compile
 log_info "TypeScript compiled"
 
 # ============================================================
-# STEP 3: Package extension
+# STEP 4: Package extension
 # ============================================================
 
 log_step "Packaging extension..."
@@ -215,7 +272,7 @@ fi
 log_info "Extension packaged: $VSIX_FILE"
 
 # ============================================================
-# STEP 4: Copy to dist directory
+# STEP 5: Copy to dist directory
 # ============================================================
 
 log_step "Copying to dist directory..."
@@ -240,7 +297,7 @@ ls -lh "$DIST_DIR/$VSIX_FILE"
 echo ""
 
 # ============================================================
-# STEP 5: Create GitHub Release (if requested)
+# STEP 6: Create GitHub Release (if requested)
 # ============================================================
 
 if [ "$CREATE_RELEASE" = true ]; then
