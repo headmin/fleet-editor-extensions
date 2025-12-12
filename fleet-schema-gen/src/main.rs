@@ -141,6 +141,24 @@ enum Commands {
         #[arg(long)]
         stdio: bool,
     },
+
+    /// Initialize Fleet linter configuration
+    ///
+    /// Creates a .fleetlint.toml configuration file in the current directory.
+    /// Auto-detects your Fleet GitOps structure and generates sensible defaults.
+    Init {
+        /// Output path for config file (default: .fleetlint.toml)
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+
+        /// Skip interactive prompts, use detected/default values
+        #[arg(long)]
+        no_interactive: bool,
+
+        /// Force overwrite existing config
+        #[arg(short, long)]
+        force: bool,
+    },
 }
 
 #[tokio::main]
@@ -547,6 +565,11 @@ async fn main() -> Result<()> {
             // Start the LSP server - this blocks until the client disconnects
             // Note: stdio transport is always used, the --stdio flag is accepted for compatibility
             lsp::start_server().await?;
+        }
+
+        Commands::Init { output, no_interactive, force } => {
+            let current_dir = std::env::current_dir()?;
+            linter::init_config(&current_dir, output, !no_interactive, force)?;
         }
     }
 
