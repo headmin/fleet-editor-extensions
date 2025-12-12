@@ -1,0 +1,245 @@
+name: Build & Release VS Code Extension
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      create_release:
+        description: 'Create GitHub release'
+        required: false
+        default: 'true'
+        type: boolean
+
+env:
+  RUST_BACKTRACE: 1
+
+jobs:
+  build-extension:
+    runs-on: macos-14  # Apple Silicon runner for arm64 binary
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: vscode-extension/package-lock.json
+
+      - name: Clean and build Rust binary
+        working-directory: fleet-schema-gen
+        run: |
+          # Clean build to ensure fresh BUILD_TIMESTAMP
+          cargo clean
+          cargo build --release
+
+          # Copy to extension bin
+          mkdir -p ../vscode-extension/bin
+          cp target/release/fleet-schema-gen ../vscode-extension/bin/fleet-schema-gen-darwin-arm64
+          chmod +x ../vscode-extension/bin/fleet-schema-gen-darwin-arm64
+
+          # Show version with timestamp
+          ../vscode-extension/bin/fleet-schema-gen-darwin-arm64 --version
+
+      # TODO: Enable code signing when secrets are configured
+      # Required secrets:
+      #   - APPLE_CERTIFICATE_BASE64: Developer ID certificate (.p12) base64 encoded
+      #   - APPLE_CERTIFICATE_PASSWORD: Password for the .p12 file
+      #   - KEYCHAIN_PASSWORD: Any password for the temp keychain
+      #   - CODESIGN_IDENTITY: e.g., "Developer ID Application: Your Name (TEAM_ID)"
+      #   - NOTARIZATION_APPLE_ID: Apple ID email
+      #   - NOTARIZATION_TEAM_ID: 10-character Team ID
+      #   - NOTARIZATION_PASSWORD: App-specific password
+      #
+      # - name: Import Code Signing Certificate
+      #   if: ${{ github.event.inputs.skip_notarization != 'true' }}
+      #   env:
+      #     CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
+      #     CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+      #     KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+      #   run: |
+      #     # Create temporary keychain
+      #     KEYCHAIN_PATH=$RUNNER_TEMP/app-signing.keychain-db
+      #     security create-keychain -p "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
+      #     security set-keychain-settings -lut 21600 $KEYCHAIN_PATH
+      #     security unlock-keychain -p "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
+      #
+      #     # Import certificate
+      #     echo "$CERTIFICATE_BASE64" | base64 --decode > certificate.p12
+      #     security import certificate.p12 -P "$CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k $KEYCHAIN_PATH
+      #     security list-keychain -d user -s $KEYCHAIN_PATH
+      #     rm certificate.p12
+      #
+      #     # Allow codesign to access keychain
+      #     security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
+      #
+      # - name: Code sign binary
+      #   if: ${{ github.event.inputs.skip_notarization != 'true' }}
+      #   env:
+      #     CODESIGN_IDENTITY: ${{ secrets.CODESIGN_IDENTITY }}
+      #   run: |
+      #     BINARY_PATH="vscode-extension/bin/fleet-schema-gen-darwin-arm64"
+      #
+      #     codesign --force \
+      #       --options runtime \
+      #       --timestamp \
+      #       --sign "$CODESIGN_IDENTITY" \
+      #       "$BINARY_PATH"
+      #
+      #     # Verify signature
+      #     codesign -vvv --deep --strict "$BINARY_PATH"
+      #     echo "Code signing completed successfully"
+      #
+      # - name: Notarize binary
+      #   if: ${{ github.event.inputs.skip_notarization != 'true' }}
+      #   env:
+      #     NOTARIZATION_APPLE_ID: ${{ secrets.NOTARIZATION_APPLE_ID }}
+      #     NOTARIZATION_TEAM_ID: ${{ secrets.NOTARIZATION_TEAM_ID }}
+      #     NOTARIZATION_PASSWORD: ${{ secrets.NOTARIZATION_PASSWORD }}
+      #   run: |
+      #     BINARY_PATH="vscode-extension/bin/fleet-schema-gen-darwin-arm64"
+      #
+      #     # Create ZIP for notarization
+      #     ditto -c -k --keepParent "$BINARY_PATH" binary-for-notarization.zip
+      #
+      #     # Submit for notarization and wait
+      #     xcrun notarytool submit binary-for-notarization.zip \
+      #       --apple-id "$NOTARIZATION_APPLE_ID" \
+      #       --team-id "$NOTARIZATION_TEAM_ID" \
+      #       --password "$NOTARIZATION_PASSWORD" \
+      #       --wait
+      #
+      #     # Verify notarization
+      #     spctl -a -vv -t install "$BINARY_PATH" || true
+      #     echo "Notarization completed successfully"
+      #
+      #     # Cleanup
+      #     rm binary-for-notarization.zip
+
+      - name: Validate binary
+        run: |
+          BINARY_PATH="vscode-extension/bin/fleet-schema-gen-darwin-arm64"
+
+          echo "=== Binary Version ==="
+          "$BINARY_PATH" --version
+
+          echo ""
+          echo "=== Binary Info ==="
+          file "$BINARY_PATH"
+          ls -lh "$BINARY_PATH"
+
+          echo ""
+          echo "=== Code Signature (if signed) ==="
+          codesign -dvv "$BINARY_PATH" 2>&1 || echo "Binary is not signed"
+
+      - name: Install npm dependencies
+        working-directory: vscode-extension
+        run: npm ci
+
+      - name: Compile TypeScript
+        working-directory: vscode-extension
+        run: npm run compile
+
+      - name: Package VS Code extension
+        working-directory: vscode-extension
+        run: |
+          npx vsce package --allow-missing-repository
+
+          # Show what's in the package
+          echo "=== VSIX Contents ==="
+          unzip -l *.vsix | head -50
+
+          # Verify node_modules is included
+          echo ""
+          echo "=== Checking for node_modules ==="
+          unzip -l *.vsix | grep node_modules | head -10 || echo "WARNING: No node_modules found!"
+
+          # Verify binary is included
+          echo ""
+          echo "=== Checking for binary ==="
+          unzip -l *.vsix | grep fleet-schema-gen
+
+      - name: Get version
+        id: version
+        working-directory: vscode-extension
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Extension version: $VERSION"
+
+      - name: Create dist directory
+        run: |
+          mkdir -p dist
+          cp vscode-extension/*.vsix dist/
+          cd dist
+          shasum -a 256 *.vsix > checksums.txt
+          cat checksums.txt
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: fleet-gitops-vscode-extension
+          path: dist/*
+          retention-days: 90
+
+      - name: Create GitHub Release
+        if: startsWith(github.ref, 'refs/tags/') || github.event.inputs.create_release == 'true'
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || format('v{0}', steps.version.outputs.version) }}
+          name: Release ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || format('v{0}', steps.version.outputs.version) }}
+          draft: false
+          prerelease: true
+          files: |
+            dist/*.vsix
+            dist/checksums.txt
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # Optional: Build Linux binary in same workflow
+  build-linux-binary:
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Clean and build Linux binary
+        working-directory: fleet-schema-gen
+        run: |
+          # Clean build to ensure fresh BUILD_TIMESTAMP
+          cargo clean
+          cargo build --release
+
+          mkdir -p dist
+          cp target/release/fleet-schema-gen dist/
+          strip dist/fleet-schema-gen
+
+          # Show version
+          dist/fleet-schema-gen --version
+
+          VERSION=$(grep '^version' Cargo.toml | head -n1 | cut -d'"' -f2)
+          cd dist
+          sha256sum fleet-schema-gen > fleet-schema-gen-linux-x86_64.sha256
+          tar -czf fleet-schema-gen-${VERSION}-linux-x86_64.tar.gz fleet-schema-gen
+
+      - name: Upload Linux binary to release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            fleet-schema-gen/dist/*.tar.gz
+            fleet-schema-gen/dist/*.sha256
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
