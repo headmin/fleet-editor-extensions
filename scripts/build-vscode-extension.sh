@@ -62,17 +62,8 @@ if [ -z "$GH_CLI" ]; then
     fi
 fi
 
-# pnpm path via mise
-PNPM="${PNPM:-}"
-if [ -z "$PNPM" ]; then
-    if command -v pnpm &> /dev/null; then
-        PNPM="pnpm"
-    elif [ -f "$HOME/.local/bin/mise" ]; then
-        PNPM="$HOME/.local/bin/mise exec pnpm -- pnpm"
-    else
-        PNPM="pnpm"
-    fi
-fi
+# npm path (use npm instead of pnpm for proper node_modules structure in VSIX)
+NPM="${NPM:-npm}"
 
 # ============================================================
 # FUNCTIONS
@@ -493,13 +484,13 @@ fi
 echo ""
 
 # ============================================================
-# STEP 2: Install pnpm dependencies
+# STEP 2: Install npm dependencies
 # ============================================================
 
 if [ "$SKIP_INSTALL" = false ]; then
-    log_step "Installing pnpm dependencies..."
+    log_step "Installing npm dependencies..."
     cd "$EXTENSION_DIR"
-    $PNPM install
+    $NPM install
     log_info "Dependencies installed"
 else
     log_info "Skipping dependency installation (--skip-install)"
@@ -511,7 +502,7 @@ fi
 
 log_step "Compiling TypeScript..."
 cd "$EXTENSION_DIR"
-$PNPM run compile
+$NPM run compile
 log_info "TypeScript compiled"
 
 # ============================================================
@@ -536,8 +527,8 @@ cd "$EXTENSION_DIR"
 # Remove old vsix if exists
 rm -f "$EXTENSION_DIR"/*.vsix
 
-# Package with vsce
-$PNPM exec vsce package --no-dependencies --allow-missing-repository
+# Package with vsce (includes node_modules)
+npx vsce package --allow-missing-repository
 
 if [ ! -f "$EXTENSION_DIR/$VSIX_FILE" ]; then
     log_error "Failed to create $VSIX_FILE"
