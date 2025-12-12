@@ -21,10 +21,32 @@ enum CompletionContext {
     QueryField,
     /// Inside a labels array item
     LabelField,
+    /// Inside software section (choosing packages/app_store_apps/fleet_maintained_apps)
+    SoftwareSection,
+    /// Inside software.packages array item
+    SoftwarePackageField,
+    /// Inside software.app_store_apps array item
+    AppStoreAppField,
+    /// Inside software.fleet_maintained_apps array item
+    FleetMaintainedAppField,
+    /// Inside controls section
+    ControlsSection,
+    /// Inside controls.macos_settings.custom_settings array item
+    MacOSCustomSettingField,
+    /// Inside controls.windows_settings.custom_settings array item
+    WindowsCustomSettingField,
+    /// Inside controls.scripts array item
+    ScriptField,
+    /// Inside team_settings section
+    TeamSettingsSection,
+    /// Inside agent_options section
+    AgentOptionsSection,
     /// After platform: key
     PlatformValue,
     /// After logging: key
     LoggingValue,
+    /// After self_service: key
+    BooleanValue,
     /// Inside an SQL query (for osquery tables)
     SqlContext { platform: Option<String> },
     /// Unknown context
@@ -47,8 +69,19 @@ pub fn complete_at(source: &str, position: Position) -> Vec<CompletionItem> {
         CompletionContext::PolicyField => complete_policy_fields(line, col_idx),
         CompletionContext::QueryField => complete_query_fields(line, col_idx),
         CompletionContext::LabelField => complete_label_fields(line, col_idx),
+        CompletionContext::SoftwareSection => complete_software_section(),
+        CompletionContext::SoftwarePackageField => complete_software_package_fields(line, col_idx),
+        CompletionContext::AppStoreAppField => complete_app_store_app_fields(line, col_idx),
+        CompletionContext::FleetMaintainedAppField => complete_fleet_maintained_app_fields(line, col_idx),
+        CompletionContext::ControlsSection => complete_controls_section(),
+        CompletionContext::MacOSCustomSettingField => complete_custom_setting_fields(line, col_idx),
+        CompletionContext::WindowsCustomSettingField => complete_custom_setting_fields(line, col_idx),
+        CompletionContext::ScriptField => complete_script_fields(line, col_idx),
+        CompletionContext::TeamSettingsSection => complete_team_settings_section(),
+        CompletionContext::AgentOptionsSection => complete_agent_options_section(),
         CompletionContext::PlatformValue => complete_platform_values(),
         CompletionContext::LoggingValue => complete_logging_values(),
+        CompletionContext::BooleanValue => complete_boolean_values(),
         CompletionContext::SqlContext { platform } => complete_osquery_tables(platform.as_deref()),
         CompletionContext::Unknown => vec![],
     }
@@ -91,20 +124,20 @@ fn determine_completion_context(
         return CompletionContext::TopLevel;
     }
 
-    // Look for parent context
+    // Look for parent context using path-based detection
     let parent = find_parent_context(source, line_idx);
-    match parent.as_deref() {
-        Some("policies") => CompletionContext::PolicyField,
-        Some("queries") => CompletionContext::QueryField,
-        Some("labels") => CompletionContext::LabelField,
-        _ => {
-            // Check if we're at a position that suggests top-level
-            if indent <= 2 && (trimmed.is_empty() || trimmed.starts_with('-')) {
-                return find_array_parent(source, line_idx);
-            }
-            CompletionContext::Unknown
-        }
+    let context = context_path_to_completion_context(parent.as_deref());
+
+    if context != CompletionContext::Unknown {
+        return context;
     }
+
+    // Check if we're at a position that suggests array item fields
+    if indent <= 2 && (trimmed.is_empty() || trimmed.starts_with('-')) {
+        return find_array_parent(source, line_idx);
+    }
+
+    CompletionContext::Unknown
 }
 
 /// Get the key if cursor is in a value position (after colon).
@@ -191,35 +224,106 @@ fn find_platform_in_context(source: &str, line_idx: usize) -> Option<String> {
     None
 }
 
-/// Find the parent array context.
+/// Find the parent array context with full path support.
 fn find_parent_context(source: &str, line_idx: usize) -> Option<String> {
     let lines: Vec<&str> = source.lines().collect();
+    let current_indent = lines
+        .get(line_idx)
+        .map(|l| l.len() - l.trim_start().len())
+        .unwrap_or(0);
+
+    let mut context_stack: Vec<(usize, String)> = vec![];
 
     for i in (0..=line_idx).rev() {
         let line = lines.get(i).unwrap_or(&"");
         let trimmed = line.trim();
+        let indent = line.len() - line.trim_start().len();
 
-        // Check for top-level array keys
-        if trimmed == "policies:" || trimmed.starts_with("policies:") {
-            return Some("policies".to_string());
+        // Skip empty lines and comments
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            continue;
         }
-        if trimmed == "queries:" || trimmed.starts_with("queries:") {
-            return Some("queries".to_string());
+
+        // Only consider lines with less indentation (parent contexts)
+        if indent < current_indent || (i == line_idx && indent == current_indent) {
+            // Check for key definitions (ending with :)
+            if let Some(key) = trimmed.strip_suffix(':') {
+                context_stack.push((indent, key.to_string()));
+            } else if trimmed.contains(':') && !trimmed.starts_with('-') {
+                let key = trimmed.split(':').next().unwrap_or("").trim();
+                if !key.is_empty() {
+                    context_stack.push((indent, key.to_string()));
+                }
+            }
         }
-        if trimmed == "labels:" || trimmed.starts_with("labels:") {
-            return Some("labels".to_string());
+
+        // Stop at indent 0
+        if indent == 0 && !trimmed.is_empty() {
+            break;
         }
     }
 
-    None
+    // Build context path from stack (reverse order, filter by decreasing indent)
+    context_stack.reverse();
+    let mut last_indent = usize::MAX;
+    let path: Vec<String> = context_stack
+        .into_iter()
+        .filter(|(indent, _)| {
+            if *indent < last_indent {
+                last_indent = *indent;
+                true
+            } else {
+                false
+            }
+        })
+        .map(|(_, key)| key)
+        .collect();
+
+    if path.is_empty() {
+        None
+    } else {
+        Some(path.join("."))
+    }
 }
 
 /// Find the array parent for completing array item fields.
 fn find_array_parent(source: &str, line_idx: usize) -> CompletionContext {
-    match find_parent_context(source, line_idx).as_deref() {
-        Some("policies") => CompletionContext::PolicyField,
-        Some("queries") => CompletionContext::QueryField,
-        Some("labels") => CompletionContext::LabelField,
+    let context = find_parent_context(source, line_idx);
+    context_path_to_completion_context(context.as_deref())
+}
+
+/// Convert a context path string to a CompletionContext.
+fn context_path_to_completion_context(path: Option<&str>) -> CompletionContext {
+    match path {
+        Some(p) if p == "policies" || p.ends_with(".policies") => CompletionContext::PolicyField,
+        Some(p) if p == "queries" || p.ends_with(".queries") => CompletionContext::QueryField,
+        Some(p) if p == "labels" || p.ends_with(".labels") => CompletionContext::LabelField,
+        Some(p) if p == "software" => CompletionContext::SoftwareSection,
+        Some(p) if p == "software.packages" || p.ends_with(".packages") => {
+            CompletionContext::SoftwarePackageField
+        }
+        Some(p) if p == "software.app_store_apps" || p.contains("app_store_apps") => {
+            CompletionContext::AppStoreAppField
+        }
+        Some(p) if p == "software.fleet_maintained_apps" || p.contains("fleet_maintained_apps") => {
+            CompletionContext::FleetMaintainedAppField
+        }
+        Some(p) if p == "controls" => CompletionContext::ControlsSection,
+        Some(p) if p.contains("macos_settings.custom_settings") => {
+            CompletionContext::MacOSCustomSettingField
+        }
+        Some(p) if p.contains("windows_settings.custom_settings") => {
+            CompletionContext::WindowsCustomSettingField
+        }
+        Some(p) if p.contains("controls.scripts") || (p == "controls" && p.contains("scripts")) => {
+            CompletionContext::ScriptField
+        }
+        Some(p) if p == "team_settings" || p.starts_with("team_settings") => {
+            CompletionContext::TeamSettingsSection
+        }
+        Some(p) if p == "agent_options" || p.starts_with("agent_options") => {
+            CompletionContext::AgentOptionsSection
+        }
         _ => CompletionContext::Unknown,
     }
 }
@@ -406,6 +510,185 @@ fn create_value_completion(value: &str, description: &str) -> CompletionItem {
         detail: Some(description.to_string()),
         ..Default::default()
     }
+}
+
+/// Complete boolean values.
+fn complete_boolean_values() -> Vec<CompletionItem> {
+    vec![
+        create_value_completion("true", "Enable this option"),
+        create_value_completion("false", "Disable this option"),
+    ]
+}
+
+/// Complete software section keys.
+fn complete_software_section() -> Vec<CompletionItem> {
+    let fields = [
+        ("packages", "Custom software packages to install", false),
+        ("app_store_apps", "macOS App Store apps", false),
+        ("fleet_maintained_apps", "Fleet-managed apps with auto-updates", false),
+    ];
+
+    fields
+        .iter()
+        .map(|(name, desc, required)| create_field_completion(name, desc, *required))
+        .collect()
+}
+
+/// Complete software.packages array item fields.
+fn complete_software_package_fields(line: &str, col_idx: usize) -> Vec<CompletionItem> {
+    // Check if we're in value position
+    if let Some(key) = get_key_at_cursor(line, col_idx) {
+        match key.as_str() {
+            "self_service" | "setup_experience" => return complete_boolean_values(),
+            _ => {}
+        }
+    }
+
+    // Based on workstations.yml: path, self_service, setup_experience, categories, labels_include_any, display_name
+    let fields = [
+        ("path", "Path to software package YAML definition", true),
+        ("self_service", "Allow users to install from Fleet Desktop", false),
+        ("setup_experience", "Install during device setup (DEP)", false),
+        ("categories", "App categories for organization", false),
+        ("labels_include_any", "Only install on hosts with these labels", false),
+        ("labels_exclude_any", "Don't install on hosts with these labels", false),
+        ("display_name", "Custom display name in Fleet UI", false),
+    ];
+
+    fields
+        .iter()
+        .map(|(name, desc, required)| create_field_completion(name, desc, *required))
+        .collect()
+}
+
+/// Complete software.app_store_apps array item fields.
+fn complete_app_store_app_fields(line: &str, col_idx: usize) -> Vec<CompletionItem> {
+    if let Some(key) = get_key_at_cursor(line, col_idx) {
+        match key.as_str() {
+            "self_service" | "setup_experience" => return complete_boolean_values(),
+            _ => {}
+        }
+    }
+
+    let fields = [
+        ("app_store_id", "Apple App Store app ID", true),
+        ("self_service", "Allow users to install from Fleet Desktop", false),
+        ("setup_experience", "Install during device setup (DEP)", false),
+    ];
+
+    fields
+        .iter()
+        .map(|(name, desc, required)| create_field_completion(name, desc, *required))
+        .collect()
+}
+
+/// Complete software.fleet_maintained_apps array item fields.
+fn complete_fleet_maintained_app_fields(line: &str, col_idx: usize) -> Vec<CompletionItem> {
+    if let Some(key) = get_key_at_cursor(line, col_idx) {
+        match key.as_str() {
+            "self_service" | "setup_experience" => return complete_boolean_values(),
+            _ => {}
+        }
+    }
+
+    // Based on workstations.yml
+    let fields = [
+        ("slug", "Fleet app identifier (e.g., slack/darwin)", true),
+        ("self_service", "Allow users to install from Fleet Desktop", false),
+        ("setup_experience", "Install during device setup (DEP)", false),
+        ("labels_include_any", "Only install on hosts with these labels", false),
+        ("labels_exclude_any", "Don't install on hosts with these labels", false),
+        ("display_name", "Custom display name in Fleet UI", false),
+        ("categories", "App categories for organization", false),
+        ("post_install_script", "Script to run after installation", false),
+        ("pre_install_query", "Query that must pass before installation", false),
+    ];
+
+    fields
+        .iter()
+        .map(|(name, desc, required)| create_field_completion(name, desc, *required))
+        .collect()
+}
+
+/// Complete controls section keys.
+fn complete_controls_section() -> Vec<CompletionItem> {
+    let fields = [
+        ("enable_disk_encryption", "Require disk encryption on hosts", false),
+        ("macos_settings", "macOS MDM configuration profiles", false),
+        ("macos_setup", "macOS automatic enrollment settings", false),
+        ("macos_updates", "macOS software update requirements", false),
+        ("windows_settings", "Windows MDM configuration profiles", false),
+        ("windows_updates", "Windows update requirements", false),
+        ("scripts", "Management scripts to deploy", false),
+    ];
+
+    fields
+        .iter()
+        .map(|(name, desc, required)| create_field_completion(name, desc, *required))
+        .collect()
+}
+
+/// Complete custom settings array item fields (macos/windows).
+fn complete_custom_setting_fields(line: &str, col_idx: usize) -> Vec<CompletionItem> {
+    if let Some(key) = get_key_at_cursor(line, col_idx) {
+        if key == "labels_include_any" || key == "labels_exclude_any" {
+            return vec![];  // Let user type label names
+        }
+    }
+
+    let fields = [
+        ("path", "Path to configuration profile file", true),
+        ("labels_include_any", "Only apply to hosts with these labels", false),
+        ("labels_exclude_any", "Don't apply to hosts with these labels", false),
+    ];
+
+    fields
+        .iter()
+        .map(|(name, desc, required)| create_field_completion(name, desc, *required))
+        .collect()
+}
+
+/// Complete script array item fields.
+fn complete_script_fields(line: &str, _col_idx: usize) -> Vec<CompletionItem> {
+    let fields = [
+        ("path", "Path to script file", true),
+    ];
+
+    fields
+        .iter()
+        .map(|(name, desc, required)| create_field_completion(name, desc, *required))
+        .collect()
+}
+
+/// Complete team_settings section.
+fn complete_team_settings_section() -> Vec<CompletionItem> {
+    let fields = [
+        ("webhook_settings", "Webhook configuration for team events", false),
+        ("features", "Feature flags for this team", false),
+        ("host_expiry_settings", "Auto-remove inactive hosts", false),
+        ("secrets", "Enrollment secrets for this team", false),
+        ("integrations", "Third-party integrations (calendar, ticketing)", false),
+    ];
+
+    fields
+        .iter()
+        .map(|(name, desc, required)| create_field_completion(name, desc, *required))
+        .collect()
+}
+
+/// Complete agent_options section.
+fn complete_agent_options_section() -> Vec<CompletionItem> {
+    let fields = [
+        ("config", "osquery configuration options", false),
+        ("update_channels", "Fleet component update channels", false),
+        ("command_line_flags", "osquery command-line flags", false),
+        ("extensions", "osquery extensions to load", false),
+    ];
+
+    fields
+        .iter()
+        .map(|(name, desc, required)| create_field_completion(name, desc, *required))
+        .collect()
 }
 
 #[cfg(test)]

@@ -60,6 +60,9 @@ impl FleetGoParser {
             "server/fleet/queries.go",
             "server/fleet/labels.go",
             "server/fleet/software.go",
+            "server/fleet/software_installer.go",  // SoftwarePackageSpec, MaintainedAppSpec
+            "server/fleet/apple_mdm.go",           // MDM settings structs
+            "server/fleet/agent_options.go",       // AgentOptions structs
         ];
 
         for file_path in files_to_parse {
