@@ -261,14 +261,17 @@ fn find_parent_context(source: &str, line_idx: usize) -> Option<String> {
         }
     }
 
-    // Build context path from stack (reverse order, filter by decreasing indent)
+    // Build context path from stack (reverse to get top-down order)
     context_stack.reverse();
-    let mut last_indent = usize::MAX;
+
+    // Filter to keep only strictly increasing indents (proper nesting)
+    let mut last_indent: i32 = -1;
     let path: Vec<String> = context_stack
         .into_iter()
         .filter(|(indent, _)| {
-            if *indent < last_indent {
-                last_indent = *indent;
+            let indent_i32 = *indent as i32;
+            if indent_i32 > last_indent {
+                last_indent = indent_i32;
                 true
             } else {
                 false
