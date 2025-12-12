@@ -21,7 +21,7 @@ use tower_lsp::{Client, LanguageServer};
 
 use crate::linter::{FleetLintConfig, Linter};
 use super::code_actions::generate_code_actions;
-use super::completion::complete_at;
+use super::completion::complete_at_with_context;
 use super::diagnostics::lint_error_to_diagnostic;
 use super::hover::hover_at;
 use super::semantic_tokens::{compute_semantic_tokens, create_legend};
@@ -272,7 +272,20 @@ impl LanguageServer for FleetLspBackend {
 
         // Get document content from cache
         if let Some(content) = self.documents.get(&uri) {
-            let items = complete_at(&content, position);
+            // Get file path for file path completions
+            let file_path = Url::parse(&uri)
+                .ok()
+                .and_then(|u| u.to_file_path().ok());
+
+            // Get workspace root
+            let workspace_root = self.workspace_root.read().ok().and_then(|r| r.clone());
+
+            let items = complete_at_with_context(
+                &content,
+                position,
+                file_path.as_deref(),
+                workspace_root.as_deref(),
+            );
             if items.is_empty() {
                 Ok(None)
             } else {

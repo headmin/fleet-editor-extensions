@@ -2,6 +2,7 @@
 //!
 //! Provides context-aware autocompletion for field names, values, and osquery tables.
 
+use std::path::Path;
 use tower_lsp::lsp_types::{
     CompletionItem, CompletionItemKind, Documentation, InsertTextFormat,
     MarkupContent, MarkupKind, Position,
@@ -47,14 +48,42 @@ enum CompletionContext {
     LoggingValue,
     /// After self_service: key
     BooleanValue,
+    /// After path: key, completing file path value
+    PathValue { context_type: PathContextType },
     /// Inside an SQL query (for osquery tables)
     SqlContext { platform: Option<String> },
     /// Unknown context
     Unknown,
 }
 
+/// Type of path being completed, determines file filtering.
+#[derive(Debug, Clone, PartialEq)]
+enum PathContextType {
+    /// Software package definitions (*.yml)
+    SoftwarePackage,
+    /// Scripts (*.sh, *.ps1)
+    Script,
+    /// macOS profiles (*.mobileconfig)
+    MacOSProfile,
+    /// Windows profiles (*.xml)
+    WindowsProfile,
+    /// Generic file reference
+    Generic,
+}
+
 /// Provide completion items at a position in a Fleet YAML document.
+/// For file path completions, use `complete_at_with_context` instead.
 pub fn complete_at(source: &str, position: Position) -> Vec<CompletionItem> {
+    complete_at_with_context(source, position, None, None)
+}
+
+/// Provide completion items with workspace context for file path completions.
+pub fn complete_at_with_context(
+    source: &str,
+    position: Position,
+    current_file: Option<&Path>,
+    workspace_root: Option<&Path>,
+) -> Vec<CompletionItem> {
     let line_idx = position.line as usize;
     let col_idx = position.character as usize;
 
@@ -82,6 +111,9 @@ pub fn complete_at(source: &str, position: Position) -> Vec<CompletionItem> {
         CompletionContext::PlatformValue => complete_platform_values(),
         CompletionContext::LoggingValue => complete_logging_values(),
         CompletionContext::BooleanValue => complete_boolean_values(),
+        CompletionContext::PathValue { context_type } => {
+            complete_file_paths(line, col_idx, current_file, workspace_root, context_type)
+        }
         CompletionContext::SqlContext { platform } => complete_osquery_tables(platform.as_deref()),
         CompletionContext::Unknown => vec![],
     }
@@ -106,6 +138,19 @@ fn determine_completion_context(
         match key.as_str() {
             "platform" => return CompletionContext::PlatformValue,
             "logging" => return CompletionContext::LoggingValue,
+            "path" => {
+                // Determine path context type based on parent context
+                let parent = find_parent_context(source, line_idx);
+                let context_type = match parent.as_deref() {
+                    Some(p) if p.contains("software.packages") => PathContextType::SoftwarePackage,
+                    Some(p) if p.contains("fleet_maintained_apps") => PathContextType::SoftwarePackage,
+                    Some(p) if p.contains("scripts") => PathContextType::Script,
+                    Some(p) if p.contains("macos_settings") => PathContextType::MacOSProfile,
+                    Some(p) if p.contains("windows_settings") => PathContextType::WindowsProfile,
+                    _ => PathContextType::Generic,
+                };
+                return CompletionContext::PathValue { context_type };
+            }
             _ => {}
         }
     }
@@ -692,6 +737,197 @@ fn complete_agent_options_section() -> Vec<CompletionItem> {
         .collect()
 }
 
+/// Complete file paths for path: values.
+fn complete_file_paths(
+    line: &str,
+    col_idx: usize,
+    current_file: Option<&Path>,
+    workspace_root: Option<&Path>,
+    context_type: PathContextType,
+) -> Vec<CompletionItem> {
+    let mut completions = Vec::new();
+
+    // Extract partial path already typed (text after "path: ")
+    let partial = extract_partial_path(line, col_idx);
+
+    // Determine base directory for scanning
+    let base_dir = match (workspace_root, current_file) {
+        (Some(root), _) => root.to_path_buf(),
+        (None, Some(file)) => file.parent().unwrap_or(Path::new(".")).to_path_buf(),
+        (None, None) => return completions,
+    };
+
+    // Scan lib/ directory for matching files
+    let lib_dir = base_dir.join("lib");
+    if lib_dir.exists() && lib_dir.is_dir() {
+        scan_directory_for_paths(
+            &lib_dir,
+            current_file,
+            &context_type,
+            &partial,
+            &base_dir,
+            &mut completions,
+            0,
+        );
+    }
+
+    // Also scan teams/ directory for team-level completions
+    let teams_dir = base_dir.join("teams");
+    if teams_dir.exists() && teams_dir.is_dir() {
+        scan_directory_for_paths(
+            &teams_dir,
+            current_file,
+            &context_type,
+            &partial,
+            &base_dir,
+            &mut completions,
+            0,
+        );
+    }
+
+    // Sort completions alphabetically
+    completions.sort_by(|a, b| a.label.cmp(&b.label));
+
+    completions
+}
+
+/// Extract the partial path the user has typed after "path: ".
+fn extract_partial_path(line: &str, col_idx: usize) -> String {
+    let trimmed = line.trim().trim_start_matches('-').trim();
+
+    if let Some(colon_pos) = trimmed.find(':') {
+        // Find where the value starts in the original line
+        if let Some(line_colon_pos) = line.find(':') {
+            let value_start = line_colon_pos + 1;
+            // Get text from after colon to cursor position
+            if col_idx > value_start {
+                let value_portion = &line[value_start..col_idx.min(line.len())];
+                return value_portion.trim().trim_matches('"').trim_matches('\'').to_string();
+            }
+        }
+    }
+
+    String::new()
+}
+
+/// Recursively scan a directory for files matching the context type.
+fn scan_directory_for_paths(
+    dir: &Path,
+    current_file: Option<&Path>,
+    context_type: &PathContextType,
+    partial: &str,
+    workspace_root: &Path,
+    completions: &mut Vec<CompletionItem>,
+    depth: usize,
+) {
+    // Limit recursion depth to avoid performance issues
+    const MAX_DEPTH: usize = 5;
+    if depth > MAX_DEPTH {
+        return;
+    }
+
+    let entries = match std::fs::read_dir(dir) {
+        Ok(entries) => entries,
+        Err(_) => return,
+    };
+
+    for entry in entries.flatten() {
+        let path = entry.path();
+
+        if path.is_dir() {
+            // Recursively scan subdirectories
+            scan_directory_for_paths(
+                &path,
+                current_file,
+                context_type,
+                partial,
+                workspace_root,
+                completions,
+                depth + 1,
+            );
+        } else if path.is_file() && matches_context_type(&path, context_type) {
+            // Calculate relative path from current file or workspace root
+            let relative_path = calculate_relative_path(&path, current_file, workspace_root);
+
+            // Filter by partial input
+            if partial.is_empty() || relative_path.to_lowercase().contains(&partial.to_lowercase()) {
+                completions.push(create_path_completion(&relative_path, &path, context_type));
+            }
+        }
+    }
+}
+
+/// Check if a file matches the expected context type based on extension.
+fn matches_context_type(path: &Path, context_type: &PathContextType) -> bool {
+    let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("").to_lowercase();
+
+    match context_type {
+        PathContextType::SoftwarePackage => ext == "yml" || ext == "yaml",
+        PathContextType::Script => ext == "sh" || ext == "ps1" || ext == "bat" || ext == "cmd",
+        PathContextType::MacOSProfile => ext == "mobileconfig" || ext == "plist",
+        PathContextType::WindowsProfile => ext == "xml",
+        PathContextType::Generic => true,
+    }
+}
+
+/// Calculate the relative path from the current file to the target file.
+fn calculate_relative_path(
+    target: &Path,
+    current_file: Option<&Path>,
+    workspace_root: &Path,
+) -> String {
+    // If we have a current file, calculate path relative to it
+    if let Some(current) = current_file {
+        if let Some(current_dir) = current.parent() {
+            if let Some(relative) = pathdiff::diff_paths(target, current_dir) {
+                return relative.to_string_lossy().to_string();
+            }
+        }
+    }
+
+    // Fall back to path relative to workspace root
+    target
+        .strip_prefix(workspace_root)
+        .unwrap_or(target)
+        .to_string_lossy()
+        .to_string()
+}
+
+/// Create a completion item for a file path.
+fn create_path_completion(
+    relative_path: &str,
+    absolute_path: &Path,
+    context_type: &PathContextType,
+) -> CompletionItem {
+    let file_name = absolute_path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("");
+
+    let kind_desc = match context_type {
+        PathContextType::SoftwarePackage => "Software package",
+        PathContextType::Script => "Script",
+        PathContextType::MacOSProfile => "macOS profile",
+        PathContextType::WindowsProfile => "Windows profile",
+        PathContextType::Generic => "File",
+    };
+
+    CompletionItem {
+        label: relative_path.to_string(),
+        kind: Some(CompletionItemKind::FILE),
+        detail: Some(format!("{}: {}", kind_desc, file_name)),
+        documentation: Some(Documentation::MarkupContent(MarkupContent {
+            kind: MarkupKind::Markdown,
+            value: format!(
+                "**{}**\n\nPath: `{}`",
+                file_name,
+                absolute_path.display()
+            ),
+        })),
+        ..Default::default()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -762,5 +998,108 @@ mod tests {
             find_platform_in_context(source, 3),
             Some("darwin".to_string())
         );
+    }
+
+    #[test]
+    fn test_extract_partial_path() {
+        // Empty partial
+        assert_eq!(extract_partial_path("    path: ", 10), "");
+
+        // Partial typed
+        assert_eq!(extract_partial_path("    path: ../lib/m", 18), "../lib/m");
+
+        // With quotes
+        assert_eq!(extract_partial_path("    path: \"../lib/m", 19), "../lib/m");
+
+        // Array item format
+        assert_eq!(extract_partial_path("  - path: ../lib/", 17), "../lib/");
+    }
+
+    #[test]
+    fn test_matches_context_type() {
+        // SoftwarePackage should match .yml and .yaml
+        assert!(matches_context_type(Path::new("test.yml"), &PathContextType::SoftwarePackage));
+        assert!(matches_context_type(Path::new("test.yaml"), &PathContextType::SoftwarePackage));
+        assert!(!matches_context_type(Path::new("test.sh"), &PathContextType::SoftwarePackage));
+
+        // Script should match .sh, .ps1, .bat
+        assert!(matches_context_type(Path::new("test.sh"), &PathContextType::Script));
+        assert!(matches_context_type(Path::new("test.ps1"), &PathContextType::Script));
+        assert!(matches_context_type(Path::new("test.bat"), &PathContextType::Script));
+        assert!(!matches_context_type(Path::new("test.yml"), &PathContextType::Script));
+
+        // MacOSProfile should match .mobileconfig and .plist
+        assert!(matches_context_type(Path::new("test.mobileconfig"), &PathContextType::MacOSProfile));
+        assert!(matches_context_type(Path::new("test.plist"), &PathContextType::MacOSProfile));
+        assert!(!matches_context_type(Path::new("test.xml"), &PathContextType::MacOSProfile));
+
+        // WindowsProfile should match .xml
+        assert!(matches_context_type(Path::new("test.xml"), &PathContextType::WindowsProfile));
+        assert!(!matches_context_type(Path::new("test.yml"), &PathContextType::WindowsProfile));
+
+        // Generic should match anything
+        assert!(matches_context_type(Path::new("test.yml"), &PathContextType::Generic));
+        assert!(matches_context_type(Path::new("test.sh"), &PathContextType::Generic));
+        assert!(matches_context_type(Path::new("test.txt"), &PathContextType::Generic));
+    }
+
+    #[test]
+    fn test_path_context_detection() {
+        // In software.packages, path: should give SoftwarePackage context
+        let source = "software:\n  packages:\n    - path: ";
+        let context = determine_completion_context(source, 2, "    - path: ", 12);
+        assert_eq!(context, CompletionContext::PathValue { context_type: PathContextType::SoftwarePackage });
+
+        // In controls.scripts, path: should give Script context
+        let source2 = "controls:\n  scripts:\n    - path: ";
+        let context2 = determine_completion_context(source2, 2, "    - path: ", 12);
+        assert_eq!(context2, CompletionContext::PathValue { context_type: PathContextType::Script });
+
+        // In macos_settings.custom_settings, path: should give MacOSProfile context
+        let source3 = "controls:\n  macos_settings:\n    custom_settings:\n      - path: ";
+        let context3 = determine_completion_context(source3, 3, "      - path: ", 14);
+        assert_eq!(context3, CompletionContext::PathValue { context_type: PathContextType::MacOSProfile });
+    }
+
+    #[test]
+    fn test_complete_file_paths_with_workspace() {
+        use std::fs;
+        use tempfile::TempDir;
+
+        // Create a temporary workspace
+        let temp_dir = TempDir::new().unwrap();
+        let workspace_root = temp_dir.path();
+
+        // Create lib directory structure
+        let lib_dir = workspace_root.join("lib");
+        let macos_dir = lib_dir.join("macos").join("software");
+        fs::create_dir_all(&macos_dir).unwrap();
+
+        // Create some test files
+        fs::write(macos_dir.join("firefox.yml"), "name: Firefox").unwrap();
+        fs::write(macos_dir.join("chrome.yml"), "name: Chrome").unwrap();
+
+        // Create teams directory
+        let teams_dir = workspace_root.join("teams");
+        fs::create_dir_all(&teams_dir).unwrap();
+        let team_file = teams_dir.join("workstations.yml");
+        fs::write(&team_file, "software:\n  packages:\n    - path: ").unwrap();
+
+        // Test file path completion
+        let completions = complete_file_paths(
+            "    - path: ",
+            12,
+            Some(&team_file),
+            Some(workspace_root),
+            PathContextType::SoftwarePackage,
+        );
+
+        // Should find yml files
+        assert!(!completions.is_empty());
+
+        // All completions should be for yml files
+        for item in &completions {
+            assert!(item.label.ends_with(".yml") || item.label.ends_with(".yaml"));
+        }
     }
 }
