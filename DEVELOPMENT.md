@@ -410,6 +410,94 @@ In VS Code settings:
 
 This logs all JSON-RPC messages between client and server.
 
+## Sublime Text LSP Setup
+
+The Fleet LSP server also works with Sublime Text via the LSP package.
+
+### Prerequisites
+
+1. **Sublime Text 4** (recommended) or Sublime Text 3
+2. **LSP package** - Install via Package Control
+
+### Installation
+
+#### Step 1: Install the LSP Package
+
+1. Open Command Palette (`Cmd+Shift+P`)
+2. Type "Package Control: Install Package"
+3. Search for "LSP" and install it
+
+#### Step 2: Build or Download fleet-schema-gen
+
+```bash
+cd fleet-schema-gen
+cargo build --release
+# Binary at: target/release/fleet-schema-gen
+```
+
+#### Step 3: Configure LSP
+
+Create or edit `~/Library/Application Support/Sublime Text/Packages/User/LSP.sublime-settings`:
+
+```json
+{
+    "clients": {
+        "fleet-lsp": {
+            "enabled": true,
+            "command": ["/path/to/fleet-schema-gen", "lsp"],
+            "selector": "source.yaml"
+        }
+    }
+}
+```
+
+Replace `/path/to/fleet-schema-gen` with the actual path to your binary.
+
+#### Step 4: Restart Sublime Text
+
+Restart Sublime Text to activate the LSP server.
+
+### Verification
+
+1. Open a Fleet GitOps YAML file (e.g., `default.yml`)
+2. Check the status bar - should show "fleet-lsp"
+3. Type inside `software: packages: -` - you should see completions
+
+### Debugging
+
+Enable debug logging in LSP settings:
+
+```json
+{
+    "log_debug": true,
+    "log_server": ["panel"],
+    "log_stderr": true,
+    "clients": {
+        "fleet-lsp": {
+            "enabled": true,
+            "command": ["/path/to/fleet-schema-gen", "lsp"],
+            "selector": "source.yaml"
+        }
+    }
+}
+```
+
+View logs: `Cmd+Shift+P` → "LSP: Toggle Log Panel"
+
+### Generate Configuration Files
+
+You can also generate Sublime Text configuration files:
+
+```bash
+fleet-schema-gen generate --editor sublime-lsp --output /tmp/sublime-config
+```
+
+This creates:
+- `LSP.sublime-settings` - LSP client configuration
+- `Fleet-LSP.sublime-settings` - Fleet-specific settings with file patterns
+- `README.md` - Installation guide
+- `install.sh` - Helper script
+
 ## Reference Implementation
 
 This extension follows patterns from [typos-lsp](https://github.com/tekumara/typos-lsp):
