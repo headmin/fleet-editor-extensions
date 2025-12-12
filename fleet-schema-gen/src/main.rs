@@ -31,7 +31,7 @@ enum Commands {
         #[arg(short, long, default_value = "./output")]
         output: PathBuf,
 
-        /// Specific editor format (vscode, sublime, intellij, neovim, strict, all)
+        /// Specific editor format (vscode, sublime, sublime-lsp, intellij, neovim, strict, all)
         #[arg(short, long, default_value = "all")]
         editor: String,
 
@@ -180,12 +180,14 @@ async fn main() -> Result<()> {
             match editor.as_str() {
                 "vscode" => generators::vscode::generate(&schema, &output)?,
                 "sublime" => generators::sublime::generate(&schema, &output)?,
+                "sublime-lsp" => generators::sublime_lsp::generate(&output)?,
                 "intellij" => generators::intellij::generate(&schema, &output)?,
                 "neovim" => generators::neovim::generate(&schema, &output)?,
                 "strict" => generators::strict::generate(&schema, &output)?,
                 "all" => {
                     generators::vscode::generate(&schema, &output.join("vscode"))?;
                     generators::sublime::generate(&schema, &output.join("sublime"))?;
+                    generators::sublime_lsp::generate(&output.join("sublime-lsp"))?;
                     generators::intellij::generate(&schema, &output.join("intellij"))?;
                     generators::neovim::generate(&schema, &output.join("neovim"))?;
                     generators::strict::generate(&schema, &output.join("strict"))?;
