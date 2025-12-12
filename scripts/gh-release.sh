@@ -70,10 +70,11 @@ OPTIONS:
     --release              Mark as full release (not prerelease)
     -n, --notes FILE       Release notes from file
     -a, --auto-notes       Generate release notes automatically (default)
-    -f, --force            Force recreate release if exists
     --dist-dir DIR         Distribution directory (default: dist)
     --no-upload            Create release but don't upload artifacts
     -h, --help             Show this help message
+
+NOTE: If a release already exists, artifacts will be updated (--clobber).
 
 EXAMPLES:
     # Create prerelease with auto-detected version
@@ -103,7 +104,6 @@ DRAFT=false
 PRERELEASE=true
 NOTES_FILE=""
 AUTO_NOTES=true
-FORCE=false
 DIST_DIR="dist"
 NO_UPLOAD=false
 
@@ -132,10 +132,6 @@ while [[ $# -gt 0 ]]; do
             ;;
         -a|--auto-notes)
             AUTO_NOTES=true
-            shift
-            ;;
-        -f|--force)
-            FORCE=true
             shift
             ;;
         --dist-dir)
@@ -273,14 +269,7 @@ log_step "Checking GitHub release..."
 RELEASE_EXISTS=false
 if $GH_CLI release view "$TAG_NAME" >/dev/null 2>&1; then
     RELEASE_EXISTS=true
-    log_info "Release $TAG_NAME exists"
-
-    if [ "$FORCE" = true ]; then
-        log_warn "Force mode: deleting existing release..."
-        $GH_CLI release delete "$TAG_NAME" --yes
-        RELEASE_EXISTS=false
-        log_info "✓ Existing release deleted"
-    fi
+    log_info "Release $TAG_NAME exists - will update artifacts"
 fi
 
 if [ "$RELEASE_EXISTS" = false ]; then
