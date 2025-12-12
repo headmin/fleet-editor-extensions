@@ -18,14 +18,20 @@ fleetctl-vscode/
 │   │   └── main.rs            # CLI entry point
 │   └── Cargo.toml
 │
-└── vscode-extension/          # VS Code extension (TypeScript)
+├── vscode-extension/          # VS Code extension (TypeScript)
+│   ├── src/
+│   │   └── extension.ts       # Extension entry point
+│   ├── bin/                   # Platform-specific binaries
+│   │   └── fleet-schema-gen-darwin-arm64
+│   ├── package.json           # Extension manifest
+│   ├── .vscodeignore          # Files to exclude from VSIX
+│   └── tsconfig.json
+│
+└── zed-extension/             # Zed extension (Rust WebAssembly)
     ├── src/
-    │   └── extension.ts       # Extension entry point
-    ├── bin/                   # Platform-specific binaries
-    │   └── fleet-schema-gen-darwin-arm64
-    ├── package.json           # Extension manifest
-    ├── .vscodeignore          # Files to exclude from VSIX
-    └── tsconfig.json
+    │   └── lib.rs             # Extension entry point
+    ├── extension.toml         # Extension manifest
+    └── Cargo.toml
 ```
 
 ### Data Flow
@@ -497,6 +503,119 @@ This creates:
 - `Fleet-LSP.sublime-settings` - Fleet-specific settings with file patterns
 - `README.md` - Installation guide
 - `install.sh` - Helper script
+
+## Zed Editor Extension
+
+The Fleet LSP server also works with [Zed](https://zed.dev) via a native extension.
+
+### Prerequisites
+
+1. **Zed editor** - Download from https://zed.dev
+2. **Rust** (installed via rustup) - Required for building extensions
+
+### Installation
+
+#### Step 1: Install fleet-schema-gen
+
+```bash
+cd fleet-schema-gen
+cargo install --path .
+
+# Verify installation
+fleet-schema-gen --version
+```
+
+#### Step 2: Install the Zed Extension
+
+**Option A: Install as Dev Extension (for development)**
+
+1. Open Zed
+2. Press `Cmd+Shift+X` to open Extensions
+3. Click "Install Dev Extension"
+4. Select the `zed-extension/` folder
+
+**Option B: Build and Install Manually**
+
+```bash
+cd zed-extension
+
+# Install wasm target if needed
+rustup target add wasm32-wasip1
+
+# Build the extension
+cargo build --target wasm32-wasip1 --release
+
+# The extension is now ready to install as a dev extension
+```
+
+### Verification
+
+1. Open a Fleet GitOps YAML file (e.g., `~/test-fleet/teams/engineering/team.yml`)
+2. The file should be detected as "YAML"
+3. You should see:
+   - Diagnostics (squiggly lines) for invalid fields
+   - Completions when typing field names
+   - Hover documentation
+
+### Configuration
+
+You can configure the LSP server in your Zed settings (`~/.config/zed/settings.json`):
+
+```json
+{
+  "lsp": {
+    "fleet-lsp": {
+      "settings": {
+        "fleetVersion": "latest"
+      }
+    }
+  }
+}
+```
+
+### Debugging
+
+Run Zed from terminal with verbose logging:
+
+```bash
+zed --foreground
+```
+
+Check logs in Zed: `Cmd+Shift+P` → "zed: open log"
+
+### Extension Structure
+
+```
+zed-extension/
+├── extension.toml         # Extension manifest
+├── Cargo.toml             # Rust dependencies
+├── src/
+│   └── lib.rs             # Extension implementation (WebAssembly)
+└── README.md
+```
+
+### How It Works
+
+The Zed extension is a Rust WebAssembly module that:
+
+1. Implements the `zed_extension_api::Extension` trait
+2. Finds `fleet-schema-gen` in PATH or common locations (`~/.cargo/bin/`)
+3. Launches it with the `lsp` subcommand
+4. Connects Zed to the LSP server for YAML files
+
+### Troubleshooting
+
+**Extension not loading:**
+- Check that the extension appears in Extensions list
+- Reload extensions: `Cmd+Shift+P` → "zed: reload extensions"
+
+**LSP not starting:**
+- Ensure `fleet-schema-gen` is installed: `which fleet-schema-gen`
+- Check Zed logs for error messages
+
+**No completions/diagnostics:**
+- The LSP only activates for Fleet GitOps file patterns
+- Try opening `default.yml` or a file in `teams/` directory
 
 ## Reference Implementation
 
