@@ -1,0 +1,12 @@
+id = "fleet-gitops"
+name = "Fleet GitOps"
+version = "0.1.0"
+schema_version = 1
+authors = ["Fleet DM <hello@fleetdm.com>"]
+description = "Fleet GitOps YAML validation, completions, and diagnostics for Fleet configuration files"
+repository = "https://github.com/fleetdm/fleet"
+
+[language_servers.fleet-lsp]
+name = "Fleet LSP"
+languages = ["YAML"]
+language_ids = { "YAML" = "yaml" }
