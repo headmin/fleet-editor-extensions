@@ -182,6 +182,8 @@ impl LanguageServer for FleetLspBackend {
                         ":".to_string(),
                         " ".to_string(),
                         "-".to_string(),
+                        "/".to_string(),
+                        ".".to_string(),
                     ]),
                     ..Default::default()
                 }),
