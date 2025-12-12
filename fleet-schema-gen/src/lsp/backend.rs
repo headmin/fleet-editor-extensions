@@ -1,6 +1,8 @@
 //! LSP backend implementation for Fleet GitOps validation.
 
 use dashmap::DashMap;
+use std::path::PathBuf;
+use std::sync::RwLock;
 use tower_lsp::jsonrpc::Result;
 use tower_lsp::lsp_types::{
     CodeActionParams, CodeActionProviderCapability, CodeActionResponse,
@@ -17,7 +19,7 @@ use tower_lsp::lsp_types::{
 };
 use tower_lsp::{Client, LanguageServer};
 
-use crate::linter::Linter;
+use crate::linter::{FleetLintConfig, Linter};
 use super::code_actions::generate_code_actions;
 use super::completion::complete_at;
 use super::diagnostics::lint_error_to_diagnostic;
@@ -33,7 +35,9 @@ pub struct FleetLspBackend {
     /// Document content cache, keyed by URI.
     documents: DashMap<String, String>,
     /// The Fleet GitOps linter.
-    linter: Linter,
+    linter: RwLock<Linter>,
+    /// Workspace root path.
+    workspace_root: RwLock<Option<PathBuf>>,
 }
 
 impl FleetLspBackend {
@@ -42,7 +46,28 @@ impl FleetLspBackend {
         Self {
             client,
             documents: DashMap::new(),
-            linter,
+            linter: RwLock::new(linter),
+            workspace_root: RwLock::new(None),
+        }
+    }
+
+    /// Load configuration from workspace root.
+    fn load_config(&self, workspace_root: &PathBuf) {
+        if let Some((config_path, config)) = FleetLintConfig::find_and_load(workspace_root) {
+            // Update linter with new config
+            if let Ok(mut linter) = self.linter.write() {
+                linter.set_config(config);
+            }
+
+            // Log that we found a config
+            let client = self.client.clone();
+            let path = config_path.display().to_string();
+            tokio::spawn(async move {
+                client.log_message(
+                    MessageType::INFO,
+                    format!("Loaded Fleet config from {}", path)
+                ).await;
+            });
         }
     }
 
@@ -74,7 +99,8 @@ impl FleetLspBackend {
         let file_path_buf = std::path::PathBuf::from(&file_path);
 
         // Use the linter's lint_content method
-        let mut diagnostics = match self.linter.lint_content(content, std::path::Path::new(&file_path)) {
+        let linter = self.linter.read().unwrap();
+        let mut diagnostics = match linter.lint_content(content, std::path::Path::new(&file_path)) {
             Ok(report) => {
                 // Convert all errors to diagnostics
                 let mut diags = Vec::new();
@@ -120,7 +146,27 @@ impl FleetLspBackend {
 
 #[tower_lsp::async_trait]
 impl LanguageServer for FleetLspBackend {
-    async fn initialize(&self, _params: InitializeParams) -> Result<InitializeResult> {
+    async fn initialize(&self, params: InitializeParams) -> Result<InitializeResult> {
+        // Store workspace root and load config
+        if let Some(root_uri) = params.root_uri {
+            if let Ok(path) = root_uri.to_file_path() {
+                if let Ok(mut workspace_root) = self.workspace_root.write() {
+                    *workspace_root = Some(path.clone());
+                }
+                self.load_config(&path);
+            }
+        } else if let Some(folders) = params.workspace_folders {
+            // Use first workspace folder
+            if let Some(folder) = folders.first() {
+                if let Ok(path) = folder.uri.to_file_path() {
+                    if let Ok(mut workspace_root) = self.workspace_root.write() {
+                        *workspace_root = Some(path.clone());
+                    }
+                    self.load_config(&path);
+                }
+            }
+        }
+
         Ok(InitializeResult {
             capabilities: ServerCapabilities {
                 text_document_sync: Some(TextDocumentSyncCapability::Kind(

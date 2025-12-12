@@ -1,4 +1,5 @@
-use super::error::{LintError, LintReport};
+use super::config::FleetLintConfig;
+use super::error::{LintError, LintReport, Severity};
 use super::fleet_config::FleetConfig;
 use super::rules::RuleSet;
 use anyhow::{Context, Result};
@@ -7,17 +8,46 @@ use std::path::Path;
 
 pub struct Linter {
     rules: RuleSet,
+    config: Option<FleetLintConfig>,
 }
 
 impl Linter {
     pub fn new() -> Self {
         Self {
             rules: RuleSet::default_rules(),
+            config: None,
         }
     }
 
     pub fn with_rules(rules: RuleSet) -> Self {
-        Self { rules }
+        Self { rules, config: None }
+    }
+
+    /// Create a linter with configuration.
+    pub fn with_config(config: FleetLintConfig) -> Self {
+        Self {
+            rules: RuleSet::default_rules(),
+            config: Some(config),
+        }
+    }
+
+    /// Create a linter by searching for configuration from a path.
+    pub fn from_path(start_path: &Path) -> Self {
+        let config = FleetLintConfig::find_and_load(start_path).map(|(_, c)| c);
+        Self {
+            rules: RuleSet::default_rules(),
+            config,
+        }
+    }
+
+    /// Get the current configuration, if any.
+    pub fn config(&self) -> Option<&FleetLintConfig> {
+        self.config.as_ref()
+    }
+
+    /// Set the configuration.
+    pub fn set_config(&mut self, config: FleetLintConfig) {
+        self.config = Some(config);
     }
 
     /// Lint a single file
@@ -35,15 +65,35 @@ impl Linter {
     /// such as in an LSP server where the client sends document content.
     pub fn lint_content(&self, content: &str, file_path: &Path) -> Result<LintReport> {
         // Parse YAML
-        let config: FleetConfig = serde_yaml::from_str(content)
+        let fleet_config: FleetConfig = serde_yaml::from_str(content)
             .with_context(|| format!("Failed to parse YAML: {}", file_path.display()))?;
 
         // Run all rules
         let mut report = LintReport::new();
 
+        // Get disabled and warning rules from config
+        let disabled_rules = self.config.as_ref()
+            .map(|c| c.disabled_rules())
+            .unwrap_or_default();
+        let warning_rules = self.config.as_ref()
+            .map(|c| c.warning_rules())
+            .unwrap_or_default();
+
         for rule in self.rules.rules() {
-            let errors = rule.check(&config, file_path, content);
-            for error in errors {
+            // Skip disabled rules
+            if disabled_rules.contains(rule.name()) {
+                continue;
+            }
+
+            let errors = rule.check(&fleet_config, file_path, content);
+
+            // Downgrade to warnings if configured
+            let should_warn = warning_rules.contains(rule.name());
+
+            for mut error in errors {
+                if should_warn && error.severity == Severity::Error {
+                    error.severity = Severity::Warning;
+                }
                 report.add(error);
             }
         }
