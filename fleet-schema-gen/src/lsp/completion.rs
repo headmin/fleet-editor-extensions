@@ -227,14 +227,12 @@ fn find_platform_in_context(source: &str, line_idx: usize) -> Option<String> {
 /// Find the parent array context with full path support.
 fn find_parent_context(source: &str, line_idx: usize) -> Option<String> {
     let lines: Vec<&str> = source.lines().collect();
-    let current_indent = lines
-        .get(line_idx)
-        .map(|l| l.len() - l.trim_start().len())
-        .unwrap_or(0);
+    let current_line = lines.get(line_idx).unwrap_or(&"");
+    let current_indent = current_line.len() - current_line.trim_start().len();
 
     let mut context_stack: Vec<(usize, String)> = vec![];
 
-    for i in (0..=line_idx).rev() {
+    for i in (0..line_idx).rev() {
         let line = lines.get(i).unwrap_or(&"");
         let trimmed = line.trim();
         let indent = line.len() - line.trim_start().len();
@@ -245,7 +243,7 @@ fn find_parent_context(source: &str, line_idx: usize) -> Option<String> {
         }
 
         // Only consider lines with less indentation (parent contexts)
-        if indent < current_indent || (i == line_idx && indent == current_indent) {
+        if indent < current_indent {
             // Check for key definitions (ending with :)
             if let Some(key) = trimmed.strip_suffix(':') {
                 context_stack.push((indent, key.to_string()));
