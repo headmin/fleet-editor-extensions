@@ -448,7 +448,427 @@ pub static FIELD_DOCS: Lazy<HashMap<&'static str, FieldDoc>> = Lazy::new(|| {
             name: "software",
             description: "Software packages to install or manage on hosts.",
             valid_values: None,
-            example: Some("software:\n  packages:\n    - name: google-chrome"),
+            example: Some("software:\n  packages:\n    - path: ../lib/software/firefox.yml"),
+            required: false,
+            field_type: "object",
+        },
+    );
+
+    // =========================================================================
+    // Software package fields
+    // =========================================================================
+    m.insert(
+        "software.packages",
+        FieldDoc {
+            name: "packages",
+            description: "List of software packages to install on hosts. Each item references a package definition file via `path`.",
+            valid_values: None,
+            example: Some("packages:\n  - path: ../lib/software/firefox.yml\n    self_service: true"),
+            required: false,
+            field_type: "array",
+        },
+    );
+
+    m.insert(
+        "software.packages.path",
+        FieldDoc {
+            name: "path",
+            description: "Path to a YAML file defining the software package (URL, install scripts, etc). Paths are relative to the current file.",
+            valid_values: None,
+            example: Some("path: ../lib/macos/software/firefox.yml"),
+            required: true,
+            field_type: "string (file path)",
+        },
+    );
+
+    m.insert(
+        "software.packages.self_service",
+        FieldDoc {
+            name: "self_service",
+            description: "Whether end users can install this package themselves through Fleet Desktop.",
+            valid_values: Some(&["true", "false"]),
+            example: Some("self_service: true"),
+            required: false,
+            field_type: "boolean",
+        },
+    );
+
+    m.insert(
+        "software.packages.install_during_setup",
+        FieldDoc {
+            name: "install_during_setup",
+            description: "Whether to install this package during device setup (MDM enrollment).",
+            valid_values: Some(&["true", "false"]),
+            example: Some("install_during_setup: true"),
+            required: false,
+            field_type: "boolean",
+        },
+    );
+
+    m.insert(
+        "software.packages.categories",
+        FieldDoc {
+            name: "categories",
+            description: "Categories for organizing the software package in Fleet Desktop.",
+            valid_values: None,
+            example: Some("categories:\n  - Productivity\n  - Communication"),
+            required: false,
+            field_type: "array of strings",
+        },
+    );
+
+    m.insert(
+        "software.packages.labels_include_any",
+        FieldDoc {
+            name: "labels_include_any",
+            description: "Only install on hosts that have ANY of these labels.",
+            valid_values: None,
+            example: Some("labels_include_any:\n  - Engineering\n  - Product"),
+            required: false,
+            field_type: "array of strings",
+        },
+    );
+
+    m.insert(
+        "software.packages.labels_exclude_any",
+        FieldDoc {
+            name: "labels_exclude_any",
+            description: "Do not install on hosts that have ANY of these labels.",
+            valid_values: None,
+            example: Some("labels_exclude_any:\n  - Contractors"),
+            required: false,
+            field_type: "array of strings",
+        },
+    );
+
+    m.insert(
+        "software.app_store_apps",
+        FieldDoc {
+            name: "app_store_apps",
+            description: "List of App Store apps (VPP) to install via MDM.",
+            valid_values: None,
+            example: Some("app_store_apps:\n  - app_store_id: \"497799835\""),
+            required: false,
+            field_type: "array",
+        },
+    );
+
+    m.insert(
+        "software.fleet_maintained_apps",
+        FieldDoc {
+            name: "fleet_maintained_apps",
+            description: "List of Fleet-maintained applications to install. These are automatically updated by Fleet.",
+            valid_values: None,
+            example: Some("fleet_maintained_apps:\n  - slug: 1password"),
+            required: false,
+            field_type: "array",
+        },
+    );
+
+    m.insert(
+        "software.fleet_maintained_apps.slug",
+        FieldDoc {
+            name: "slug",
+            description: "The identifier slug for a Fleet-maintained app. Fleet maintains installers for popular apps.",
+            valid_values: None,
+            example: Some("slug: 1password"),
+            required: true,
+            field_type: "string",
+        },
+    );
+
+    m.insert(
+        "software.fleet_maintained_apps.self_service",
+        FieldDoc {
+            name: "self_service",
+            description: "Whether end users can install this app themselves through Fleet Desktop.",
+            valid_values: Some(&["true", "false"]),
+            example: Some("self_service: true"),
+            required: false,
+            field_type: "boolean",
+        },
+    );
+
+    m.insert(
+        "software.fleet_maintained_apps.setup_experience",
+        FieldDoc {
+            name: "setup_experience",
+            description: "Whether to install this app during the macOS Setup Assistant experience.",
+            valid_values: Some(&["true", "false"]),
+            example: Some("setup_experience: true"),
+            required: false,
+            field_type: "boolean",
+        },
+    );
+
+    m.insert(
+        "software.app_store_apps.app_store_id",
+        FieldDoc {
+            name: "app_store_id",
+            description: "The Apple App Store ID for the app to install via VPP.",
+            valid_values: None,
+            example: Some("app_store_id: \"497799835\""),
+            required: true,
+            field_type: "string",
+        },
+    );
+
+    m.insert(
+        "software.app_store_apps.self_service",
+        FieldDoc {
+            name: "self_service",
+            description: "Whether end users can install this app themselves through Fleet Desktop.",
+            valid_values: Some(&["true", "false"]),
+            example: Some("self_service: true"),
+            required: false,
+            field_type: "boolean",
+        },
+    );
+
+    m.insert(
+        "software.packages.setup_experience",
+        FieldDoc {
+            name: "setup_experience",
+            description: "Whether to install this package during the macOS Setup Assistant experience.",
+            valid_values: Some(&["true", "false"]),
+            example: Some("setup_experience: true"),
+            required: false,
+            field_type: "boolean",
+        },
+    );
+
+    // =========================================================================
+    // Controls fields
+    // =========================================================================
+    m.insert(
+        "controls.enable_disk_encryption",
+        FieldDoc {
+            name: "enable_disk_encryption",
+            description: "Whether to enable disk encryption (FileVault on macOS, BitLocker on Windows) via MDM.",
+            valid_values: Some(&["true", "false"]),
+            example: Some("enable_disk_encryption: true"),
+            required: false,
+            field_type: "boolean",
+        },
+    );
+
+    m.insert(
+        "controls.macos_settings",
+        FieldDoc {
+            name: "macos_settings",
+            description: "MDM settings specific to macOS devices.",
+            valid_values: None,
+            example: Some("macos_settings:\n  custom_settings:\n    - path: profiles/filevault.mobileconfig"),
+            required: false,
+            field_type: "object",
+        },
+    );
+
+    m.insert(
+        "controls.macos_settings.custom_settings",
+        FieldDoc {
+            name: "custom_settings",
+            description: "List of custom configuration profiles to install on macOS devices.",
+            valid_values: None,
+            example: Some("custom_settings:\n  - path: profiles/security.mobileconfig\n    labels_include_any:\n      - Engineering"),
+            required: false,
+            field_type: "array",
+        },
+    );
+
+    m.insert(
+        "controls.macos_settings.macos_setup",
+        FieldDoc {
+            name: "macos_setup",
+            description: "Configuration for the macOS Setup Assistant experience.",
+            valid_values: None,
+            example: Some("macos_setup:\n  bootstrap_package: bootstrap/pkg.pkg\n  enable_end_user_authentication: true"),
+            required: false,
+            field_type: "object",
+        },
+    );
+
+    m.insert(
+        "controls.macos_settings.macos_updates",
+        FieldDoc {
+            name: "macos_updates",
+            description: "macOS software update enforcement settings.",
+            valid_values: None,
+            example: Some("macos_updates:\n  minimum_version: \"15.0\"\n  deadline: \"2024-12-31\""),
+            required: false,
+            field_type: "object",
+        },
+    );
+
+    m.insert(
+        "controls.windows_settings",
+        FieldDoc {
+            name: "windows_settings",
+            description: "MDM settings specific to Windows devices.",
+            valid_values: None,
+            example: Some("windows_settings:\n  custom_settings:\n    - path: profiles/security.xml"),
+            required: false,
+            field_type: "object",
+        },
+    );
+
+    m.insert(
+        "controls.windows_settings.custom_settings",
+        FieldDoc {
+            name: "custom_settings",
+            description: "List of custom configuration profiles to install on Windows devices.",
+            valid_values: None,
+            example: Some("custom_settings:\n  - path: profiles/bitlocker.xml"),
+            required: false,
+            field_type: "array",
+        },
+    );
+
+    m.insert(
+        "controls.windows_settings.windows_updates",
+        FieldDoc {
+            name: "windows_updates",
+            description: "Windows Update enforcement settings.",
+            valid_values: None,
+            example: Some("windows_updates:\n  deadline_days: 7\n  grace_period_days: 2"),
+            required: false,
+            field_type: "object",
+        },
+    );
+
+    m.insert(
+        "controls.scripts",
+        FieldDoc {
+            name: "scripts",
+            description: "List of scripts to run on hosts. Each item references a script file via `path`.",
+            valid_values: None,
+            example: Some("scripts:\n  - path: scripts/setup.sh"),
+            required: false,
+            field_type: "array",
+        },
+    );
+
+    // =========================================================================
+    // Team settings fields
+    // =========================================================================
+    m.insert(
+        "team_settings",
+        FieldDoc {
+            name: "team_settings",
+            description: "Settings specific to this team.",
+            valid_values: None,
+            example: Some("team_settings:\n  secrets:\n    - secret: $ENROLL_SECRET"),
+            required: false,
+            field_type: "object",
+        },
+    );
+
+    m.insert(
+        "team_settings.secrets",
+        FieldDoc {
+            name: "secrets",
+            description: "Enrollment secrets for adding hosts to this team.",
+            valid_values: None,
+            example: Some("secrets:\n  - secret: $ENROLL_SECRET"),
+            required: false,
+            field_type: "array",
+        },
+    );
+
+    m.insert(
+        "team_settings.features",
+        FieldDoc {
+            name: "features",
+            description: "Feature flags for this team.",
+            valid_values: None,
+            example: Some("features:\n  enable_host_users: true\n  enable_software_inventory: true"),
+            required: false,
+            field_type: "object",
+        },
+    );
+
+    m.insert(
+        "team_settings.webhook_settings",
+        FieldDoc {
+            name: "webhook_settings",
+            description: "Webhook configuration for this team.",
+            valid_values: None,
+            example: Some("webhook_settings:\n  failing_policies_webhook:\n    enable_failing_policies_webhook: true"),
+            required: false,
+            field_type: "object",
+        },
+    );
+
+    m.insert(
+        "team_settings.integrations",
+        FieldDoc {
+            name: "integrations",
+            description: "Third-party integrations for this team (Google Calendar, etc.).",
+            valid_values: None,
+            example: Some("integrations:\n  google_calendar:\n    enable_calendar_events: true"),
+            required: false,
+            field_type: "object",
+        },
+    );
+
+    m.insert(
+        "team_settings.host_expiry_settings",
+        FieldDoc {
+            name: "host_expiry_settings",
+            description: "Settings for automatically removing inactive hosts.",
+            valid_values: None,
+            example: Some("host_expiry_settings:\n  host_expiry_enabled: true\n  host_expiry_window: 30"),
+            required: false,
+            field_type: "object",
+        },
+    );
+
+    // =========================================================================
+    // Agent options fields
+    // =========================================================================
+    m.insert(
+        "agent_options.config",
+        FieldDoc {
+            name: "config",
+            description: "osquery configuration options.",
+            valid_values: None,
+            example: Some("config:\n  options:\n    distributed_interval: 10"),
+            required: false,
+            field_type: "object",
+        },
+    );
+
+    m.insert(
+        "agent_options.config.options",
+        FieldDoc {
+            name: "options",
+            description: "osquery daemon options (intervals, endpoints, etc.).",
+            valid_values: None,
+            example: Some("options:\n  distributed_interval: 10\n  logger_tls_period: 60"),
+            required: false,
+            field_type: "object",
+        },
+    );
+
+    m.insert(
+        "agent_options.config.decorators",
+        FieldDoc {
+            name: "decorators",
+            description: "osquery decorators that add extra columns to query results.",
+            valid_values: None,
+            example: Some("decorators:\n  load:\n    - SELECT hostname FROM system_info"),
+            required: false,
+            field_type: "object",
+        },
+    );
+
+    m.insert(
+        "agent_options.update_channels",
+        FieldDoc {
+            name: "update_channels",
+            description: "Update channels for Fleet agent components (osqueryd, orbit, desktop).",
+            valid_values: None,
+            example: Some("update_channels:\n  osqueryd: stable\n  orbit: stable"),
             required: false,
             field_type: "object",
         },
@@ -562,5 +982,86 @@ mod tests {
     fn test_logging_docs() {
         assert!(get_logging_doc("snapshot").is_some());
         assert!(get_logging_doc("differential").is_some());
+    }
+
+    /// Test that schema covers all critical Fleet GitOps fields from workstations.yml
+    /// Reference: https://github.com/fleetdm/fleet/blob/main/it-and-security/teams/workstations.yml
+    #[test]
+    fn test_schema_coverage_for_fleet_gitops() {
+        // Top-level sections
+        let top_level = ["name", "team_settings", "agent_options", "controls", "policies", "queries", "software"];
+        for field in top_level {
+            assert!(get_field_doc(field).is_some(), "Missing doc for top-level field: {}", field);
+        }
+
+        // Software section - IMPORTANT: packages use `path`, not `name`
+        let software_fields = [
+            "software.packages",
+            "software.packages.path",
+            "software.packages.self_service",
+            "software.packages.setup_experience",
+            "software.app_store_apps",
+            "software.app_store_apps.app_store_id",
+            "software.fleet_maintained_apps",
+            "software.fleet_maintained_apps.slug",
+        ];
+        for field in software_fields {
+            assert!(get_field_doc(field).is_some(), "Missing doc for software field: {}", field);
+        }
+
+        // Verify software.packages does NOT have a `name` field (it uses path references)
+        // Use FIELD_DOCS.get() directly to check exact key, since get_field_doc() has fallbacks
+        assert!(
+            FIELD_DOCS.get("software.packages.name").is_none(),
+            "software.packages should not have a 'name' field - it uses 'path' to reference package files"
+        );
+
+        // Controls section
+        let controls_fields = [
+            "controls.enable_disk_encryption",
+            "controls.macos_settings",
+            "controls.macos_settings.custom_settings",
+            "controls.windows_settings",
+            "controls.scripts",
+        ];
+        for field in controls_fields {
+            assert!(get_field_doc(field).is_some(), "Missing doc for controls field: {}", field);
+        }
+
+        // Team settings section
+        let team_settings_fields = [
+            "team_settings",
+            "team_settings.secrets",
+            "team_settings.features",
+        ];
+        for field in team_settings_fields {
+            assert!(get_field_doc(field).is_some(), "Missing doc for team_settings field: {}", field);
+        }
+
+        // Agent options section
+        let agent_options_fields = [
+            "agent_options.config",
+            "agent_options.config.options",
+        ];
+        for field in agent_options_fields {
+            assert!(get_field_doc(field).is_some(), "Missing doc for agent_options field: {}", field);
+        }
+    }
+
+    /// Test that examples don't contain incorrect field structures
+    #[test]
+    fn test_examples_are_valid() {
+        for (path, doc) in FIELD_DOCS.iter() {
+            if let Some(example) = doc.example {
+                // software.packages examples should use `path:`, not `name:`
+                if path.starts_with("software.packages") || *path == "software" {
+                    assert!(
+                        !example.contains("- name:") || !example.contains("packages"),
+                        "Example for {} incorrectly shows 'name:' under packages. Should use 'path:'. Example: {}",
+                        path, example
+                    );
+                }
+            }
+        }
     }
 }

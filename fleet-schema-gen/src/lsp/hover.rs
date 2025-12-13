@@ -98,7 +98,7 @@ fn find_word_at(line: &str, col: usize) -> Option<(String, usize, usize)> {
 /// Determine the hover content based on context.
 fn determine_hover_content(source: &str, line_idx: usize, line: &str, word: &str) -> Option<String> {
     // Determine context by looking at surrounding lines
-    let context = determine_yaml_context(source, line_idx);
+    let context = determine_full_yaml_context(source, line_idx);
 
     // Check if this is a YAML key (followed by colon)
     let is_key = line.contains(&format!("{}:", word));
@@ -107,11 +107,19 @@ fn determine_hover_content(source: &str, line_idx: usize, line: &str, word: &str
     let is_value = is_value_context(line, word);
 
     if is_key {
-        // This is a field name - look up field documentation
+        // This is a field name - look up field documentation with full context path
         let field_path = format!("{}.{}", context, word);
         if let Some(doc) = get_field_doc(&field_path) {
             return Some(doc.to_markdown());
         }
+
+        // Try with simpler context (e.g., "software" instead of "software.packages")
+        let simple_context = determine_yaml_context(source, line_idx);
+        let simple_path = format!("{}.{}", simple_context, word);
+        if let Some(doc) = get_field_doc(&simple_path) {
+            return Some(doc.to_markdown());
+        }
+
         // Try without context prefix
         if let Some(doc) = get_field_doc(word) {
             return Some(doc.to_markdown());
@@ -189,6 +197,60 @@ fn determine_yaml_context(source: &str, line_idx: usize) -> &'static str {
     }
 
     "root"
+}
+
+/// Determine the full YAML context path (e.g., "software.packages") at a line.
+fn determine_full_yaml_context(source: &str, line_idx: usize) -> String {
+    let lines: Vec<&str> = source.lines().collect();
+    let mut path_parts: Vec<&str> = Vec::new();
+    let mut last_indent: i32 = -1;
+
+    // Get the indentation of the current line
+    let current_line = lines.get(line_idx).unwrap_or(&"");
+    let current_indent = current_line.len() - current_line.trim_start().len();
+
+    // Look backwards and build path based on decreasing indentation
+    for i in (0..line_idx).rev() {
+        let line = lines.get(i).unwrap_or(&"");
+        let trimmed = line.trim();
+
+        // Skip empty lines and comments
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            continue;
+        }
+
+        let indent = (line.len() - line.trim_start().len()) as i32;
+
+        // Only consider lines with less indentation than current
+        if indent < current_indent as i32 && (last_indent == -1 || indent < last_indent) {
+            // Extract key if this line has one
+            if let Some(key) = extract_key_from_yaml_line(trimmed) {
+                path_parts.push(key);
+                last_indent = indent;
+
+                // Stop at root level
+                if indent == 0 {
+                    break;
+                }
+            }
+        }
+    }
+
+    // Reverse to get root-to-leaf order
+    path_parts.reverse();
+    path_parts.join(".")
+}
+
+/// Extract the key from a YAML line (handles both "key:" and "- key:" formats).
+fn extract_key_from_yaml_line(line: &str) -> Option<&str> {
+    let trimmed = line.trim().trim_start_matches('-').trim();
+    if let Some(colon_pos) = trimmed.find(':') {
+        let key = trimmed[..colon_pos].trim();
+        if !key.is_empty() && !key.contains(' ') {
+            return Some(key);
+        }
+    }
+    None
 }
 
 /// Check if we're in an SQL context (inside a query field).
