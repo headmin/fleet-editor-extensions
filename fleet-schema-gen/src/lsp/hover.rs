@@ -207,7 +207,7 @@ fn determine_yaml_context(source: &str, line_idx: usize) -> &'static str {
 }
 
 /// Infer context from the file structure when there's no explicit top-level key.
-/// This handles lib/ files that contain standalone policy/query definitions.
+/// This handles lib/ files that contain standalone policy/query/software definitions.
 fn infer_context_from_structure(source: &str) -> Option<&'static str> {
     let lines: Vec<&str> = source.lines().collect();
 
@@ -218,7 +218,7 @@ fn infer_context_from_structure(source: &str) -> Option<&'static str> {
             continue;
         }
 
-        // If file starts with "- name:", it's a list of items
+        // If file starts with "- name:", it's a list of items (policies/queries)
         // Determine type by looking for characteristic fields
         if trimmed.starts_with("- name:") {
             // Look for fields that distinguish policies from queries
@@ -230,11 +230,12 @@ fn infer_context_from_structure(source: &str) -> Option<&'static str> {
                     || check_trimmed.starts_with("calendar_events_enabled:") {
                     return Some("policies");
                 }
-                // Queries have: interval, logging, observer_can_run, automations_enabled
+                // Queries have: interval, logging, observer_can_run, automations_enabled, discard_data
                 if check_trimmed.starts_with("interval:")
                     || check_trimmed.starts_with("logging:")
                     || check_trimmed.starts_with("observer_can_run:")
-                    || check_trimmed.starts_with("automations_enabled:") {
+                    || check_trimmed.starts_with("automations_enabled:")
+                    || check_trimmed.starts_with("discard_data:") {
                     return Some("queries");
                 }
                 // Labels have: label_membership_type, hosts (for manual labels)
@@ -254,6 +255,26 @@ fn infer_context_from_structure(source: &str) -> Option<&'static str> {
             if has_query {
                 return Some("queries");
             }
+        }
+
+        // Software lib file: starts with "url:" (single object, not a list)
+        if trimmed.starts_with("url:") {
+            return Some("software_lib");
+        }
+
+        // Software lib file might also have icon: or install_script: at top level
+        if trimmed.starts_with("icon:") || trimmed.starts_with("install_script:") {
+            return Some("software_lib");
+        }
+
+        // Agent options lib file: starts with "config:" (single object)
+        if trimmed.starts_with("config:") {
+            return Some("agent_options");
+        }
+
+        // Agent options lib file might start with update_channels:
+        if trimmed.starts_with("update_channels:") {
+            return Some("agent_options");
         }
 
         break;

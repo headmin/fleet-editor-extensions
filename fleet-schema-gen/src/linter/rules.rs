@@ -696,17 +696,7 @@ fn check_query_syntax(query: &str, item_name: &str, file: &Path) -> Vec<LintErro
         );
     }
 
-    // Check that query doesn't end with semicolon (osquery doesn't require it and some clients have issues)
-    if query_trimmed.ends_with(';') {
-        errors.push(
-            LintError::info(
-                format!("{} ends with semicolon", item_name),
-                file,
-            )
-            .with_help("Trailing semicolons are optional and can sometimes cause issues")
-            .with_suggestion(query_trimmed.trim_end_matches(';').to_string())
-        );
-    }
+    // Note: Trailing semicolons in queries are common and OK - don't warn about them
 
     errors
 }

@@ -1,6 +1,6 @@
 use super::config::FleetLintConfig;
 use super::error::{LintError, LintReport, Severity};
-use super::fleet_config::{FleetConfig, Policy, PolicyOrPath, Query, QueryOrPath, Label, LabelOrPath};
+use super::fleet_config::{FleetConfig, Policy, PolicyOrPath, Query, QueryOrPath, Label, LabelOrPath, SoftwarePackage, AgentOptionsLib};
 use super::rules::RuleSet;
 use anyhow::{Context, Result};
 use std::fs;
@@ -85,6 +85,14 @@ impl Linter {
                         labels: Some(labels.into_iter().map(LabelOrPath::Label).collect()),
                         ..Default::default()
                     }
+                } else if let Ok(_software) = serde_yaml::from_str::<SoftwarePackage>(content) {
+                    // Software package lib file (single object with url, icon, scripts)
+                    // We don't lint these yet, but we recognize them
+                    FleetConfig::default()
+                } else if let Ok(_agent_options) = serde_yaml::from_str::<AgentOptionsLib>(content) {
+                    // Agent options lib file (single object with config, update_channels)
+                    // We don't lint these yet, but we recognize them
+                    FleetConfig::default()
                 } else {
                     // Last resort: try parsing as generic YAML to give a better error
                     let _: serde_yaml::Value = serde_yaml::from_str(content)

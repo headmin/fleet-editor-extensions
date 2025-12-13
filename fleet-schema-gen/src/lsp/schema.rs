@@ -292,6 +292,18 @@ pub static FIELD_DOCS: Lazy<HashMap<&'static str, FieldDoc>> = Lazy::new(|| {
         },
     );
 
+    m.insert(
+        "queries.discard_data",
+        FieldDoc {
+            name: "discard_data",
+            description: "Whether to discard query results after processing. Useful for queries that only trigger automations.",
+            valid_values: Some(&["true", "false"]),
+            example: Some("discard_data: false"),
+            required: false,
+            field_type: "boolean",
+        },
+    );
+
     // =========================================================================
     // Label fields
     // =========================================================================
@@ -634,6 +646,173 @@ pub static FIELD_DOCS: Lazy<HashMap<&'static str, FieldDoc>> = Lazy::new(|| {
             example: Some("setup_experience: true"),
             required: false,
             field_type: "boolean",
+        },
+    );
+
+    // =========================================================================
+    // Software lib file fields (standalone package definitions)
+    // These are used in lib/*/software/*.yml files
+    // =========================================================================
+    m.insert(
+        "software_lib.url",
+        FieldDoc {
+            name: "url",
+            description: "URL to download the software installer package (.pkg, .dmg, .msi, etc.).",
+            valid_values: None,
+            example: Some("url: https://downloads.1password.com/mac/1Password.pkg"),
+            required: true,
+            field_type: "string (URL)",
+        },
+    );
+
+    m.insert(
+        "software_lib.icon",
+        FieldDoc {
+            name: "icon",
+            description: "Icon to display for this software in Fleet Desktop.",
+            valid_values: None,
+            example: Some("icon:\n  path: ../../all/icons/app-logo.png"),
+            required: false,
+            field_type: "object with path",
+        },
+    );
+
+    m.insert(
+        "software_lib.install_script",
+        FieldDoc {
+            name: "install_script",
+            description: "Custom script to run for installation instead of the default installer.",
+            valid_values: None,
+            example: Some("install_script:\n  path: ./scripts/install.sh"),
+            required: false,
+            field_type: "object with path",
+        },
+    );
+
+    m.insert(
+        "software_lib.post_install_script",
+        FieldDoc {
+            name: "post_install_script",
+            description: "Script to run after the software is installed.",
+            valid_values: None,
+            example: Some("post_install_script:\n  path: ./scripts/post-install.sh"),
+            required: false,
+            field_type: "object with path",
+        },
+    );
+
+    m.insert(
+        "software_lib.uninstall_script",
+        FieldDoc {
+            name: "uninstall_script",
+            description: "Script to run when uninstalling the software.",
+            valid_values: None,
+            example: Some("uninstall_script:\n  path: ./scripts/uninstall.sh"),
+            required: false,
+            field_type: "object with path",
+        },
+    );
+
+    m.insert(
+        "software_lib.pre_install_query",
+        FieldDoc {
+            name: "pre_install_query",
+            description: "osquery SQL query to check before installing. Installation proceeds only if the query returns results.",
+            valid_values: None,
+            example: Some("pre_install_query:\n  path: ./queries/check-requirements.sql"),
+            required: false,
+            field_type: "object with path",
+        },
+    );
+
+    m.insert(
+        "software_lib.hash_sha256",
+        FieldDoc {
+            name: "hash_sha256",
+            description: "SHA256 hash of the installer package for verification.",
+            valid_values: None,
+            example: Some("hash_sha256: abc123..."),
+            required: false,
+            field_type: "string",
+        },
+    );
+
+    // =========================================================================
+    // Agent options lib file fields (standalone agent options definitions)
+    // These are used in lib/*/agent-options/*.yml files
+    // =========================================================================
+    m.insert(
+        "agent_options.config",
+        FieldDoc {
+            name: "config",
+            description: "osquery configuration options including decorators and runtime settings.",
+            valid_values: None,
+            example: Some("config:\n  decorators:\n    load:\n      - SELECT host_uuid AS uuid FROM system_info\n  options:\n    distributed_interval: 10"),
+            required: false,
+            field_type: "object",
+        },
+    );
+
+    m.insert(
+        "agent_options.config.decorators",
+        FieldDoc {
+            name: "decorators",
+            description: "osquery decorators that add extra columns to query results. Commonly used for host identification.",
+            valid_values: None,
+            example: Some("decorators:\n  load:\n    - SELECT host_uuid AS uuid FROM system_info\n    - SELECT hostname FROM system_info"),
+            required: false,
+            field_type: "object",
+        },
+    );
+
+    m.insert(
+        "agent_options.config.options",
+        FieldDoc {
+            name: "options",
+            description: "osquery daemon runtime options (intervals, endpoints, logging settings).",
+            valid_values: None,
+            example: Some("options:\n  distributed_interval: 10\n  distributed_tls_max_attempts: 3\n  logger_tls_period: 60"),
+            required: false,
+            field_type: "object",
+        },
+    );
+
+    m.insert(
+        "agent_options.update_channels",
+        FieldDoc {
+            name: "update_channels",
+            description: "Update channels for Fleet agent components. Use 'stable', 'edge', or specific versions.",
+            valid_values: Some(&["stable", "edge"]),
+            example: Some("update_channels:\n  osqueryd: stable\n  orbit: stable\n  desktop: edge"),
+            required: false,
+            field_type: "object",
+        },
+    );
+
+    // =========================================================================
+    // Labels fields (for lib label files)
+    // =========================================================================
+    m.insert(
+        "labels.label_membership_type",
+        FieldDoc {
+            name: "label_membership_type",
+            description: "How hosts are assigned to this label. 'dynamic' uses the query, 'manual' requires explicit assignment.",
+            valid_values: Some(&["dynamic", "manual"]),
+            example: Some("label_membership_type: dynamic"),
+            required: false,
+            field_type: "string",
+        },
+    );
+
+    m.insert(
+        "labels.hosts",
+        FieldDoc {
+            name: "hosts",
+            description: "List of host identifiers for manual label membership. Only used when label_membership_type is 'manual'.",
+            valid_values: None,
+            example: Some("hosts:\n  - host1.example.com\n  - host2.example.com"),
+            required: false,
+            field_type: "array of strings",
         },
     );
 

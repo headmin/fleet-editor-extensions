@@ -157,3 +157,67 @@ pub struct WebhookSettings {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub enable_vulnerabilities_webhook: Option<bool>,
 }
+
+/// Software package definition (lib file format)
+/// These are standalone files that define a software installer
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct SoftwarePackage {
+    /// URL to download the software package
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub url: Option<String>,
+
+    /// Whether this is self-service software
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub self_service: Option<bool>,
+
+    /// Icon for the software package
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub icon: Option<SoftwareAsset>,
+
+    /// Pre-install query to check before installing
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pre_install_query: Option<SoftwareAsset>,
+
+    /// Install script
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub install_script: Option<SoftwareAsset>,
+
+    /// Post-install script
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub post_install_script: Option<SoftwareAsset>,
+
+    /// Uninstall script
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub uninstall_script: Option<SoftwareAsset>,
+
+    /// SHA256 hash of the package
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub hash_sha256: Option<String>,
+
+    /// Catch-all for unknown fields
+    #[serde(flatten)]
+    pub other: Option<serde_yaml::Value>,
+}
+
+/// Asset reference (path to a file)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SoftwareAsset {
+    pub path: String,
+}
+
+/// Agent options lib file structure
+/// These are standalone files that define agent options configuration
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct AgentOptionsLib {
+    /// osquery configuration options
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub config: Option<serde_yaml::Value>,
+
+    /// Update channels for Fleet components (osqueryd, orbit, desktop)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub update_channels: Option<serde_yaml::Value>,
+
+    /// Catch-all for unknown fields
+    #[serde(flatten)]
+    pub other: Option<serde_yaml::Value>,
+}
