@@ -1,6 +1,6 @@
 use super::config::FleetLintConfig;
 use super::error::{LintError, LintReport, Severity};
-use super::fleet_config::FleetConfig;
+use super::fleet_config::{FleetConfig, Policy, PolicyOrPath, Query, QueryOrPath, Label, LabelOrPath};
 use super::rules::RuleSet;
 use anyhow::{Context, Result};
 use std::fs;
@@ -64,9 +64,37 @@ impl Linter {
     /// This method is useful when the file content is already available,
     /// such as in an LSP server where the client sends document content.
     pub fn lint_content(&self, content: &str, file_path: &Path) -> Result<LintReport> {
-        // Parse YAML
-        let fleet_config: FleetConfig = serde_yaml::from_str(content)
-            .with_context(|| format!("Failed to parse YAML: {}", file_path.display()))?;
+        // Try to parse as FleetConfig first (team files with policies:, queries:, etc.)
+        // If that fails, try to parse as a lib file (array of policies/queries directly)
+        let fleet_config: FleetConfig = match serde_yaml::from_str(content) {
+            Ok(config) => config,
+            Err(_) => {
+                // Try parsing as a lib file (array of policies or queries)
+                if let Ok(policies) = serde_yaml::from_str::<Vec<Policy>>(content) {
+                    FleetConfig {
+                        policies: Some(policies.into_iter().map(PolicyOrPath::Policy).collect()),
+                        ..Default::default()
+                    }
+                } else if let Ok(queries) = serde_yaml::from_str::<Vec<Query>>(content) {
+                    FleetConfig {
+                        queries: Some(queries.into_iter().map(QueryOrPath::Query).collect()),
+                        ..Default::default()
+                    }
+                } else if let Ok(labels) = serde_yaml::from_str::<Vec<Label>>(content) {
+                    FleetConfig {
+                        labels: Some(labels.into_iter().map(LabelOrPath::Label).collect()),
+                        ..Default::default()
+                    }
+                } else {
+                    // Last resort: try parsing as generic YAML to give a better error
+                    let _: serde_yaml::Value = serde_yaml::from_str(content)
+                        .with_context(|| format!("Failed to parse YAML: {}", file_path.display()))?;
+                    // If it parsed as generic YAML but not our types, return empty config
+                    // (the file might be a software definition or other type we don't lint yet)
+                    FleetConfig::default()
+                }
+            }
+        };
 
         // Run all rules
         let mut report = LintReport::new();

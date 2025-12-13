@@ -196,7 +196,70 @@ fn determine_yaml_context(source: &str, line_idx: usize) -> &'static str {
         }
     }
 
+    // If no context found, try to infer from file structure
+    // lib/ files often contain standalone policy/query definitions (list of items)
+    // Check if file starts with "- name:" which indicates a list of policies/queries
+    if let Some(context) = infer_context_from_structure(source) {
+        return context;
+    }
+
     "root"
+}
+
+/// Infer context from the file structure when there's no explicit top-level key.
+/// This handles lib/ files that contain standalone policy/query definitions.
+fn infer_context_from_structure(source: &str) -> Option<&'static str> {
+    let lines: Vec<&str> = source.lines().collect();
+
+    // Look for the first non-empty, non-comment line
+    for line in &lines {
+        let trimmed = line.trim();
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            continue;
+        }
+
+        // If file starts with "- name:", it's a list of items
+        // Determine type by looking for characteristic fields
+        if trimmed.starts_with("- name:") {
+            // Look for fields that distinguish policies from queries
+            for check_line in &lines {
+                let check_trimmed = check_line.trim();
+                // Policies have: resolution, critical, calendar_events_enabled
+                if check_trimmed.starts_with("resolution:")
+                    || check_trimmed.starts_with("critical:")
+                    || check_trimmed.starts_with("calendar_events_enabled:") {
+                    return Some("policies");
+                }
+                // Queries have: interval, logging, observer_can_run, automations_enabled
+                if check_trimmed.starts_with("interval:")
+                    || check_trimmed.starts_with("logging:")
+                    || check_trimmed.starts_with("observer_can_run:")
+                    || check_trimmed.starts_with("automations_enabled:") {
+                    return Some("queries");
+                }
+                // Labels have: label_membership_type, hosts (for manual labels)
+                if check_trimmed.starts_with("label_membership_type:")
+                    || (check_trimmed.starts_with("hosts:") && !check_trimmed.contains("http")) {
+                    return Some("labels");
+                }
+            }
+
+            // Default: if it has query: and platform:, it's likely a policy
+            // (policies use query for compliance check, queries use query for data collection)
+            let has_query = lines.iter().any(|l| l.trim().starts_with("query:"));
+            let has_platform = lines.iter().any(|l| l.trim().starts_with("platform:"));
+            if has_query && has_platform {
+                return Some("policies");
+            }
+            if has_query {
+                return Some("queries");
+            }
+        }
+
+        break;
+    }
+
+    None
 }
 
 /// Determine the full YAML context path (e.g., "software.packages") at a line.
@@ -238,6 +301,14 @@ fn determine_full_yaml_context(source: &str, line_idx: usize) -> String {
 
     // Reverse to get root-to-leaf order
     path_parts.reverse();
+
+    // If we found no parent context (lib file with direct list), infer from structure
+    if path_parts.is_empty() {
+        if let Some(inferred) = infer_context_from_structure(source) {
+            return inferred.to_string();
+        }
+    }
+
     path_parts.join(".")
 }
 
@@ -388,5 +459,79 @@ mod tests {
         assert_eq!(extract_key_from_line("  platform: darwin"), Some("platform".to_string()));
         assert_eq!(extract_key_from_line("- name: test"), Some("name".to_string()));
         assert_eq!(extract_key_from_line("  - query: SELECT 1"), Some("query".to_string()));
+    }
+
+    // Tests for lib/ file detection (standalone policy/query definitions)
+    #[test]
+    fn test_infer_context_from_structure_policy() {
+        // lib/linux/policies/linux-device-health.policies.yml format
+        let source = r#"- name: Linux - Enable disk encryption
+  platform: linux
+  description: This policy checks if disk encryption is enabled.
+  resolution: As an IT admin, deploy an image that includes disk encryption.
+  query: SELECT 1 FROM disk_encryption WHERE encrypted=1;"#;
+
+        assert_eq!(infer_context_from_structure(source), Some("policies"));
+    }
+
+    #[test]
+    fn test_infer_context_from_structure_query() {
+        // lib/queries format with interval (characteristic of queries, not policies)
+        let source = r#"- name: Get running processes
+  query: SELECT * FROM processes
+  interval: 3600
+  logging: differential"#;
+
+        assert_eq!(infer_context_from_structure(source), Some("queries"));
+    }
+
+    #[test]
+    fn test_hover_in_lib_policy_file() {
+        // Simulate a lib/ policy file with no "policies:" wrapper
+        let source = r#"- name: Linux - Enable disk encryption
+  platform: linux
+  description: This policy checks if disk encryption is enabled.
+  resolution: As an IT admin, deploy an image that includes disk encryption.
+  query: SELECT 1 FROM disk_encryption WHERE encrypted=1;"#;
+
+        // Hovering over "platform" should show policy.platform documentation
+        let hover = hover_at(source, Position { line: 1, character: 3 });
+        assert!(hover.is_some());
+        let content = match hover.unwrap().contents {
+            HoverContents::Markup(m) => m.value,
+            _ => panic!("Expected markup content"),
+        };
+        assert!(content.contains("platform"), "Should show platform documentation");
+    }
+
+    #[test]
+    fn test_hover_in_lib_policy_file_resolution() {
+        // Simulate a lib/ policy file with no "policies:" wrapper
+        let source = r#"- name: Linux - Enable disk encryption
+  platform: linux
+  description: This policy checks if disk encryption is enabled.
+  resolution: As an IT admin, deploy an image that includes disk encryption.
+  query: SELECT 1 FROM disk_encryption WHERE encrypted=1;"#;
+
+        // Hovering over "resolution" should show policy.resolution documentation
+        let hover = hover_at(source, Position { line: 3, character: 3 });
+        assert!(hover.is_some());
+        let content = match hover.unwrap().contents {
+            HoverContents::Markup(m) => m.value,
+            _ => panic!("Expected markup content"),
+        };
+        assert!(content.contains("resolution"), "Should show resolution documentation");
+    }
+
+    #[test]
+    fn test_determine_yaml_context_lib_file() {
+        // lib/ file with no top-level key, just a list of policies
+        let source = r#"- name: Test Policy
+  platform: darwin
+  resolution: Fix it
+  query: SELECT 1"#;
+
+        // Should detect as "policies" context
+        assert_eq!(determine_yaml_context(source, 1), "policies");
     }
 }
