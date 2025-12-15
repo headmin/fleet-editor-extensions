@@ -1,0 +1,18 @@
+{
+	// Custom path to the fleet-schema-gen binary.
+	// Leave empty to use auto-download or PATH lookup.
+	"binary_path": "",
+
+	// LSP client configuration
+	"client": {
+		"enabled": true,
+		"command": ["${binary_path}", "lsp"],
+		"selector": "source.yaml",
+		"schemes": ["file"],
+		"initializationOptions": {
+			// Fleet version to use for schema validation
+			"fleetVersion": "latest"
+		},
+		"settings": {}
+	}
+}

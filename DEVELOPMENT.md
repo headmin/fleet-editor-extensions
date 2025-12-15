@@ -359,37 +359,66 @@ cat /tmp/init.txt | fleet-schema-gen lsp --debug
 - [ ] VSIX contains node_modules: `unzip -l *.vsix | grep languageclient`
 - [ ] VSIX contains binary: `unzip -l *.vsix | grep fleet-schema-gen`
 
-### Building Release VSIX
+### Building Release (Local)
+
+For local builds with signing and notarization:
 
 ```bash
-# 1. Build Rust binary
-cd fleet-schema-gen
-cargo build --release
+# Build standalone LSP binary for current platform
+./scripts/build-standalone-lsp.sh --sign --notarize
 
-# 2. Copy binary
-cd ../vscode-extension
-cp ../fleet-schema-gen/target/release/fleet-schema-gen bin/fleet-schema-gen-darwin-arm64
-
-# 3. Install dependencies (production only)
-pnpm install --prod
-
-# 4. Compile TypeScript
-pnpm run compile
-
-# 5. Package
-pnpm exec vsce package
-
-# 6. Verify
-unzip -l fleet-gitops-*.vsix
+# Or build everything and upload to GitHub
+./scripts/build-standalone-lsp.sh --sign --notarize --release
 ```
 
-### Multi-Platform Release
+### Building Release (CI/CD)
 
-For each platform:
-1. Build binary on target platform (or cross-compile)
-2. Name binary according to convention
-3. Place all binaries in `bin/` directory
-4. Package once with all binaries
+The unified release workflow (`.github/workflows/release.yml`) handles:
+- Building binaries for all platforms (macOS arm64/x64, Linux x64/arm64)
+- Code signing and notarization for macOS
+- Creating standalone LSP archives (`.tar.gz`)
+- Building VSIX with bundled binaries
+- Uploading all artifacts to GitHub releases
+
+Trigger a release:
+```bash
+# Create and push a tag
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+Or manually trigger via GitHub Actions.
+
+### Release Artifacts
+
+Each release includes:
+- `fleet-gitops-{version}.vsix` - VS Code extension with bundled binaries
+- `fleet-schema-gen-{version}-darwin-arm64.tar.gz` - macOS Apple Silicon
+- `fleet-schema-gen-{version}-darwin-x64.tar.gz` - macOS Intel
+- `fleet-schema-gen-{version}-linux-x64.tar.gz` - Linux x64
+- `fleet-schema-gen-{version}-linux-arm64.tar.gz` - Linux ARM64
+- `.sha256` checksums for each archive
+
+### Manual VSIX Build
+
+For development/testing:
+
+```bash
+cd vscode-extension
+
+# Copy binary
+cp ../fleet-schema-gen/target/release/fleet-schema-gen bin/fleet-schema-gen-darwin-arm64
+
+# Install dependencies
+npm install
+
+# Compile and package
+npm run compile
+npx vsce package
+
+# Verify contents
+unzip -l fleet-gitops-*.vsix | grep -E "(bin/|node_modules)"
+```
 
 ## Debugging Tips
 
@@ -418,50 +447,57 @@ This logs all JSON-RPC messages between client and server.
 
 ## Sublime Text LSP Setup
 
-The Fleet LSP server also works with Sublime Text via the LSP package.
+The Fleet LSP server works with Sublime Text via the LSP-fleet package.
 
-### Prerequisites
+### Option 1: LSP-fleet Package (Recommended)
 
-1. **Sublime Text 4** (recommended) or Sublime Text 3
-2. **LSP package** - Install via Package Control
-
-### Installation
-
-#### Step 1: Install the LSP Package
+Install the LSP-fleet package from Package Control:
 
 1. Open Command Palette (`Cmd+Shift+P`)
 2. Type "Package Control: Install Package"
-3. Search for "LSP" and install it
+3. Search for "LSP-fleet" and install it
 
-#### Step 2: Build or Download fleet-schema-gen
+The binary will be automatically downloaded on first use.
 
-```bash
-cd fleet-schema-gen
-cargo build --release
-# Binary at: target/release/fleet-schema-gen
-```
-
-#### Step 3: Configure LSP
-
-Create or edit `~/Library/Application Support/Sublime Text/Packages/User/LSP.sublime-settings`:
+**Settings:** `Preferences > Package Settings > LSP > Servers > LSP-fleet > Settings`
 
 ```json
 {
-    "clients": {
-        "fleet-lsp": {
-            "enabled": true,
-            "command": ["/path/to/fleet-schema-gen", "lsp"],
-            "selector": "source.yaml"
-        }
-    }
+    // Custom binary path (optional - leave empty for auto-download)
+    "binary_path": ""
 }
 ```
 
-Replace `/path/to/fleet-schema-gen` with the actual path to your binary.
+### Option 2: Manual Configuration
 
-#### Step 4: Restart Sublime Text
+If you prefer manual setup:
 
-Restart Sublime Text to activate the LSP server.
+1. **Install the LSP package** via Package Control
+
+2. **Install the binary:**
+   ```bash
+   # Download from releases
+   curl -sL https://github.com/fleetdm/fleet/releases/latest/download/fleet-schema-gen-darwin-arm64.tar.gz | tar xz
+   sudo mv fleet-schema-gen /usr/local/bin/
+
+   # Or build from source
+   cd fleet-schema-gen && cargo install --path .
+   ```
+
+3. **Configure LSP** (`~/Library/Application Support/Sublime Text/Packages/User/LSP.sublime-settings`):
+   ```json
+   {
+       "clients": {
+           "fleet-lsp": {
+               "enabled": true,
+               "command": ["/usr/local/bin/fleet-schema-gen", "lsp"],
+               "selector": "source.yaml"
+           }
+       }
+   }
+   ```
+
+4. **Restart Sublime Text**
 
 ### Verification
 

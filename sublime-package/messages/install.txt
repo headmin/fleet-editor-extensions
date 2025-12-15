@@ -1,0 +1,26 @@
+LSP-fleet: Fleet GitOps YAML Validation
+=======================================
+
+Thank you for installing LSP-fleet!
+
+This package provides Language Server Protocol support for Fleet GitOps
+configuration files (default.yml, teams/*.yml, lib/*.yml).
+
+Features:
+- Real-time validation of Fleet configuration syntax
+- Context-aware autocompletion for fields and values
+- Hover documentation for osquery tables and Fleet fields
+- File path completions for 'path:' values
+- Go-to-definition for referenced files
+
+Getting Started:
+1. The LSP binary will be auto-downloaded on first use
+2. Open any Fleet GitOps YAML file to activate the server
+3. Start typing to see completions and validation
+
+Manual Installation (optional):
+If you prefer to manage the binary yourself, set "binary_path" in settings:
+  Preferences > Package Settings > LSP > Servers > LSP-fleet > Settings
+
+For more information:
+  https://github.com/fleetdm/fleet/tree/main/sublime-package

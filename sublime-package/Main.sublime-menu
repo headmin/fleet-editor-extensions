@@ -1,0 +1,35 @@
+[
+	{
+		"id": "preferences",
+		"children": [
+			{
+				"id": "package-settings",
+				"children": [
+					{
+						"caption": "LSP",
+						"children": [
+							{
+								"caption": "Servers",
+								"children": [
+									{
+										"caption": "LSP-fleet",
+										"children": [
+											{
+												"caption": "Settings",
+												"command": "edit_settings",
+												"args": {
+													"base_file": "${packages}/LSP-fleet/LSP-fleet.sublime-settings",
+													"default": "{\n\t$0\n}\n"
+												}
+											}
+										]
+									}
+								]
+							}
+						]
+					}
+				]
+			}
+		]
+	}
+]
