@@ -2,6 +2,9 @@
 //!
 //! This extension integrates the fleet-schema-gen LSP server with Zed,
 //! providing validation, completions, and diagnostics for Fleet configuration files.
+//!
+//! The extension will automatically download the LSP binary from GitHub releases
+//! if it's not found in PATH or common installation locations.
 
 use std::fs;
 use zed::LanguageServerId;
@@ -16,10 +19,12 @@ struct FleetExtension {
 /// Binary name.
 const BINARY_NAME: &str = "fleet-schema-gen";
 
+/// GitHub repository for releases.
+const GITHUB_REPO: &str = "fleetdm/fleet";
+
 impl FleetExtension {
     /// Try to find the binary in common locations.
     fn find_binary_in_common_paths(&self) -> Option<String> {
-        // Common paths where the binary might be installed
         let common_paths = [
             // Cargo install location
             format!(
@@ -29,11 +34,10 @@ impl FleetExtension {
             ),
             // Homebrew on macOS ARM
             format!("/opt/homebrew/bin/{}", BINARY_NAME),
-            // Homebrew on macOS Intel
+            // Homebrew on macOS Intel / Linux
             format!("/usr/local/bin/{}", BINARY_NAME),
             // Linux standard paths
             format!("/usr/bin/{}", BINARY_NAME),
-            format!("/usr/local/bin/{}", BINARY_NAME),
         ];
 
         for path in common_paths {
@@ -43,6 +47,104 @@ impl FleetExtension {
         }
 
         None
+    }
+
+    /// Get the platform-specific asset name for downloading.
+    fn get_asset_name(version: &str) -> Option<String> {
+        let (os, arch) = zed::current_platform();
+
+        let platform = match (os, arch) {
+            (zed::Os::Mac, zed::Architecture::Aarch64) => "darwin-arm64",
+            (zed::Os::Mac, zed::Architecture::X8664) => "darwin-x64",
+            (zed::Os::Linux, zed::Architecture::Aarch64) => "linux-arm64",
+            (zed::Os::Linux, zed::Architecture::X8664) => "linux-x64",
+            _ => return None,
+        };
+
+        Some(format!("{}-{}-{}.tar.gz", BINARY_NAME, version, platform))
+    }
+
+    /// Download and install the binary from GitHub releases.
+    fn download_binary(&self) -> Result<String> {
+        zed::set_language_server_installation_status(
+            &LanguageServerId::new(BINARY_NAME),
+            &zed::LanguageServerInstallationStatus::CheckingForUpdate,
+        );
+
+        // Get the latest release from GitHub
+        let release = zed::latest_github_release(
+            GITHUB_REPO,
+            zed::GithubReleaseOptions {
+                require_assets: true,
+                pre_release: true, // We use pre-releases for now
+            },
+        )?;
+
+        // Extract version from tag (e.g., "v0.1.0" -> "0.1.0")
+        let version = release.version.trim_start_matches('v');
+
+        // Get the asset name for this platform
+        let asset_name = Self::get_asset_name(version).ok_or_else(|| {
+            format!(
+                "Unsupported platform: {:?}",
+                zed::current_platform()
+            )
+        })?;
+
+        // Find the matching asset in the release
+        let asset = release
+            .assets
+            .iter()
+            .find(|a| a.name == asset_name)
+            .ok_or_else(|| {
+                format!(
+                    "No matching asset found for platform. Expected: {}",
+                    asset_name
+                )
+            })?;
+
+        // Check if we already have this version
+        let binary_path = format!("{}-{}", BINARY_NAME, version);
+        if fs::metadata(&binary_path).is_ok() {
+            // Already downloaded
+            return Ok(binary_path);
+        }
+
+        zed::set_language_server_installation_status(
+            &LanguageServerId::new(BINARY_NAME),
+            &zed::LanguageServerInstallationStatus::Downloading,
+        );
+
+        // Download the archive
+        let archive_path = format!("{}.tar.gz", binary_path);
+        zed::download_file(
+            &asset.download_url,
+            &archive_path,
+            zed::DownloadedFileType::GzipTar,
+        )
+        .map_err(|e| format!("Failed to download {}: {}", asset_name, e))?;
+
+        // The archive extracts to the binary name
+        let extracted_binary = BINARY_NAME.to_string();
+
+        // Rename to versioned path
+        fs::rename(&extracted_binary, &binary_path)
+            .map_err(|e| format!("Failed to rename binary: {}", e))?;
+
+        // Make executable
+        zed::make_file_executable(&binary_path)?;
+
+        // Clean up old versions (keep only the current one)
+        if let Ok(entries) = fs::read_dir(".") {
+            for entry in entries.flatten() {
+                let name = entry.file_name().to_string_lossy().to_string();
+                if name.starts_with(BINARY_NAME) && name != binary_path && !name.ends_with(".tar.gz") {
+                    let _ = fs::remove_file(entry.path());
+                }
+            }
+        }
+
+        Ok(binary_path)
     }
 
     /// Get the binary path, trying multiple methods.
@@ -66,15 +168,10 @@ impl FleetExtension {
             return Ok(path);
         }
 
-        // 4. Binary not found - return helpful error
-        // Note: Auto-download from GitHub is disabled for now since
-        // fleet-schema-gen isn't published to GitHub releases yet.
-        Err(format!(
-            "fleet-schema-gen not found. Please install it:\n\
-             cargo install --git https://github.com/fleetdm/fleet --path fleet-schema-gen\n\
-             Or build locally: cd fleet-schema-gen && cargo install --path ."
-        )
-        .into())
+        // 4. Auto-download from GitHub releases
+        let path = self.download_binary()?;
+        self.cached_binary_path = Some(path.clone());
+        Ok(path)
     }
 }
 

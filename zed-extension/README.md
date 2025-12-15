@@ -12,23 +12,48 @@ Zed editor extension for Fleet GitOps YAML validation, completions, and diagnost
 
 ## Installation
 
-### Option 1: Install from PATH (Recommended for Development)
+### Option 1: Auto-download (Recommended)
 
-1. Build and install `fleet-schema-gen`:
-   ```bash
-   cd ../fleet-schema-gen
-   cargo install --path .
-   ```
+The extension automatically downloads the LSP binary from GitHub releases on first use.
 
-2. Install this extension as a dev extension in Zed:
+1. Install the extension in Zed:
    - Open Zed
    - Go to Extensions (`Cmd+Shift+X`)
-   - Click "Install Dev Extension"
-   - Select this `zed-extension` folder
+   - Search for "Fleet" and install
 
-### Option 2: Auto-download
+2. Open a Fleet GitOps YAML file - the binary will download automatically.
 
-If `fleet-schema-gen` is not in your PATH, the extension will automatically download the latest release from GitHub.
+The binary is downloaded to Zed's extension work directory and kept up-to-date.
+
+### Option 2: Manual Installation
+
+If you prefer to manage the binary yourself:
+
+```bash
+# macOS (Apple Silicon)
+curl -sL https://github.com/fleetdm/fleet/releases/latest/download/fleet-schema-gen-darwin-arm64.tar.gz | tar xz
+sudo mv fleet-schema-gen /usr/local/bin/
+
+# macOS (Intel)
+curl -sL https://github.com/fleetdm/fleet/releases/latest/download/fleet-schema-gen-darwin-x64.tar.gz | tar xz
+sudo mv fleet-schema-gen /usr/local/bin/
+
+# Linux (x64)
+curl -sL https://github.com/fleetdm/fleet/releases/latest/download/fleet-schema-gen-linux-x64.tar.gz | tar xz
+sudo mv fleet-schema-gen /usr/local/bin/
+
+# Or build from source
+cd fleet-schema-gen
+cargo install --path .
+```
+
+### Option 3: Development Extension
+
+For development, install as a dev extension:
+
+1. Clone the repository
+2. Build: `cargo build --target wasm32-wasip1 --release`
+3. In Zed: Extensions → "Install Dev Extension" → select `zed-extension` folder
 
 ## Building
 
