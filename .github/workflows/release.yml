@@ -1,0 +1,544 @@
+name: Build & Release (Unified)
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version override (e.g., 0.1.0)'
+        required: false
+        type: string
+      create_release:
+        description: 'Create GitHub release'
+        required: false
+        default: true
+        type: boolean
+      build_vsix:
+        description: 'Build VS Code extension (VSIX)'
+        required: false
+        default: true
+        type: boolean
+
+env:
+  RUST_BACKTRACE: 1
+  BINARY_NAME: fleet-schema-gen
+
+jobs:
+  # ============================================================
+  # Build macOS ARM64 binary (Apple Silicon)
+  # Creates: standalone archive + binary for VSIX
+  # ============================================================
+  build-macos-arm64:
+    runs-on: macos-14
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      ext_version: ${{ steps.version.outputs.ext_version }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Get version
+        id: version
+        run: |
+          if [ -n "${{ github.event.inputs.version }}" ]; then
+            VERSION="${{ github.event.inputs.version }}"
+          else
+            VERSION=$(grep '^version' fleet-schema-gen/Cargo.toml | head -n1 | cut -d'"' -f2)
+          fi
+          EXT_VERSION=$(grep '"version"' vscode-extension/package.json | head -1 | sed 's/.*"version": "\([^"]*\)".*/\1/')
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "ext_version=$EXT_VERSION" >> $GITHUB_OUTPUT
+          echo "LSP Version: $VERSION"
+          echo "Extension Version: $EXT_VERSION"
+
+      - name: Build binary
+        working-directory: fleet-schema-gen
+        run: |
+          cargo clean
+          cargo build --release --target aarch64-apple-darwin
+
+          mkdir -p dist
+          cp target/aarch64-apple-darwin/release/${{ env.BINARY_NAME }} dist/
+          strip dist/${{ env.BINARY_NAME }}
+          dist/${{ env.BINARY_NAME }} --version
+
+      # Code signing (when secrets are configured)
+      - name: Import Code Signing Certificate
+        if: env.APPLE_CERTIFICATE_BASE64 != ''
+        env:
+          APPLE_CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
+          CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+        run: |
+          KEYCHAIN_PATH=$RUNNER_TEMP/app-signing.keychain-db
+          security create-keychain -p "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
+          security set-keychain-settings -lut 21600 $KEYCHAIN_PATH
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
+
+          echo "$APPLE_CERTIFICATE_BASE64" | base64 --decode > certificate.p12
+          security import certificate.p12 -P "$CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k $KEYCHAIN_PATH
+          security list-keychain -d user -s $KEYCHAIN_PATH
+          rm certificate.p12
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
+
+      - name: Code sign binary
+        if: env.CODESIGN_IDENTITY != ''
+        env:
+          CODESIGN_IDENTITY: ${{ secrets.CODESIGN_IDENTITY }}
+        working-directory: fleet-schema-gen
+        run: |
+          codesign --force --options runtime --timestamp \
+            --sign "$CODESIGN_IDENTITY" dist/${{ env.BINARY_NAME }}
+          codesign -vvv --deep --strict dist/${{ env.BINARY_NAME }}
+
+      - name: Notarize binary
+        if: env.NOTARIZATION_APPLE_ID != ''
+        env:
+          NOTARIZATION_APPLE_ID: ${{ secrets.NOTARIZATION_APPLE_ID }}
+          NOTARIZATION_TEAM_ID: ${{ secrets.NOTARIZATION_TEAM_ID }}
+          NOTARIZATION_PASSWORD: ${{ secrets.NOTARIZATION_PASSWORD }}
+        working-directory: fleet-schema-gen
+        run: |
+          ditto -c -k --keepParent dist/${{ env.BINARY_NAME }} binary-notarize.zip
+          xcrun notarytool submit binary-notarize.zip \
+            --apple-id "$NOTARIZATION_APPLE_ID" \
+            --team-id "$NOTARIZATION_TEAM_ID" \
+            --password "$NOTARIZATION_PASSWORD" \
+            --wait
+          rm binary-notarize.zip
+          spctl -a -vv -t install dist/${{ env.BINARY_NAME }} || true
+
+      - name: Create standalone archive
+        working-directory: fleet-schema-gen/dist
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          ARCHIVE="${{ env.BINARY_NAME }}-${VERSION}-darwin-arm64.tar.gz"
+
+          tar -czf "$ARCHIVE" ${{ env.BINARY_NAME }}
+          shasum -a 256 "$ARCHIVE" > "${ARCHIVE}.sha256"
+          ls -la
+
+      - name: Copy binary for VSIX
+        run: |
+          mkdir -p vscode-extension/bin
+          cp fleet-schema-gen/dist/${{ env.BINARY_NAME }} vscode-extension/bin/${{ env.BINARY_NAME }}-darwin-arm64
+          chmod +x vscode-extension/bin/${{ env.BINARY_NAME }}-darwin-arm64
+
+      - name: Upload standalone artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: lsp-darwin-arm64
+          path: |
+            fleet-schema-gen/dist/*.tar.gz
+            fleet-schema-gen/dist/*.sha256
+          retention-days: 90
+
+      - name: Upload binary for VSIX
+        uses: actions/upload-artifact@v4
+        with:
+          name: vsix-binary-darwin-arm64
+          path: vscode-extension/bin/${{ env.BINARY_NAME }}-darwin-arm64
+          retention-days: 1
+
+  # ============================================================
+  # Build macOS x64 binary (Intel)
+  # ============================================================
+  build-macos-x64:
+    runs-on: macos-13
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Get version
+        id: version
+        working-directory: fleet-schema-gen
+        run: |
+          VERSION=$(grep '^version' Cargo.toml | head -n1 | cut -d'"' -f2)
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Build binary
+        working-directory: fleet-schema-gen
+        run: |
+          cargo clean
+          cargo build --release
+
+          mkdir -p dist
+          cp target/release/${{ env.BINARY_NAME }} dist/
+          strip dist/${{ env.BINARY_NAME }}
+          dist/${{ env.BINARY_NAME }} --version
+
+      - name: Import Code Signing Certificate
+        if: env.APPLE_CERTIFICATE_BASE64 != ''
+        env:
+          APPLE_CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
+          CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+        run: |
+          KEYCHAIN_PATH=$RUNNER_TEMP/app-signing.keychain-db
+          security create-keychain -p "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
+          security set-keychain-settings -lut 21600 $KEYCHAIN_PATH
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
+
+          echo "$APPLE_CERTIFICATE_BASE64" | base64 --decode > certificate.p12
+          security import certificate.p12 -P "$CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k $KEYCHAIN_PATH
+          security list-keychain -d user -s $KEYCHAIN_PATH
+          rm certificate.p12
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
+
+      - name: Code sign binary
+        if: env.CODESIGN_IDENTITY != ''
+        env:
+          CODESIGN_IDENTITY: ${{ secrets.CODESIGN_IDENTITY }}
+        working-directory: fleet-schema-gen
+        run: |
+          codesign --force --options runtime --timestamp \
+            --sign "$CODESIGN_IDENTITY" dist/${{ env.BINARY_NAME }}
+          codesign -vvv --deep --strict dist/${{ env.BINARY_NAME }}
+
+      - name: Notarize binary
+        if: env.NOTARIZATION_APPLE_ID != ''
+        env:
+          NOTARIZATION_APPLE_ID: ${{ secrets.NOTARIZATION_APPLE_ID }}
+          NOTARIZATION_TEAM_ID: ${{ secrets.NOTARIZATION_TEAM_ID }}
+          NOTARIZATION_PASSWORD: ${{ secrets.NOTARIZATION_PASSWORD }}
+        working-directory: fleet-schema-gen
+        run: |
+          ditto -c -k --keepParent dist/${{ env.BINARY_NAME }} binary-notarize.zip
+          xcrun notarytool submit binary-notarize.zip \
+            --apple-id "$NOTARIZATION_APPLE_ID" \
+            --team-id "$NOTARIZATION_TEAM_ID" \
+            --password "$NOTARIZATION_PASSWORD" \
+            --wait
+          rm binary-notarize.zip
+
+      - name: Create standalone archive
+        working-directory: fleet-schema-gen/dist
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          ARCHIVE="${{ env.BINARY_NAME }}-${VERSION}-darwin-x64.tar.gz"
+
+          tar -czf "$ARCHIVE" ${{ env.BINARY_NAME }}
+          shasum -a 256 "$ARCHIVE" > "${ARCHIVE}.sha256"
+
+      - name: Copy binary for VSIX
+        run: |
+          mkdir -p vscode-extension/bin
+          cp fleet-schema-gen/dist/${{ env.BINARY_NAME }} vscode-extension/bin/${{ env.BINARY_NAME }}-darwin-x64
+          chmod +x vscode-extension/bin/${{ env.BINARY_NAME }}-darwin-x64
+
+      - name: Upload standalone artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: lsp-darwin-x64
+          path: |
+            fleet-schema-gen/dist/*.tar.gz
+            fleet-schema-gen/dist/*.sha256
+          retention-days: 90
+
+      - name: Upload binary for VSIX
+        uses: actions/upload-artifact@v4
+        with:
+          name: vsix-binary-darwin-x64
+          path: vscode-extension/bin/${{ env.BINARY_NAME }}-darwin-x64
+          retention-days: 1
+
+  # ============================================================
+  # Build Linux x64 binary
+  # ============================================================
+  build-linux-x64:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Get version
+        id: version
+        working-directory: fleet-schema-gen
+        run: |
+          VERSION=$(grep '^version' Cargo.toml | head -n1 | cut -d'"' -f2)
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Build binary
+        working-directory: fleet-schema-gen
+        run: |
+          cargo clean
+          cargo build --release
+
+          mkdir -p dist
+          cp target/release/${{ env.BINARY_NAME }} dist/
+          strip dist/${{ env.BINARY_NAME }}
+          dist/${{ env.BINARY_NAME }} --version
+
+      - name: Create standalone archive
+        working-directory: fleet-schema-gen/dist
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          ARCHIVE="${{ env.BINARY_NAME }}-${VERSION}-linux-x64.tar.gz"
+
+          tar -czf "$ARCHIVE" ${{ env.BINARY_NAME }}
+          sha256sum "$ARCHIVE" > "${ARCHIVE}.sha256"
+
+      - name: Copy binary for VSIX
+        run: |
+          mkdir -p vscode-extension/bin
+          cp fleet-schema-gen/dist/${{ env.BINARY_NAME }} vscode-extension/bin/${{ env.BINARY_NAME }}-linux-x64
+          chmod +x vscode-extension/bin/${{ env.BINARY_NAME }}-linux-x64
+
+      - name: Upload standalone artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: lsp-linux-x64
+          path: |
+            fleet-schema-gen/dist/*.tar.gz
+            fleet-schema-gen/dist/*.sha256
+          retention-days: 90
+
+      - name: Upload binary for VSIX
+        uses: actions/upload-artifact@v4
+        with:
+          name: vsix-binary-linux-x64
+          path: vscode-extension/bin/${{ env.BINARY_NAME }}-linux-x64
+          retention-days: 1
+
+  # ============================================================
+  # Build Linux ARM64 binary
+  # ============================================================
+  build-linux-arm64:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-unknown-linux-gnu
+
+      - name: Install cross-compilation tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-aarch64-linux-gnu
+
+      - name: Get version
+        id: version
+        working-directory: fleet-schema-gen
+        run: |
+          VERSION=$(grep '^version' Cargo.toml | head -n1 | cut -d'"' -f2)
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Build binary
+        working-directory: fleet-schema-gen
+        env:
+          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
+        run: |
+          cargo clean
+          cargo build --release --target aarch64-unknown-linux-gnu
+
+          mkdir -p dist
+          cp target/aarch64-unknown-linux-gnu/release/${{ env.BINARY_NAME }} dist/
+          aarch64-linux-gnu-strip dist/${{ env.BINARY_NAME }} || true
+
+      - name: Create standalone archive
+        working-directory: fleet-schema-gen/dist
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          ARCHIVE="${{ env.BINARY_NAME }}-${VERSION}-linux-arm64.tar.gz"
+
+          tar -czf "$ARCHIVE" ${{ env.BINARY_NAME }}
+          sha256sum "$ARCHIVE" > "${ARCHIVE}.sha256"
+
+      - name: Copy binary for VSIX
+        run: |
+          mkdir -p vscode-extension/bin
+          cp fleet-schema-gen/dist/${{ env.BINARY_NAME }} vscode-extension/bin/${{ env.BINARY_NAME }}-linux-arm64
+          chmod +x vscode-extension/bin/${{ env.BINARY_NAME }}-linux-arm64
+
+      - name: Upload standalone artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: lsp-linux-arm64
+          path: |
+            fleet-schema-gen/dist/*.tar.gz
+            fleet-schema-gen/dist/*.sha256
+          retention-days: 90
+
+      - name: Upload binary for VSIX
+        uses: actions/upload-artifact@v4
+        with:
+          name: vsix-binary-linux-arm64
+          path: vscode-extension/bin/${{ env.BINARY_NAME }}-linux-arm64
+          retention-days: 1
+
+  # ============================================================
+  # Build VS Code Extension (VSIX)
+  # Downloads all platform binaries and bundles them
+  # ============================================================
+  build-vsix:
+    needs: [build-macos-arm64, build-macos-x64, build-linux-x64, build-linux-arm64]
+    runs-on: ubuntu-latest
+    if: github.event.inputs.build_vsix != 'false'
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: vscode-extension/package-lock.json
+
+      - name: Download all binaries
+        uses: actions/download-artifact@v4
+        with:
+          pattern: vsix-binary-*
+          path: vscode-extension/bin
+          merge-multiple: true
+
+      - name: List binaries
+        run: |
+          echo "=== Downloaded binaries ==="
+          ls -la vscode-extension/bin/
+          chmod +x vscode-extension/bin/*
+
+      - name: Install dependencies
+        working-directory: vscode-extension
+        run: npm ci
+
+      - name: Compile TypeScript
+        working-directory: vscode-extension
+        run: npm run compile
+
+      - name: Package extension
+        working-directory: vscode-extension
+        run: |
+          npx vsce package --allow-missing-repository
+
+          echo "=== VSIX Contents ==="
+          unzip -l *.vsix | grep -E "(bin/|node_modules)" | head -20
+
+      - name: Create checksums
+        working-directory: vscode-extension
+        run: |
+          for f in *.vsix; do
+            sha256sum "$f" > "${f}.sha256"
+          done
+
+      - name: Upload VSIX artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: vsix
+          path: |
+            vscode-extension/*.vsix
+            vscode-extension/*.sha256
+          retention-days: 90
+
+  # ============================================================
+  # Create GitHub Release
+  # Uploads: standalone LSP archives + VSIX
+  # ============================================================
+  release:
+    needs: [build-macos-arm64, build-macos-x64, build-linux-x64, build-linux-arm64, build-vsix]
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/') || github.event.inputs.create_release == 'true'
+
+    steps:
+      - name: Download standalone LSP artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: lsp-*
+          path: dist/lsp
+          merge-multiple: true
+
+      - name: Download VSIX artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: vsix
+          path: dist/vsix
+
+      - name: Prepare release files
+        run: |
+          mkdir -p dist/release
+          cp dist/lsp/* dist/release/
+          cp dist/vsix/* dist/release/
+          echo "=== Release files ==="
+          ls -la dist/release/
+
+      - name: Determine tag name
+        id: tag
+        run: |
+          if [[ "${{ github.ref }}" == refs/tags/* ]]; then
+            TAG="${{ github.ref_name }}"
+          else
+            TAG="v${{ needs.build-macos-arm64.outputs.ext_version }}"
+          fi
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
+          echo "Tag: $TAG"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ steps.tag.outputs.tag }}
+          name: Release ${{ steps.tag.outputs.tag }}
+          draft: false
+          prerelease: true
+          files: dist/release/*
+          body: |
+            ## VS Code Extension
+
+            Download the `.vsix` file and install with:
+            ```bash
+            code --install-extension fleet-gitops-${{ needs.build-macos-arm64.outputs.ext_version }}.vsix
+            ```
+
+            ## Standalone LSP Binary
+
+            For **Zed**, **Sublime Text**, or manual installation:
+
+            ### macOS (Apple Silicon)
+            ```bash
+            curl -sL https://github.com/${{ github.repository }}/releases/download/${{ steps.tag.outputs.tag }}/fleet-schema-gen-${{ needs.build-macos-arm64.outputs.version }}-darwin-arm64.tar.gz | tar xz
+            sudo mv fleet-schema-gen /usr/local/bin/
+            ```
+
+            ### macOS (Intel)
+            ```bash
+            curl -sL https://github.com/${{ github.repository }}/releases/download/${{ steps.tag.outputs.tag }}/fleet-schema-gen-${{ needs.build-macos-arm64.outputs.version }}-darwin-x64.tar.gz | tar xz
+            sudo mv fleet-schema-gen /usr/local/bin/
+            ```
+
+            ### Linux (x64)
+            ```bash
+            curl -sL https://github.com/${{ github.repository }}/releases/download/${{ steps.tag.outputs.tag }}/fleet-schema-gen-${{ needs.build-macos-arm64.outputs.version }}-linux-x64.tar.gz | tar xz
+            sudo mv fleet-schema-gen /usr/local/bin/
+            ```
+
+            ### Linux (ARM64)
+            ```bash
+            curl -sL https://github.com/${{ github.repository }}/releases/download/${{ steps.tag.outputs.tag }}/fleet-schema-gen-${{ needs.build-macos-arm64.outputs.version }}-linux-arm64.tar.gz | tar xz
+            sudo mv fleet-schema-gen /usr/local/bin/
+            ```
+
+            ## Editor Support
+
+            - **VS Code**: Install the VSIX above
+            - **Zed**: Install the Fleet extension (auto-downloads binary)
+            - **Sublime Text**: Install LSP-fleet from Package Control
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

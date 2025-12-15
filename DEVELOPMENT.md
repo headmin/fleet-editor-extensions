@@ -27,11 +27,23 @@ fleetctl-vscode/
 │   ├── .vscodeignore          # Files to exclude from VSIX
 │   └── tsconfig.json
 │
-└── zed-extension/             # Zed extension (Rust WebAssembly)
-    ├── src/
-    │   └── lib.rs             # Extension entry point
-    ├── extension.toml         # Extension manifest
-    └── Cargo.toml
+├── zed-extension/             # Zed extension (Rust WebAssembly)
+│   ├── src/
+│   │   └── lib.rs             # Extension entry point (auto-downloads binary)
+│   ├── extension.toml         # Extension manifest
+│   └── Cargo.toml
+│
+├── sublime-package/           # Sublime Text LSP package
+│   ├── plugin.py              # Auto-download and LSP client
+│   ├── LSP-fleet.sublime-settings
+│   └── README.md
+│
+├── scripts/
+│   ├── build-standalone-lsp.sh  # Build, sign, notarize LSP binary
+│   └── build-vscode-extension.sh
+│
+└── .github/workflows/
+    └── release.yml            # Unified release workflow
 ```
 
 ### Data Flow

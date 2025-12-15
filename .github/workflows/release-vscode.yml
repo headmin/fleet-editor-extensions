@@ -1,16 +1,14 @@
-name: Build & Release VS Code Extension
+# DEPRECATED: Use release.yml instead (unified workflow for all artifacts)
+# This workflow is kept for reference but should not be used.
+name: "[DEPRECATED] Build VS Code Extension"
 
 on:
-  push:
-    tags:
-      - 'v*'
   workflow_dispatch:
     inputs:
-      create_release:
-        description: 'Create GitHub release'
+      note:
+        description: 'NOTE: This workflow is deprecated. Use release.yml instead.'
         required: false
-        default: 'true'
-        type: boolean
+        type: string
 
 env:
   RUST_BACKTRACE: 1
