@@ -21,6 +21,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 RUST_DIR="$PROJECT_ROOT/fleet-schema-gen"
 EXTENSION_DIR="$PROJECT_ROOT/vscode-extension"
+ZED_DIR="$PROJECT_ROOT/zed-extension"
+SUBLIME_DIR="$PROJECT_ROOT/sublime-package"
 DIST_DIR="$PROJECT_ROOT/dist"
 
 BINARY_NAME="fleet-schema-gen"
@@ -91,8 +93,10 @@ Usage: $(basename "$0") [OPTIONS]
 
 Unified local release for private betas. Builds everything for current platform:
   - LSP binary (signed + notarized on macOS)
-  - Standalone archive (.tar.gz) for Zed/Sublime
+  - Standalone archive (.tar.gz)
   - VS Code extension (.vsix)
+  - Zed extension (.zip with bundled binary)
+  - Sublime package (.zip with bundled binary)
 
 OPTIONS:
     --sign              Code sign binary (macOS only)
@@ -366,11 +370,81 @@ else
 fi
 
 # ============================================================
-# STEP 6: GITHUB RELEASE
+# STEP 6: BUILD ZED EXTENSION (with bundled binary)
+# ============================================================
+
+log_section "Step 6: Build Zed Extension"
+
+cd "$ZED_DIR"
+
+# Check if wasm32-wasip1 target is installed
+if ! rustup target list --installed | grep -q "wasm32-wasip1"; then
+    log_step "Installing wasm32-wasip1 target..."
+    rustup target add wasm32-wasip1
+fi
+
+# Build WASM
+log_step "Building Zed extension WASM..."
+cargo build --target wasm32-wasip1 --release 2>&1 | tail -5
+
+# Copy WASM to extension directory
+cp "$ZED_DIR/target/wasm32-wasip1/release/fleet_gitops_zed.wasm" "$ZED_DIR/extension.wasm"
+
+# Create bundled package (with binary for private repos)
+log_step "Packaging Zed extension with bundled binary..."
+ZED_BUNDLE_DIR="$DIST_DIR/zed-bundle"
+rm -rf "$ZED_BUNDLE_DIR"
+mkdir -p "$ZED_BUNDLE_DIR/bin"
+
+cp "$ZED_DIR/extension.toml" "$ZED_BUNDLE_DIR/"
+cp "$ZED_DIR/extension.wasm" "$ZED_BUNDLE_DIR/"
+cp "$ZED_DIR/README.md" "$ZED_BUNDLE_DIR/"
+cp "$BINARY_PATH" "$ZED_BUNDLE_DIR/bin/"
+
+ZED_ZIP="fleet-gitops-zed-${EXT_VERSION}-${PLATFORM}.zip"
+cd "$ZED_BUNDLE_DIR"
+zip -r "$DIST_DIR/$ZED_ZIP" .
+cd "$DIST_DIR"
+shasum -a 256 "$ZED_ZIP" > "${ZED_ZIP}.sha256"
+rm -rf "$ZED_BUNDLE_DIR"
+
+log_info "Zed extension: $DIST_DIR/$ZED_ZIP"
+
+# ============================================================
+# STEP 7: BUILD SUBLIME PACKAGE (with bundled binary)
+# ============================================================
+
+log_section "Step 7: Build Sublime Package"
+
+log_step "Packaging Sublime extension with bundled binary..."
+SUBLIME_BUNDLE_DIR="$DIST_DIR/sublime-bundle"
+rm -rf "$SUBLIME_BUNDLE_DIR"
+mkdir -p "$SUBLIME_BUNDLE_DIR/bin" "$SUBLIME_BUNDLE_DIR/messages"
+
+cp "$SUBLIME_DIR/plugin.py" "$SUBLIME_BUNDLE_DIR/"
+cp "$SUBLIME_DIR/LSP-fleet.sublime-settings" "$SUBLIME_BUNDLE_DIR/"
+cp "$SUBLIME_DIR/Main.sublime-menu" "$SUBLIME_BUNDLE_DIR/"
+cp "$SUBLIME_DIR/dependencies.json" "$SUBLIME_BUNDLE_DIR/"
+cp "$SUBLIME_DIR/messages.json" "$SUBLIME_BUNDLE_DIR/"
+cp "$SUBLIME_DIR/messages/install.txt" "$SUBLIME_BUNDLE_DIR/messages/"
+cp "$SUBLIME_DIR/README.md" "$SUBLIME_BUNDLE_DIR/"
+cp "$BINARY_PATH" "$SUBLIME_BUNDLE_DIR/bin/"
+
+SUBLIME_ZIP="LSP-fleet-${EXT_VERSION}-${PLATFORM}.zip"
+cd "$SUBLIME_BUNDLE_DIR"
+zip -r "$DIST_DIR/$SUBLIME_ZIP" .
+cd "$DIST_DIR"
+shasum -a 256 "$SUBLIME_ZIP" > "${SUBLIME_ZIP}.sha256"
+rm -rf "$SUBLIME_BUNDLE_DIR"
+
+log_info "Sublime package: $DIST_DIR/$SUBLIME_ZIP"
+
+# ============================================================
+# STEP 8: GITHUB RELEASE
 # ============================================================
 
 if [ "$CREATE_RELEASE" = true ]; then
-    log_section "Step 6: GitHub Release"
+    log_section "Step 8: GitHub Release"
 
     cd "$PROJECT_ROOT"
 
@@ -386,18 +460,31 @@ if [ "$CREATE_RELEASE" = true ]; then
 
 ### Downloads
 
-- **VS Code Extension:** \`${EXT_NAME}-${EXT_VERSION}.vsix\`
-- **Standalone LSP:** \`${ARCHIVE_NAME}\`
+| Editor | File | Includes Binary |
+|--------|------|-----------------|
+| VS Code | \`${EXT_NAME}-${EXT_VERSION}.vsix\` | ✅ Bundled |
+| Zed | \`${ZED_ZIP}\` | ✅ Bundled |
+| Sublime Text | \`${SUBLIME_ZIP}\` | ✅ Bundled |
+| Standalone | \`${ARCHIVE_NAME}\` | ✅ Binary only |
 
 ### Install VS Code Extension
 \`\`\`bash
 code --install-extension ${EXT_NAME}-${EXT_VERSION}.vsix
 \`\`\`
 
-### Install Standalone LSP (for Zed/Sublime)
+### Install Zed Extension
 \`\`\`bash
-curl -sL https://github.com/\$(gh repo view --json nameWithOwner -q .nameWithOwner)/releases/download/${TAG_NAME}/${ARCHIVE_NAME} | tar xz
-sudo mv $BINARY_NAME /usr/local/bin/
+unzip ${ZED_ZIP} -d ~/.local/share/zed/extensions/fleet-gitops
+\`\`\`
+
+### Install Sublime Package
+\`\`\`bash
+unzip ${SUBLIME_ZIP} -d ~/Library/Application\\ Support/Sublime\\ Text/Packages/LSP-fleet
+\`\`\`
+
+### Install Standalone LSP
+\`\`\`bash
+tar xzf ${ARCHIVE_NAME} && sudo mv $BINARY_NAME /usr/local/bin/
 \`\`\`
 "
         $GH_CLI release create "$TAG_NAME" \
@@ -417,11 +504,19 @@ sudo mv $BINARY_NAME /usr/local/bin/
         $GH_CLI release upload "$TAG_NAME" "$DIST_DIR/${VSIX_FILE}.sha256" --clobber
     fi
 
+    # Upload Zed extension
+    $GH_CLI release upload "$TAG_NAME" "$DIST_DIR/$ZED_ZIP" --clobber
+    $GH_CLI release upload "$TAG_NAME" "$DIST_DIR/${ZED_ZIP}.sha256" --clobber
+
+    # Upload Sublime package
+    $GH_CLI release upload "$TAG_NAME" "$DIST_DIR/$SUBLIME_ZIP" --clobber
+    $GH_CLI release upload "$TAG_NAME" "$DIST_DIR/${SUBLIME_ZIP}.sha256" --clobber
+
     log_info "Release URL:"
     $GH_CLI release view "$TAG_NAME" --json url -q .url
 
 else
-    log_section "Step 6: Skip GitHub Release (--release not specified)"
+    log_section "Step 8: Skip GitHub Release (--release not specified)"
 fi
 
 # ============================================================
@@ -432,7 +527,7 @@ log_section "Build Complete!"
 
 echo "Output files in $DIST_DIR:"
 echo ""
-ls -lh "$DIST_DIR"/*.tar.gz "$DIST_DIR"/*.vsix 2>/dev/null || true
+ls -lh "$DIST_DIR"/*.tar.gz "$DIST_DIR"/*.vsix "$DIST_DIR"/*.zip 2>/dev/null || true
 echo ""
 
 if [ "$SKIP_VSIX" = false ]; then
@@ -440,6 +535,14 @@ if [ "$SKIP_VSIX" = false ]; then
     echo "  code --install-extension $DIST_DIR/$VSIX_FILE"
     echo ""
 fi
+
+echo "Install Zed extension:"
+echo "  unzip $DIST_DIR/$ZED_ZIP -d ~/.local/share/zed/extensions/fleet-gitops"
+echo ""
+
+echo "Install Sublime package:"
+echo "  unzip $DIST_DIR/$SUBLIME_ZIP -d ~/Library/Application\\ Support/Sublime\\ Text/Packages/LSP-fleet"
+echo ""
 
 echo "Install standalone LSP:"
 echo "  tar xzf $DIST_DIR/$ARCHIVE_NAME && sudo mv $BINARY_NAME /usr/local/bin/"
