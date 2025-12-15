@@ -66,11 +66,6 @@ impl FleetExtension {
 
     /// Download and install the binary from GitHub releases.
     fn download_binary(&self) -> Result<String> {
-        zed::set_language_server_installation_status(
-            &LanguageServerId::new(BINARY_NAME),
-            &zed::LanguageServerInstallationStatus::CheckingForUpdate,
-        );
-
         // Get the latest release from GitHub
         let release = zed::latest_github_release(
             GITHUB_REPO,
@@ -109,11 +104,6 @@ impl FleetExtension {
             // Already downloaded
             return Ok(binary_path);
         }
-
-        zed::set_language_server_installation_status(
-            &LanguageServerId::new(BINARY_NAME),
-            &zed::LanguageServerInstallationStatus::Downloading,
-        );
 
         // Download the archive
         let archive_path = format!("{}.tar.gz", binary_path);
