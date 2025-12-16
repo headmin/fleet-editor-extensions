@@ -32,7 +32,7 @@ code --install-extension fleet-gitops-0.1.0.vsix
 ### Zed
 
 1. Extract the zip to a local folder
-2. In Zed: `Cmd+Shift+P` → "zed: install dev extension"
+2. In Zed: `Cmd+Shift+X` → "zed: install dev extension"
 3. Select the extracted folder
 
 ### Sublime Text
