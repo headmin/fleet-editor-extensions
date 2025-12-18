@@ -9,6 +9,9 @@ JSON Schema validation and autocomplete for Fleet GitOps YAML files.
 - Code snippets for common patterns
 - LSP server with diagnostics and quick-fixes
 
+![autocomplete-demo](docs/images/autocomplete.gif)
+
+
 ## Installation
 
 Download the `.vsix` from [Releases](https://github.com/headmin/fleetctl-vscode/releases) and install:
