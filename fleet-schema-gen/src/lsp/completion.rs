@@ -67,6 +67,12 @@ enum PathContextType {
     MacOSProfile,
     /// Windows profiles (*.xml)
     WindowsProfile,
+    /// Policy definitions (*.yml)
+    Policy,
+    /// Query definitions (*.yml)
+    Query,
+    /// Label definitions (*.yml)
+    Label,
     /// Generic file reference
     Generic,
 }
@@ -147,6 +153,10 @@ fn determine_completion_context(
                     Some(p) if p.contains("scripts") => PathContextType::Script,
                     Some(p) if p.contains("macos_settings") => PathContextType::MacOSProfile,
                     Some(p) if p.contains("windows_settings") => PathContextType::WindowsProfile,
+                    // Policies, queries, and labels can also use path references
+                    Some(p) if p == "policies" || p.ends_with(".policies") => PathContextType::Policy,
+                    Some(p) if p == "queries" || p.ends_with(".queries") => PathContextType::Query,
+                    Some(p) if p == "labels" || p.ends_with(".labels") => PathContextType::Label,
                     _ => PathContextType::Generic,
                 };
                 return CompletionContext::PathValue { context_type };
@@ -403,8 +413,10 @@ fn complete_policy_fields(line: &str, col_idx: usize) -> Vec<CompletionItem> {
         }
     }
 
+    // Policies can be either inline definitions OR path references
     let fields = [
-        ("name", "Policy display name", true),
+        ("path", "Reference to external policy YAML file", false),
+        ("name", "Policy display name (for inline definitions)", true),
         ("description", "What this policy checks", false),
         ("query", "osquery SQL query", true),
         ("platform", "Target operating system", false),
@@ -431,8 +443,10 @@ fn complete_query_fields(line: &str, col_idx: usize) -> Vec<CompletionItem> {
         }
     }
 
+    // Queries can be either inline definitions OR path references
     let fields = [
-        ("name", "Query display name", true),
+        ("path", "Reference to external query YAML file", false),
+        ("name", "Query display name (for inline definitions)", true),
         ("description", "What this query collects", false),
         ("query", "osquery SQL query", true),
         ("interval", "How often to run (seconds)", false),
@@ -465,8 +479,10 @@ fn complete_label_fields(line: &str, col_idx: usize) -> Vec<CompletionItem> {
         }
     }
 
+    // Labels can be either inline definitions OR path references
     let fields = [
-        ("name", "Label display name", true),
+        ("path", "Reference to external label YAML file", false),
+        ("name", "Label display name (for inline definitions)", true),
         ("description", "What hosts this label identifies", false),
         ("query", "osquery query for dynamic labels", false),
         ("platform", "Target operating system", false),
@@ -866,6 +882,9 @@ fn matches_context_type(path: &Path, context_type: &PathContextType) -> bool {
         PathContextType::Script => ext == "sh" || ext == "ps1" || ext == "bat" || ext == "cmd",
         PathContextType::MacOSProfile => ext == "mobileconfig" || ext == "plist",
         PathContextType::WindowsProfile => ext == "xml",
+        PathContextType::Policy => ext == "yml" || ext == "yaml",
+        PathContextType::Query => ext == "yml" || ext == "yaml",
+        PathContextType::Label => ext == "yml" || ext == "yaml",
         PathContextType::Generic => true,
     }
 }
@@ -909,6 +928,9 @@ fn create_path_completion(
         PathContextType::Script => "Script",
         PathContextType::MacOSProfile => "macOS profile",
         PathContextType::WindowsProfile => "Windows profile",
+        PathContextType::Policy => "Policy definition",
+        PathContextType::Query => "Query definition",
+        PathContextType::Label => "Label definition",
         PathContextType::Generic => "File",
     };
 

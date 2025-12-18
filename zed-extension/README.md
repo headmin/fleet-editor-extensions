@@ -12,108 +12,49 @@ Zed editor extension for Fleet GitOps YAML validation, completions, and diagnost
 
 ## Installation
 
-### Option 1: Auto-download (Recommended)
+1. Download `fleet-gitops-zed-<version>-<platform>.zip` from [GitHub Releases](https://github.com/headmin/fleetctl-ext/releases)
 
-The extension automatically downloads the LSP binary from GitHub releases on first use.
+2. Extract to a local folder:
+   ```bash
+   unzip fleet-gitops-zed-0.1.0-darwin-arm64.zip -d ~/fleet-gitops-zed
+   ```
 
-1. Install the extension in Zed:
-   - Open Zed
-   - Go to Extensions (`Cmd+Shift+X`)
-   - Search for "Fleet" and install
+3. In Zed:
+   - Open Command Palette (`Cmd+Shift+P`)
+   - Run "zed: install dev extension"
+   - Select the extracted folder (`~/fleet-gitops-zed`)
 
-2. Open a Fleet GitOps YAML file - the binary will download automatically.
+4. Open a Fleet GitOps YAML file to verify it's working
 
-The binary is downloaded to Zed's extension work directory and kept up-to-date.
+## Package Contents
 
-### Option 2: Manual Installation
-
-If you prefer to manage the binary yourself:
-
-```bash
-# macOS (Apple Silicon)
-curl -sL https://github.com/fleetdm/fleet/releases/latest/download/fleet-schema-gen-darwin-arm64.tar.gz | tar xz
-sudo mv fleet-schema-gen /usr/local/bin/
-
-# macOS (Intel)
-curl -sL https://github.com/fleetdm/fleet/releases/latest/download/fleet-schema-gen-darwin-x64.tar.gz | tar xz
-sudo mv fleet-schema-gen /usr/local/bin/
-
-# Linux (x64)
-curl -sL https://github.com/fleetdm/fleet/releases/latest/download/fleet-schema-gen-linux-x64.tar.gz | tar xz
-sudo mv fleet-schema-gen /usr/local/bin/
-
-# Or build from source
-cd fleet-schema-gen
-cargo install --path .
 ```
-
-### Option 3: Development Extension
-
-For development, install as a dev extension:
-
-1. Clone the repository
-2. Build: `cargo build --target wasm32-wasip1 --release`
-3. In Zed: Extensions → "Install Dev Extension" → select `zed-extension` folder
-
-## Building
-
-```bash
-# Install the wasm32-wasip1 target
-rustup target add wasm32-wasip1
-
-# Build the extension
-cargo build --target wasm32-wasip1 --release
-```
-
-## Configuration
-
-You can configure the LSP server in your Zed settings (`~/.config/zed/settings.json`):
-
-```json
-{
-  "lsp": {
-    "fleet-lsp": {
-      "settings": {
-        "fleetVersion": "latest"
-      }
-    }
-  }
-}
+fleet-gitops-zed/
+├── extension.toml                    # Extension manifest
+├── extension.wasm                    # Extension logic
+├── bin/
+│   └── fleet-schema-gen-<platform>   # LSP binary
+└── README.md
 ```
 
 ## File Patterns
 
-The extension activates for all YAML files. The LSP server internally filters to Fleet GitOps-specific patterns:
+The extension activates for YAML files matching Fleet GitOps patterns:
 - `default.yml` / `default.yaml`
-- `teams/**/*.yml` / `teams/**/*.yaml`
-- `lib/**/*.yml` / `lib/**/*.yaml`
-
-## Development
-
-To test changes locally:
-
-1. Make changes to `src/lib.rs`
-2. Rebuild: `cargo build --target wasm32-wasip1`
-3. Reload the extension in Zed: `Cmd+Shift+P` → "zed: reload extensions"
-4. Open a Fleet YAML file to test
+- `teams/**/*.yml`
+- `lib/**/*.yml`
 
 ## Troubleshooting
 
 ### Extension not activating
 
-1. Check that the extension is installed: Extensions → Installed
-2. Verify the LSP is running: `Cmd+Shift+P` → "zed: open log"
-3. Look for "Fleet LSP" messages
+1. Check Zed logs: `Cmd+Shift+P` → "zed: open log"
+2. Look for "fleet" messages
+3. Try reinstalling via "zed: install dev extension"
 
 ### Binary not found
 
-If you see "Unable to find fleet-schema-gen", either:
-- Install it globally: `cargo install --path ../fleet-schema-gen`
-- Or wait for the auto-download to complete
-
-### Debug logging
-
-Run Zed from terminal with verbose logging:
+Ensure the `bin/` directory contains the LSP binary and it's executable:
 ```bash
-zed --foreground
+chmod +x ~/fleet-gitops-zed/bin/fleet-schema-gen-*
 ```

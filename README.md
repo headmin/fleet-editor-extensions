@@ -1,50 +1,88 @@
-# Fleet GitOps VS Code Extension
+# Fleet GitOps Editor Extensions
 
-JSON Schema validation and autocomplete for Fleet GitOps YAML files.
+Language Server Protocol (LSP) extensions for Fleet GitOps YAML files. Provides validation, completions, hover docs, and go-to-definition across multiple editors.
 
 ## Features
 
-- Real-time validation and error detection
-- Intelligent autocomplete for Fleet YAML fields
-- Code snippets for common patterns
-- LSP server with diagnostics and quick-fixes
+- **Validation** - Real-time diagnostics for configuration errors
+- **Completions** - Context-aware autocompletion for fields and values
+- **File Path Completions** - Suggests files when typing `path:` values
+- **Hover Documentation** - Shows docs for Fleet fields and osquery tables
+- **Go-to-Definition** - Navigate to referenced files
+- **Semantic Highlighting** - SQL syntax highlighting in query fields
+
+## Supported Editors
+
+| Editor | Package | Install |
+|--------|---------|---------|
+| VS Code | `fleet-gitops-<version>.vsix` | `code --install-extension *.vsix` |
+| Zed | `fleet-gitops-zed-<version>-<platform>.zip` | "zed: install dev extension" |
+| Sublime Text | `LSP-fleet-<version>-<platform>.zip` | Extract to Packages/LSP-fleet |
 
 ![autocomplete-demo](docs/images/autocomplete.gif)
 
 
 ## Installation
 
-Download the `.vsix` from [Releases](https://github.com/headmin/fleetctl-vscode/releases) and install:
-
-```bash
-code --install-extension fleet-gitops-*.vsix
-```
-
-## Editor Support
+Download packages from [GitHub Releases](https://github.com/headmin/fleetctl-ext/releases).
 
 ### VS Code
-Install the extension directly. Requires the [Red Hat YAML extension](https://marketplace.visualstudio.com/items?itemName=redhat.vscode-yaml).
+
+```bash
+code --install-extension fleet-gitops-0.1.0.vsix
+```
+
+### Zed
+
+1. Extract the zip to a local folder
+2. In Zed: `Cmd+Shift+X` → "zed: install dev extension"
+3. Select the extracted folder
 
 ### Sublime Text
-Use [LSP](https://packagecontrol.io/packages/LSP) + [LSP-yaml](https://packagecontrol.io/packages/LSP-yaml) with the generated schemas, or run `fleet-schema-gen` as an LSP server.
 
-### Other Editors
-Any editor supporting YAML Language Server or custom LSP servers can use the generated schemas.
+**Prerequisite**: Install the [LSP](https://packagecontrol.io/packages/LSP) package first.
 
-## Linting
+```bash
+# macOS
+unzip LSP-fleet-0.1.0-darwin-arm64.zip -d ~/Library/Application\ Support/Sublime\ Text/Packages/LSP-fleet
 
-The extension validates:
-- Field names and typos
-- Value types (string, boolean, integer)
-- Required fields
-- Enum values (`platform`, `logging`, etc.)
-- Format patterns (URLs, SHA256 hashes)
+# Linux
+unzip LSP-fleet-0.1.0-linux-x64.zip -d ~/.config/sublime-text/Packages/LSP-fleet
+```
 
-Run `fleetctl gitops --dry-run` for server-side validation.
+## File Patterns
 
-## Development
+Extensions activate for YAML files matching Fleet GitOps patterns:
+- `default.yml` / `default.yaml`
+- `teams/**/*.yml`
+- `lib/**/*.yml`
 
-See [DEVELOPMENT.md](DEVELOPMENT.md) for build instructions.
+## Project Structure
+
+```
+fleetctl-ext/
+├── fleet-schema-gen/     # LSP server (Rust)
+├── vscode-extension/     # VS Code extension
+├── zed-extension/        # Zed extension (WASM)
+├── sublime-package/      # Sublime Text package
+├── scripts/
+│   └── release-local.sh  # Unified build script
+└── dist/                 # Build output
+```
+
+## Building
+
+Build all packages for the current platform:
+
+```bash
+# Quick build (no signing)
+./scripts/release-local.sh --quick
+
+# Full release (sign, notarize, upload)
+./scripts/release-local.sh --notarize --release
+```
+
+See [DEVELOPMENT.md](DEVELOPMENT.md) for detailed build instructions.
 
 ## License
 
