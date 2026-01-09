@@ -5,7 +5,7 @@ This document covers the architecture, build process, common issues, and best pr
 ## Architecture Overview
 
 ```
-fleetctl-vscode/
+fleet-editor-extensions/
 ├── fleet-schema-gen/          # Rust LSP server + CLI tool
 │   ├── src/
 │   │   ├── lsp/               # LSP server implementation
@@ -15,6 +15,7 @@ fleetctl-vscode/
 │   │   │   ├── code_actions.rs# Quick-fix generation
 │   │   │   └── position.rs    # UTF-16 position utilities
 │   │   ├── linter/            # Fleet-specific validation rules
+│   │   ├── generators/        # Schema and config generators
 │   │   └── main.rs            # CLI entry point
 │   └── Cargo.toml
 │
@@ -29,21 +30,42 @@ fleetctl-vscode/
 │
 ├── zed-extension/             # Zed extension (Rust WebAssembly)
 │   ├── src/
-│   │   └── lib.rs             # Extension entry point (auto-downloads binary)
-│   ├── extension.toml         # Extension manifest
+│   │   └── lib.rs             # Extension implementation (auto-downloads binary)
+│   ├── extension.toml         # Extension metadata and LSP configuration
+│   ├── extension.wasm         # Compiled WebAssembly binary
 │   └── Cargo.toml
 │
-├── sublime-package/           # Sublime Text LSP package
-│   ├── plugin.py              # Auto-download and LSP client
-│   ├── LSP-fleet.sublime-settings
-│   └── README.md
+├── sublime-package/           # Sublime Text LSP package (Python)
+│   ├── plugin.py              # Main LSP plugin with auto-download
+│   ├── LSP-fleet.sublime-settings  # Default settings
+│   ├── Main.sublime-menu      # Menu integration
+│   ├── dependencies.json      # Package dependencies
+│   ├── messages.json          # Release messages config
+│   ├── README.md              # Package documentation
+│   └── messages/
+│       └── install.txt        # Installation message
 │
-├── scripts/
-│   ├── build-standalone-lsp.sh  # Build, sign, notarize LSP binary
-│   └── build-vscode-extension.sh
+├── .vscode/                   # VS Code workspace configuration
+│   ├── fleet-gitops-schema/   # JSON schemas for Fleet configs
+│   │   ├── default.schema.json
+│   │   ├── team.schema.json
+│   │   ├── policy.schema.json
+│   │   ├── query.schema.json
+│   │   └── label.schema.json
+│   └── fleet-gitops.code-snippets  # YAML snippets
 │
-└── .github/workflows/
-    └── release.yml            # Unified release workflow
+├── scripts/                   # Build and release scripts
+│   ├── build-standalone-lsp.sh
+│   ├── build-vscode-extension.sh
+│   └── notarize-macos.zsh     # macOS notarization script
+│
+├── docs/                      # Documentation
+│
+└── .github/workflows/         # CI/CD pipelines
+    ├── release.yml            # Unified multi-platform release
+    ├── release-vscode.yml     # VS Code extension release
+    ├── release-linux.yml      # Linux binary builds
+    └── update-schemas.yml     # Auto-update JSON schemas
 ```
 
 ### Data Flow
@@ -540,6 +562,61 @@ View logs: `Cmd+Shift+P` → "LSP: Toggle Log Panel"
 
 ### Generate Configuration Files
 
+### Sublime Text Extension Structure
+
+The Sublime Text extension is distributed as a Package Control package:
+
+```
+sublime-package/
+├── plugin.py                    # Main LSP plugin implementation
+├── LSP-fleet.sublime-settings   # Default plugin settings
+├── Main.sublime-menu           # Package menu integration
+├── dependencies.json           # Package dependencies
+├── messages.json              # Release messages configuration
+├── README.md                  # Package documentation
+└── messages/
+    └── install.txt             # Installation message
+```
+
+#### Key Files
+
+- **`plugin.py`**: Main plugin implementation
+  - Extends `AbstractPlugin` from LSP package
+  - Handles binary discovery and auto-download
+  - Platform detection and GitHub releases integration
+  - Binary caching and version management
+- **`LSP-fleet.sublime-settings`**: Configuration file for user settings
+- **`dependencies.json`**: Specifies LSP package dependency
+- **`Main.sublime-menu`**: Adds Fleet-related menu items
+
+#### Plugin Architecture
+
+The `FleetLsp` class provides:
+
+- **Binary Management**: Auto-download from GitHub releases, PATH detection, common path fallback
+- **Version Management**: Tracks installed versions, handles updates
+- **Platform Support**: Cross-platform binary detection (macOS, Linux, Windows)
+- **Settings Integration**: Respects user-configured binary paths
+
+#### Build Process
+
+The Sublime Text extension requires no build process - it's pure Python. The key components:
+
+1. **Plugin Distribution**: Package is distributed via Package Control
+2. **Binary Management**: Handles LSP server binary automatically
+3. **Settings**: User-configurable via Sublime Text preferences
+
+#### Development Workflow
+
+```bash
+# Test the plugin locally
+cd sublime-package
+# Copy files to Sublime Text Packages directory
+cp -r . "$HOME/Library/Application Support/Sublime Text/Packages/LSP-fleet/"
+```
+
+### Generate Configuration Files
+
 You can also generate Sublime Text configuration files:
 
 ```bash
@@ -632,6 +709,64 @@ zed --foreground
 Check logs in Zed: `Cmd+Shift+P` → "zed: open log"
 
 ### Extension Structure
+
+The Zed extension follows the standard Zed extension structure:
+
+```
+zed-extension/
+├── extension.toml          # Extension metadata and configuration
+├── Cargo.toml             # Rust project configuration
+├── .gitignore             # Git ignore file
+├── README.md              # Extension documentation
+├── extension.wasm         # Compiled WebAssembly binary
+└── src/
+    └── lib.rs             # Main extension code
+```
+
+#### Key Files
+
+- **`extension.toml`**: Defines extension metadata, LSP server configuration, and supported languages
+- **`src/lib.rs`**: Main Rust code implementing the Zed extension API
+  - Binary discovery (PATH, common paths, auto-download)
+  - LSP server command configuration
+  - Settings integration
+- **`extension.wasm`**: Compiled WebAssembly binary (generated from Rust code)
+
+#### Extension API Implementation
+
+The extension implements the Zed extension API with these key methods:
+
+- `language_server_command()`: Returns command to start LSP server
+- `language_server_initialization_options()`: Provides LSP initialization settings  
+- `language_server_workspace_configuration()`: Provides workspace-specific settings
+
+#### Build Process
+
+The Zed extension is compiled to WebAssembly:
+
+```bash
+# Build the extension
+cd zed-extension
+cargo build --release --target wasm32-wasi
+cp target/wasm32-wasi/release/zed_fleet_gitops.wasm extension.wasm
+
+# Install in Zed extensions directory
+mkdir -p ~/.config/zed/extensions/fleet-gitops
+cp extension.toml extension.wasm ~/.config/zed/extensions/fleet-gitops/
+```
+
+#### Binary Management Strategy
+
+Both extensions implement similar binary discovery logic:
+
+1. **User Configuration**: Check for manually specified binary path
+2. **PATH Search**: Use system PATH to find installed binary
+3. **Common Paths**: Check standard installation locations
+   - `~/.cargo/bin/fleet-schema-gen` (Cargo install)
+   - `/opt/homebrew/bin/fleet-schema-gen` (macOS ARM)
+   - `/usr/local/bin/fleet-schema-gen` (macOS Intel/Linux)
+   - `/usr/bin/fleet-schema-gen` (Linux system)
+4. **Auto-download**: Download from GitHub releases as fallback
 
 ```
 zed-extension/
