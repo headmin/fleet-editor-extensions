@@ -1,4 +1,4 @@
-# Fleet GitOps Editor Extensions
+# Fleet Editor Extensions 
 
 Language Server Protocol (LSP) extensions for Fleet GitOps YAML files. Provides validation, completions, hover docs, and go-to-definition across multiple editors.
 
@@ -24,7 +24,7 @@ Language Server Protocol (LSP) extensions for Fleet GitOps YAML files. Provides 
 
 ## Installation
 
-Download packages from [GitHub Releases](https://github.com/headmin/fleetctl-ext/releases).
+Download packages from [GitHub Releases](https://github.com/headmin/fleet-editor-extensions/releases)).
 
 ### VS Code
 
@@ -86,4 +86,4 @@ See [DEVELOPMENT.md](DEVELOPMENT.md) for detailed build instructions.
 
 ## License
 
-Apache 2.0
+TBD 
