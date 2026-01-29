@@ -1,27 +1,40 @@
-name: Build Linux Binary
+name: Build Linux LSP Binaries
 
 on:
   push:
     tags:
-      - 'v*'
+      - "v*"
   workflow_dispatch:
+    inputs:
+      version:
+        description: "Version override (e.g., 0.1.0)"
+        required: false
+        type: string
+      upload_to_release:
+        description: "Upload to existing release tag (e.g., v0.1.0)"
+        required: false
+        default: "v0.1.0"
+        type: string
+
+env:
+  RUST_BACKTRACE: 1
+  BINARY_NAME: fleet-schema-gen
 
 jobs:
-  build-linux-x86_64:
+  # ============================================================
+  # Build Linux x86_64 binary
+  # ============================================================
+  build-linux-x64:
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: fleet-schema-gen
+    outputs:
+      version: ${{ steps.version.outputs.version }}
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
       - name: Setup Rust
-        uses: actions-rs/toolchain@v1
-        with:
-          toolchain: stable
-          override: true
+        uses: dtolnay/rust-toolchain@stable
 
       - name: Cache cargo
         uses: actions/cache@v4
@@ -30,33 +43,158 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             fleet-schema-gen/target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('fleet-schema-gen/Cargo.lock') }}
+          key: ${{ runner.os }}-x64-cargo-${{ hashFiles('fleet-schema-gen/Cargo.lock') }}
+
+      - name: Get version
+        id: version
+        working-directory: fleet-schema-gen
+        run: |
+          if [ -n "${{ github.event.inputs.version }}" ]; then
+            VERSION="${{ github.event.inputs.version }}"
+          else
+            VERSION=$(grep '^version' Cargo.toml | head -n1 | cut -d'"' -f2)
+          fi
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Building version: $VERSION"
 
       - name: Run tests
+        working-directory: fleet-schema-gen
         run: cargo test --release
 
       - name: Build binary
-        run: cargo build --release
-
-      - name: Create distribution
+        working-directory: fleet-schema-gen
         run: |
-          mkdir -p dist
-          cp target/release/fleet-schema-gen dist/
-          strip dist/fleet-schema-gen
+          cargo build --release
 
-          VERSION=$(grep '^version' Cargo.toml | head -n1 | cut -d'"' -f2)
-          cd dist
-          sha256sum fleet-schema-gen > fleet-schema-gen.sha256
-          tar -czf fleet-schema-gen-${VERSION}-linux-x86_64.tar.gz \
-            fleet-schema-gen \
-            fleet-schema-gen.sha256
+          mkdir -p dist
+          cp target/release/${{ env.BINARY_NAME }} dist/
+          strip dist/${{ env.BINARY_NAME }}
 
       - name: Test binary
-        run: ./dist/fleet-schema-gen --version
+        working-directory: fleet-schema-gen
+        run: ./dist/${{ env.BINARY_NAME }} --version
 
-      - name: Upload artifacts
+      - name: Create distribution archive
+        working-directory: fleet-schema-gen/dist
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          ARCHIVE="${{ env.BINARY_NAME }}-${VERSION}-linux-x64.tar.gz"
+
+          sha256sum ${{ env.BINARY_NAME }} > ${{ env.BINARY_NAME }}.sha256
+          tar -czf "$ARCHIVE" ${{ env.BINARY_NAME }} ${{ env.BINARY_NAME }}.sha256
+          sha256sum "$ARCHIVE" > "${ARCHIVE}.sha256"
+
+          echo "=== Distribution contents ==="
+          ls -la
+
+      - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: fleet-schema-gen-linux
-          path: fleet-schema-gen/dist/*.tar.gz
+          name: ${{ env.BINARY_NAME }}-linux-x64
+          path: |
+            fleet-schema-gen/dist/*.tar.gz
+            fleet-schema-gen/dist/*.tar.gz.sha256
           retention-days: 90
+
+  # ============================================================
+  # Build Linux ARM64 binary (cross-compiled)
+  # ============================================================
+  build-linux-arm64:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-unknown-linux-gnu
+
+      - name: Install cross-compilation tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-aarch64-linux-gnu
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            fleet-schema-gen/target
+          key: ${{ runner.os }}-arm64-cargo-${{ hashFiles('fleet-schema-gen/Cargo.lock') }}
+
+      - name: Get version
+        id: version
+        working-directory: fleet-schema-gen
+        run: |
+          if [ -n "${{ github.event.inputs.version }}" ]; then
+            VERSION="${{ github.event.inputs.version }}"
+          else
+            VERSION=$(grep '^version' Cargo.toml | head -n1 | cut -d'"' -f2)
+          fi
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Building version: $VERSION"
+
+      - name: Build binary
+        working-directory: fleet-schema-gen
+        env:
+          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
+        run: |
+          cargo build --release --target aarch64-unknown-linux-gnu
+
+          mkdir -p dist
+          cp target/aarch64-unknown-linux-gnu/release/${{ env.BINARY_NAME }} dist/
+          aarch64-linux-gnu-strip dist/${{ env.BINARY_NAME }} || echo "Strip failed, continuing..."
+
+      - name: Create distribution archive
+        working-directory: fleet-schema-gen/dist
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          ARCHIVE="${{ env.BINARY_NAME }}-${VERSION}-linux-arm64.tar.gz"
+
+          sha256sum ${{ env.BINARY_NAME }} > ${{ env.BINARY_NAME }}.sha256
+          tar -czf "$ARCHIVE" ${{ env.BINARY_NAME }} ${{ env.BINARY_NAME }}.sha256
+          sha256sum "$ARCHIVE" > "${ARCHIVE}.sha256"
+
+          echo "=== Distribution contents ==="
+          ls -la
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.BINARY_NAME }}-linux-arm64
+          path: |
+            fleet-schema-gen/dist/*.tar.gz
+            fleet-schema-gen/dist/*.tar.gz.sha256
+          retention-days: 90
+
+  # ============================================================
+  # Upload to existing GitHub Release
+  # ============================================================
+  upload-to-release:
+    needs: [build-linux-x64, build-linux-arm64]
+    runs-on: ubuntu-latest
+    if: github.event.inputs.upload_to_release != ''
+
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: List artifacts
+        run: |
+          echo "=== Artifacts to upload ==="
+          ls -la dist/
+
+      - name: Upload to GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ github.event.inputs.upload_to_release }}
+          files: dist/*
+          fail_on_unmatched_files: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
