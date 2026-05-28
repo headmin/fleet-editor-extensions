@@ -1,0 +1,56 @@
+# Base Fleet GitOps configuration shared across environments.
+# Modeled on fleet-plan/testdata/default.yml — a realistic shape, not
+# a contrived minimal example. Environment overlays in this directory
+# override specific keys without restating the full document.
+
+org_settings:
+  org_info:
+    org_name: "Acme Corp"
+    org_logo_url: "https://acme.example.com/logo.png"
+  server_settings:
+    server_url: "https://fleet.example.com"
+    live_query_disabled: false
+    enable_analytics: true
+  features:
+    enable_host_users: true
+    enable_software_inventory: true
+  smtp_settings:
+    enable_smtp: false
+
+agent_options:
+  config:
+    options:
+      distributed_interval: 10
+      logger_tls_period: 10
+      schedule_splay_percent: 10
+      pack_delimiter: "/"
+    decorators:
+      load:
+        - "SELECT uuid AS host_uuid FROM system_info"
+  overrides:
+    platforms:
+      darwin:
+        config:
+          options:
+            disable_audit: false
+      linux:
+        config:
+          options:
+            disable_audit: false
+
+controls:
+  enable_disk_encryption: true
+
+policies:
+  - path: policies/shared/global-policy.yml
+  - path: policies/mac/macos-filevault-enabled.yml
+
+queries:
+  - name: macos_version
+    description: "Get the macOS version"
+    query: "SELECT version FROM os_version"
+    interval: 3600
+    platform: darwin
+
+labels:
+  - path: labels/shared/all-labels.yml

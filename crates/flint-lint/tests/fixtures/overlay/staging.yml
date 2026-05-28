@@ -1,0 +1,17 @@
+# Staging environment overlay — looser settings for pre-production testing.
+# Demonstrates that the SAME base.yml combined with a DIFFERENT overlay
+# produces a different valid configuration. Integration tests use the
+# divergence between this and prod.yml to verify overlay specificity.
+
+org_settings:
+  server_settings:
+    server_url: "https://fleet.staging.example.com"
+    enable_analytics: false
+
+agent_options:
+  config:
+    options:
+      distributed_interval: 5
+
+controls:
+  enable_disk_encryption: false

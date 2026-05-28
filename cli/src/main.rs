@@ -67,6 +67,19 @@ enum Commands {
         /// need to tell them apart. Only affects `--format markdown`.
         #[arg(long, value_name = "TEXT")]
         heading: Option<String>,
+
+        /// Base YAML manifest to deep-merge before linting. Used together
+        /// with --env to lint the resolved overlay result instead of the
+        /// base and overlay in isolation. Catches deprecated keys and
+        /// structural errors that only appear after merge.
+        #[arg(long, value_name = "PATH", requires = "env")]
+        base: Option<PathBuf>,
+
+        /// Environment overlay YAML, deep-merged onto --base. Overlay
+        /// values win for everything except nested mappings, which recurse.
+        /// Lists are replaced, not concatenated (matches `yq` semantics).
+        #[arg(long, value_name = "PATH", requires = "base")]
+        env: Option<PathBuf>,
     },
 
     /// Manage git hooks for non-blocking flint validation in a Fleet GitOps repo.
@@ -205,6 +218,8 @@ async fn main() -> Result<()> {
             detailed_exitcodes,
             git,
             heading,
+            base,
+            env,
         } => {
             use linter::Linter;
 
@@ -214,6 +229,42 @@ async fn main() -> Result<()> {
             // (--git --format json) early so CI fails fast instead of
             // posting a comment in the wrong format or skipping silently.
             format = resolve_format_for_git(git, &format)?;
+
+            // Overlay merge: when --base/--env are set, replace the normal
+            // path-walk lint with a focused "merge two files and lint the
+            // result" mode. clap's `requires` already enforces that both
+            // flags appear together — we just need to do the merge.
+            //
+            // The merged file is written inside the base file's parent
+            // directory so any relative `path:` refs in the YAML (e.g.
+            // `./policies/foo.yml`) resolve correctly. Writing to /tmp
+            // would silently break those refs.
+            // `Option` so both match arms can definitely-initialize the
+            // binding. The guard's Drop removes the synthetic merged file
+            // on scope exit — but `std::process::exit` skips destructors,
+            // so we also drop it explicitly before any exit() call below.
+            let mut overlay_guard: Option<OverlayTempFile> = None;
+            let lint_path: PathBuf = match (&base, &env) {
+                (Some(base_path), Some(env_path)) => {
+                    if fix || unsafe_fixes {
+                        anyhow::bail!(
+                            "--fix is not supported with --base/--env yet — \
+                             merged-result fixes are ambiguous (which source file gets the edit?)"
+                        );
+                    }
+                    let base_resolved = resolve_overlay_path(base_path, &path);
+                    let env_resolved = resolve_overlay_path(env_path, &path);
+                    let merged_path = run_overlay_merge(&base_resolved, &env_resolved)?;
+                    overlay_guard = Some(OverlayTempFile::new(merged_path.clone()));
+                    merged_path
+                }
+                _ => path,
+            };
+
+            // From here on, the rest of the dispatcher operates on `lint_path`
+            // instead of the original `path`. The guard above keeps the
+            // tempfile alive until we explicitly drop it before exit().
+            let path = lint_path;
 
             // Use `from_path` so any `.fleetlint.toml` discovered in or above
             // the target path is loaded — `Linter::new()` skips it (issue #5).
@@ -378,6 +429,11 @@ async fn main() -> Result<()> {
                     }
                 }
             }
+
+            // Drop the overlay guard BEFORE any std::process::exit call.
+            // exit() skips destructors, which would leak the synthetic
+            // .flint-overlay-merge-<pid>.yml file into the user's repo.
+            drop(overlay_guard);
 
             if !hook_mode {
                 let total_findings = total_errors + total_warnings + total_infos;
@@ -930,6 +986,76 @@ fn print_tree(dir: &std::path::Path, prefix: &str) -> anyhow::Result<()> {
     }
 
     Ok(())
+}
+
+/// Resolve a `--base` or `--env` path against the user's positional path.
+///
+/// Absolute paths stay as-is. Relative paths resolve against `context` when
+/// it's a directory, or its parent when it's a file. This mirrors fleet-plan's
+/// behavior — users think of overlay paths as "relative to my repo," not
+/// "relative to wherever my shell was when I typed the command."
+fn resolve_overlay_path(target: &std::path::Path, context: &std::path::Path) -> PathBuf {
+    if target.is_absolute() {
+        return target.to_path_buf();
+    }
+    let base_dir = if context.is_dir() {
+        context.to_path_buf()
+    } else {
+        context.parent().unwrap_or(std::path::Path::new(".")).to_path_buf()
+    };
+    base_dir.join(target)
+}
+
+/// Merge `base` + `env`, write the result next to `base`, return the path.
+///
+/// Co-locating the merged file with the base preserves resolution of
+/// relative `path:` refs in the YAML (e.g. `./policies/foo.yml`). The
+/// filename starts with `.flint-overlay-merge-` so users can spot and
+/// delete stale ones if a crash skipped cleanup.
+fn run_overlay_merge(
+    base_path: &std::path::Path,
+    env_path: &std::path::Path,
+) -> anyhow::Result<PathBuf> {
+    let base_content = std::fs::read_to_string(base_path)
+        .map_err(|e| anyhow::anyhow!("reading --base {}: {}", base_path.display(), e))?;
+    let env_content = std::fs::read_to_string(env_path)
+        .map_err(|e| anyhow::anyhow!("reading --env {}: {}", env_path.display(), e))?;
+
+    let merged = linter::merge_yaml(&base_content, &env_content)
+        .map_err(|e| anyhow::anyhow!("merging --base + --env: {}", e))?;
+
+    let parent = base_path
+        .parent()
+        .ok_or_else(|| anyhow::anyhow!("--base path has no parent directory"))?;
+
+    // Include PID so two parallel flint invocations on the same base
+    // don't clobber each other's merge output.
+    let merged_path = parent.join(format!(".flint-overlay-merge-{}.yml", std::process::id()));
+    std::fs::write(&merged_path, &merged)?;
+    Ok(merged_path)
+}
+
+/// RAII guard that removes a file when dropped.
+///
+/// Used to clean up the synthetic overlay-merge output even if the lint
+/// path exits early (e.g. via `std::process::exit` from the exit-code
+/// resolver, or an `anyhow::bail!` deeper in the pipeline). Without this,
+/// crashes during lint would leak `.flint-overlay-merge-*.yml` files into
+/// the user's repo.
+struct OverlayTempFile {
+    path: PathBuf,
+}
+
+impl OverlayTempFile {
+    fn new(path: PathBuf) -> Self {
+        Self { path }
+    }
+}
+
+impl Drop for OverlayTempFile {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.path);
+    }
 }
 
 /// Reconcile the user's `--format` choice against `--git`.
@@ -1526,6 +1652,41 @@ mod tests {
         assert!(
             out.contains(env!("CARGO_PKG_VERSION")),
             "version line must include CARGO_PKG_VERSION"
+        );
+    }
+
+    // Overlay path resolution — mirrors fleet-plan's "relative paths
+    // resolve against the repo root, not the shell's cwd" semantic. The
+    // pure helper is testable in-process; full merge integration is
+    // covered by `flint-lint::overlay` tests + the manual smoke test.
+
+    #[test]
+    fn overlay_path_absolute_stays_unchanged() {
+        let abs = std::path::Path::new("/etc/passwd");
+        let ctx = std::path::Path::new("/tmp");
+        assert_eq!(resolve_overlay_path(abs, ctx), PathBuf::from("/etc/passwd"));
+    }
+
+    #[test]
+    fn overlay_path_relative_resolves_against_dir_context() {
+        // When path is a dir, relative overlay paths join directly.
+        // Use the system tmp dir as a stable "definitely exists" anchor.
+        let ctx = std::env::temp_dir();
+        let rel = std::path::Path::new("base.yml");
+        assert_eq!(resolve_overlay_path(rel, &ctx), ctx.join("base.yml"));
+    }
+
+    #[test]
+    fn overlay_path_relative_resolves_against_file_parent() {
+        // Single-file context: resolve against the file's parent. Without
+        // this, `flint check ./repo/default.yml --base base.yml` would
+        // look for `base.yml` in the cwd instead of the repo root, which
+        // is almost never what the user wants.
+        let ctx = std::path::PathBuf::from("/tmp/repo/default.yml");
+        let rel = std::path::Path::new("base.yml");
+        assert_eq!(
+            resolve_overlay_path(rel, &ctx),
+            PathBuf::from("/tmp/repo/base.yml")
         );
     }
 

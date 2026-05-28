@@ -1,0 +1,22 @@
+# Production environment overlay — applied on top of base.yml.
+# Demonstrates the common pattern: override server URL, tune intervals
+# for production load, add stricter macOS update floor.
+
+org_settings:
+  server_settings:
+    server_url: "https://fleet.prod.example.com"
+    enable_analytics: false
+  features:
+    enable_software_inventory: true
+
+agent_options:
+  config:
+    options:
+      distributed_interval: 30
+      logger_tls_period: 30
+
+controls:
+  enable_disk_encryption: true
+  macos_updates:
+    minimum_version: "14.0.0"
+    deadline: "2026-12-31"
