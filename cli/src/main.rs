@@ -38,14 +38,35 @@ enum Commands {
         #[arg(long)]
         unsafe_fixes: bool,
 
-        /// Output format (text, json)
-        #[arg(short, long, default_value = "text")]
+        /// Output format
+        #[arg(short, long, default_value = "text", value_parser = ["text", "json", "markdown"])]
         format: String,
 
         /// Run as a non-blocking git hook: print diagnostics but always exit 0,
         /// so warnings/errors don't block commits. Suitable for `.git/hooks/pre-commit`.
         #[arg(long)]
         hook_mode: bool,
+
+        /// Use terraform-style exit codes: 0 = no findings, 1 = engine error,
+        /// 2 = findings detected (any severity). Without this flag, only
+        /// errors trigger a non-zero exit. Ignored when --hook-mode is set.
+        #[arg(long)]
+        detailed_exitcodes: bool,
+
+        /// CI mode: auto-post the markdown report as a PR comment via `gh`.
+        /// Currently supports GitHub Actions (detected via $GITHUB_ACTIONS
+        /// and $GITHUB_REF). Implies --format markdown; errors if --format
+        /// is set to something else. Requires `gh` on PATH and a token with
+        /// PR-comment scope. On post failure, the body still prints to
+        /// stdout so the CI logs preserve it.
+        #[arg(long)]
+        git: bool,
+
+        /// Override the markdown heading. Useful when a monorepo PR posts
+        /// multiple flint reports (e.g. one per sub-project) and readers
+        /// need to tell them apart. Only affects `--format markdown`.
+        #[arg(long, value_name = "TEXT")]
+        heading: Option<String>,
     },
 
     /// Manage git hooks for non-blocking flint validation in a Fleet GitOps repo.
@@ -138,6 +159,10 @@ enum Commands {
         #[arg(default_value = ".")]
         path: PathBuf,
     },
+
+    /// Print detailed build information (version, build date, target triple,
+    /// Fleet sync info). For a single-line version string, use `flint --version`.
+    Version,
 }
 
 #[derive(Subcommand)]
@@ -175,17 +200,33 @@ async fn main() -> Result<()> {
             path,
             fix,
             unsafe_fixes,
-            format,
+            mut format,
             hook_mode,
+            detailed_exitcodes,
+            git,
+            heading,
         } => {
             use linter::Linter;
 
             use colored::Colorize;
 
+            // --git implies --format markdown. Reject the contradictory case
+            // (--git --format json) early so CI fails fast instead of
+            // posting a comment in the wrong format or skipping silently.
+            format = resolve_format_for_git(git, &format)?;
+
             // Use `from_path` so any `.fleetlint.toml` discovered in or above
             // the target path is loaded — `Linter::new()` skips it (issue #5).
             let linter = Linter::from_path(&path);
             let json_mode = format == "json";
+            let markdown_mode = format == "markdown";
+            let structured_mode = json_mode || markdown_mode;
+
+            let mut total_errors = 0;
+            let mut total_warnings = 0;
+            let mut total_infos = 0;
+            let files_linted;
+            let mut markdown_body: Option<String> = None;
 
             if path.is_file() {
                 let source = std::fs::read_to_string(&path)?;
@@ -194,7 +235,7 @@ async fn main() -> Result<()> {
                 // Apply fixes if requested
                 if fix {
                     let fixed = apply_fixes(&path, &report, unsafe_fixes)?;
-                    if fixed > 0 && !json_mode {
+                    if fixed > 0 && !structured_mode {
                         println!(
                             "{} Fixed {} issue(s) in {}",
                             "✓".green(),
@@ -204,6 +245,11 @@ async fn main() -> Result<()> {
                     }
                 }
 
+                files_linted = 1;
+                total_errors = report.errors.len();
+                total_warnings = report.warnings.len();
+                total_infos = report.infos.len();
+
                 if json_mode {
                     let output = lint_report_to_json(&path.display().to_string(), &report);
                     let wrapper = serde_json::json!({
@@ -211,19 +257,26 @@ async fn main() -> Result<()> {
                         "files": [output],
                         "summary": {
                             "files_linted": 1,
-                            "errors": report.errors.len(),
-                            "warnings": report.warnings.len(),
-                            "infos": report.infos.len(),
+                            "errors": total_errors,
+                            "warnings": total_warnings,
+                            "infos": total_infos,
                         }
                     });
                     println!("{}", serde_json::to_string_pretty(&wrapper)?);
+                } else if markdown_mode {
+                    let body = render_markdown_report(
+                        &[(path.display().to_string(), &report)],
+                        files_linted,
+                        total_errors,
+                        total_warnings,
+                        total_infos,
+                        heading.as_deref(),
+                    );
+                    print!("{}", body);
+                    markdown_body = Some(body);
                 } else {
                     println!("{} Linting {}...\n", "🔍".blue(), path.display());
                     report.print(Some(&source));
-                }
-
-                if report.has_errors() && !hook_mode {
-                    std::process::exit(1);
                 }
             } else if path.is_dir() {
                 let results = linter.lint_directory(&path, None)?;
@@ -236,14 +289,12 @@ async fn main() -> Result<()> {
                             total_fixed += n;
                         }
                     }
-                    if total_fixed > 0 && !json_mode {
+                    if total_fixed > 0 && !structured_mode {
                         println!("{} Fixed {} issue(s)\n", "✓".green(), total_fixed);
                     }
                 }
 
-                let mut total_errors = 0;
-                let mut total_warnings = 0;
-                let mut total_infos = 0;
+                files_linted = results.len();
 
                 if json_mode {
                     let mut file_outputs = Vec::new();
@@ -262,13 +313,33 @@ async fn main() -> Result<()> {
                         "version": env!("CARGO_PKG_VERSION"),
                         "files": file_outputs,
                         "summary": {
-                            "files_linted": results.len(),
+                            "files_linted": files_linted,
                             "errors": total_errors,
                             "warnings": total_warnings,
                             "infos": total_infos,
                         }
                     });
                     println!("{}", serde_json::to_string_pretty(&wrapper)?);
+                } else if markdown_mode {
+                    let pairs: Vec<(String, &linter::error::LintReport)> = results
+                        .iter()
+                        .map(|(p, r)| (p.display().to_string(), r))
+                        .collect();
+                    for (_, report) in &pairs {
+                        total_errors += report.errors.len();
+                        total_warnings += report.warnings.len();
+                        total_infos += report.infos.len();
+                    }
+                    let body = render_markdown_report(
+                        &pairs,
+                        files_linted,
+                        total_errors,
+                        total_warnings,
+                        total_infos,
+                        heading.as_deref(),
+                    );
+                    print!("{}", body);
+                    markdown_body = Some(body);
                 } else {
                     println!("{} Linting directory {}...\n", "🔍".blue(), path.display());
 
@@ -289,17 +360,31 @@ async fn main() -> Result<()> {
                     }
 
                     println!("\n{}", "=".repeat(60));
-                    println!("{} Linted {} file(s)", "Summary:".bold(), results.len());
+                    println!("{} Linted {} file(s)", "Summary:".bold(), files_linted);
                     println!("  {} error(s)", total_errors.to_string().red());
                     println!("  {} warning(s)", total_warnings.to_string().yellow());
                     println!("  {} info", total_infos.to_string().blue());
                 }
-
-                if total_errors > 0 && !hook_mode {
-                    std::process::exit(1);
-                }
             } else {
                 anyhow::bail!("Path does not exist: {}", path.display());
+            }
+
+            // Post BEFORE applying the exit code — a non-zero exit
+            // shouldn't skip surfacing findings to the PR.
+            if git {
+                if let Some(body) = &markdown_body {
+                    if let Err(e) = post_pr_comment(body) {
+                        eprintln!("flint: --git post skipped: {}", e);
+                    }
+                }
+            }
+
+            if !hook_mode {
+                let total_findings = total_errors + total_warnings + total_infos;
+                let code = resolve_exit_code(detailed_exitcodes, total_errors, total_findings);
+                if code != 0 {
+                    std::process::exit(code);
+                }
             }
         }
 
@@ -573,9 +658,30 @@ async fn main() -> Result<()> {
             println!("{}", path.display());
             print_tree(&path, "")?;
         }
+
+        Commands::Version => {
+            print!("{}", render_version_info());
+        }
     }
 
     Ok(())
+}
+
+/// Render multi-line build provenance for `flint version`.
+///
+/// Pulled out as a pure function so we can unit-test the layout without
+/// shelling out. All inputs come from `env!()` at compile time — fields
+/// are constants from the caller's perspective and the function is here
+/// purely to centralize formatting.
+fn render_version_info() -> String {
+    format!(
+        "flint {version}\n  Build:       {build}\n  Target:      {target}\n  Fleet sync:  {sync_commit} ({sync_date})\n",
+        version = env!("CARGO_PKG_VERSION"),
+        build = env!("BUILD_TIMESTAMP"),
+        target = env!("TARGET_TRIPLE"),
+        sync_commit = env!("FLEET_SYNC_COMMIT"),
+        sync_date = env!("FLEET_SYNC_DATE"),
+    )
 }
 
 /// Generate the pre-commit hook script tailored to the install flags.
@@ -826,6 +932,229 @@ fn print_tree(dir: &std::path::Path, prefix: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// Reconcile the user's `--format` choice against `--git`.
+///
+/// `--git` only makes sense for markdown output, so:
+/// - default (`text`) silently upgrades to `markdown` (simplest CI invocation).
+/// - explicit `markdown` stays as-is.
+/// - any other explicit format (e.g. `json`) is a user error and bails.
+fn resolve_format_for_git(git: bool, format: &str) -> anyhow::Result<String> {
+    if !git {
+        return Ok(format.to_string());
+    }
+    match format {
+        "markdown" | "text" => Ok("markdown".to_string()),
+        other => anyhow::bail!(
+            "--git implies --format markdown; got --format {other}. \
+             Drop --format to use the default, or set it to markdown explicitly."
+        ),
+    }
+}
+
+/// Hidden marker emitted at the top of every markdown body. Lets a
+/// future dedup pass identify flint-authored PR comments (e.g. for
+/// edit-in-place updates) without trying to fingerprint the body.
+const MARKDOWN_MARKER: &str = "<!-- flint-check-report -->";
+
+/// PR context detected from CI environment variables.
+#[derive(Debug, PartialEq, Eq)]
+enum PrContext {
+    /// GitHub Actions running on a `pull_request` (or `pull_request_target`)
+    /// event. PR number parsed from `GITHUB_REF` (`refs/pull/<n>/merge`).
+    GithubActions { pr_number: String },
+}
+
+/// Extract the PR number from a GitHub Actions `GITHUB_REF` value.
+///
+/// On `pull_request` events the ref looks like `refs/pull/123/merge`.
+/// Returns `None` for push/tag refs and other formats so the caller
+/// can fall through to a clear "not a PR build" error.
+fn parse_github_pr_ref(github_ref: &str) -> Option<&str> {
+    let rest = github_ref.strip_prefix("refs/pull/")?;
+    let num = rest.split('/').next()?;
+    if num.is_empty() || !num.chars().all(|c| c.is_ascii_digit()) {
+        return None;
+    }
+    Some(num)
+}
+
+/// Detect the current PR context from CI env vars.
+///
+/// Reads `GITHUB_ACTIONS` and `GITHUB_REF` from the process environment.
+/// Returns an error explaining what's missing so CI logs surface the
+/// concrete reason (wrong event, missing env var, not in CI).
+fn detect_pr_context() -> anyhow::Result<PrContext> {
+    if std::env::var("GITHUB_ACTIONS").as_deref() == Ok("true") {
+        let github_ref = std::env::var("GITHUB_REF").map_err(|_| {
+            anyhow::anyhow!("GITHUB_ACTIONS is set but GITHUB_REF is not — cannot find PR number")
+        })?;
+        let pr = parse_github_pr_ref(&github_ref).ok_or_else(|| {
+            anyhow::anyhow!(
+                "GITHUB_REF={github_ref} is not a pull_request ref (expected refs/pull/<n>/merge)"
+            )
+        })?;
+        return Ok(PrContext::GithubActions {
+            pr_number: pr.to_string(),
+        });
+    }
+    if std::env::var("GITLAB_CI").as_deref() == Ok("true") {
+        anyhow::bail!("GitLab CI is not yet supported in --git mode (GitHub Actions only for now)");
+    }
+    anyhow::bail!("no supported CI environment detected (expected GITHUB_ACTIONS=true)");
+}
+
+/// Post the markdown body as a PR comment via `gh pr comment`.
+///
+/// Shells out to `gh` to inherit the user's existing auth (the standard
+/// `GITHUB_TOKEN` on GitHub-hosted runners). Stdout from `gh` propagates
+/// to the user; non-zero exit becomes an error so the caller can log it.
+/// Note: every invocation creates a new comment — dedup/edit-in-place is
+/// a follow-up (see `MARKDOWN_MARKER`).
+fn post_pr_comment(body: &str) -> anyhow::Result<()> {
+    use std::io::Write;
+    use std::process::{Command, Stdio};
+
+    let ctx = detect_pr_context()?;
+    let PrContext::GithubActions { pr_number } = ctx;
+
+    let mut child = Command::new("gh")
+        .args(["pr", "comment", &pr_number, "--body-file", "-"])
+        .stdin(Stdio::piped())
+        .spawn()
+        .map_err(|e| anyhow::anyhow!("failed to spawn `gh` (is it installed and on PATH?): {e}"))?;
+
+    if let Some(stdin) = child.stdin.as_mut() {
+        stdin.write_all(body.as_bytes())?;
+    }
+    let status = child.wait()?;
+    if !status.success() {
+        anyhow::bail!("`gh pr comment` exited with status {status}");
+    }
+    eprintln!("flint: posted check report to PR #{pr_number}");
+    Ok(())
+}
+
+/// Map a lint run's counts to a process exit code.
+///
+/// Default (no `--detailed-exitcodes`): `0` unless errors were found, in which
+/// case `1`. Warnings and infos do not affect the exit code — preserves the
+/// pre-flag behavior so existing CI doesn't break.
+///
+/// With `--detailed-exitcodes` (terraform/fleet-plan convention):
+/// `0` = no findings of any severity, `2` = any finding. Engine errors
+/// propagate via `anyhow::Result` from `main` and surface as `1` regardless
+/// of this flag.
+fn resolve_exit_code(detailed_exitcodes: bool, errors: usize, total_findings: usize) -> i32 {
+    if detailed_exitcodes {
+        if total_findings > 0 {
+            2
+        } else {
+            0
+        }
+    } else if errors > 0 {
+        1
+    } else {
+        0
+    }
+}
+
+/// Render a lint run as a GitHub-flavored-markdown comment body.
+///
+/// Output is a `## flint check` heading, a summary line, and one
+/// `<details>` block per file that has at least one finding. The
+/// per-file body is a table of `severity | line | rule | message` rows,
+/// so a CI step can pipe this straight into `gh pr comment --body-file -`.
+fn render_markdown_report(
+    files: &[(String, &linter::error::LintReport)],
+    files_linted: usize,
+    errors: usize,
+    warnings: usize,
+    infos: usize,
+    heading: Option<&str>,
+) -> String {
+    let mut out = String::new();
+    // HTML comment is invisible in rendered markdown. Future dedup logic
+    // (edit-in-place rather than stacking comments) can grep PR comments
+    // for this marker to identify flint-authored bodies.
+    out.push_str(MARKDOWN_MARKER);
+    out.push('\n');
+    out.push_str("## ");
+    out.push_str(heading.unwrap_or("flint check"));
+    out.push_str("\n\n");
+
+    let total = errors + warnings + infos;
+    if total == 0 {
+        out.push_str(&format!(
+            "✓ No issues found across {} file(s).\n",
+            files_linted
+        ));
+        return out;
+    }
+
+    out.push_str(&format!(
+        "**Summary:** {} error(s), {} warning(s), {} info across {} file(s).\n\n",
+        errors, warnings, infos, files_linted
+    ));
+
+    for (path, report) in files {
+        if report.total_issues() == 0 {
+            continue;
+        }
+        out.push_str(&format!(
+            "<details><summary><code>{}</code> — {} error(s), {} warning(s), {} info</summary>\n\n",
+            md_escape(path),
+            report.errors.len(),
+            report.warnings.len(),
+            report.infos.len()
+        ));
+        out.push_str("| Severity | Line | Rule | Message |\n");
+        out.push_str("| --- | --- | --- | --- |\n");
+
+        let rows = report
+            .errors
+            .iter()
+            .chain(report.warnings.iter())
+            .chain(report.infos.iter());
+        for e in rows {
+            let icon = match e.severity {
+                linter::Severity::Error => "❌ error",
+                linter::Severity::Warning => "⚠️ warning",
+                linter::Severity::Info => "ℹ️ info",
+            };
+            let loc = match (e.line, e.column) {
+                (Some(l), Some(c)) => format!("{}:{}", l, c),
+                (Some(l), None) => l.to_string(),
+                _ => "—".to_string(),
+            };
+            let rule = e
+                .rule_code
+                .as_deref()
+                .map(|c| format!("`{}`", md_escape(c)))
+                .unwrap_or_else(|| "—".to_string());
+            out.push_str(&format!(
+                "| {} | {} | {} | {} |\n",
+                icon,
+                loc,
+                rule,
+                md_escape(&e.message)
+            ));
+        }
+        out.push_str("\n</details>\n\n");
+    }
+    out
+}
+
+/// Escape characters that would break a GitHub-markdown table cell.
+///
+/// Pipes terminate cells, backticks toggle inline code, and backslashes
+/// need doubling so they don't escape the *next* character we emit.
+fn md_escape(s: &str) -> String {
+    s.replace('\\', "\\\\")
+        .replace('|', "\\|")
+        .replace('`', "\\`")
+        .replace('\n', " ")
+}
+
 /// Convert a LintReport to a JSON value for structured output.
 fn lint_report_to_json(file_path: &str, report: &linter::error::LintReport) -> serde_json::Value {
     let to_json = |errors: &[linter::LintError]| -> Vec<serde_json::Value> {
@@ -1030,5 +1359,233 @@ mod tests {
             !text.contains("--format=json"),
             "non-json mode must not pass --format=json"
         );
+    }
+
+    // Exit code matrix — preserves the legacy 0/1 contract by default and
+    // promotes warnings/infos to exit-2 only when --detailed-exitcodes is set.
+    #[test]
+    fn exit_code_default_zero_when_clean() {
+        assert_eq!(resolve_exit_code(false, 0, 0), 0);
+    }
+
+    #[test]
+    fn exit_code_default_one_on_errors_only() {
+        // Legacy contract: warnings/infos must NOT trigger non-zero exit.
+        assert_eq!(resolve_exit_code(false, 0, 5), 0);
+        assert_eq!(resolve_exit_code(false, 3, 8), 1);
+    }
+
+    #[test]
+    fn exit_code_detailed_zero_when_no_findings() {
+        assert_eq!(resolve_exit_code(true, 0, 0), 0);
+    }
+
+    #[test]
+    fn exit_code_detailed_two_on_any_finding() {
+        // Warnings alone, infos alone, and errors alone all surface as 2.
+        assert_eq!(resolve_exit_code(true, 0, 1), 2);
+        assert_eq!(resolve_exit_code(true, 1, 1), 2);
+        assert_eq!(resolve_exit_code(true, 0, 7), 2);
+    }
+
+    fn make_report() -> linter::error::LintReport {
+        use linter::error::{FixSafety, LintError, LintReport, Severity};
+        let mut r = LintReport::new();
+        let mut err = LintError::error("missing required field `platforms`", "teams/ws.yml");
+        err.severity = Severity::Error;
+        err.line = Some(12);
+        err.column = Some(5);
+        err.rule_code = Some("required-fields".into());
+        r.add(err);
+
+        let mut warn = LintError::warning("interval `1s` is very short", "teams/ws.yml");
+        warn.line = Some(47);
+        warn.rule_code = Some("interval-validation".into());
+        warn.fix_safety = Some(FixSafety::Display);
+        r.add(warn);
+        r
+    }
+
+    #[test]
+    fn markdown_zero_findings_emits_clean_summary() {
+        let report = linter::error::LintReport::new();
+        let out = render_markdown_report(&[("teams/ws.yml".into(), &report)], 1, 0, 0, 0, None);
+        assert!(out.starts_with(MARKDOWN_MARKER), "marker must lead the body");
+        assert!(out.contains("## flint check"));
+        assert!(out.contains("✓ No issues found"));
+        // No <details> blocks when clean.
+        assert!(!out.contains("<details>"));
+    }
+
+    #[test]
+    fn markdown_marker_is_present_on_every_render() {
+        // Marker must appear regardless of findings — dedup/edit-in-place
+        // logic relies on it for both clean and dirty runs.
+        let empty = linter::error::LintReport::new();
+        let busy = make_report();
+        let clean = render_markdown_report(&[("a.yml".into(), &empty)], 1, 0, 0, 0, None);
+        let dirty = render_markdown_report(&[("b.yml".into(), &busy)], 1, 1, 1, 0, None);
+        assert!(clean.contains(MARKDOWN_MARKER));
+        assert!(dirty.contains(MARKDOWN_MARKER));
+    }
+
+    #[test]
+    fn markdown_custom_heading_replaces_default() {
+        // Monorepo case: two flint reports in one PR comment need
+        // distinguishable headings so reviewers can tell them apart.
+        let empty = linter::error::LintReport::new();
+        let out = render_markdown_report(
+            &[("a.yml".into(), &empty)],
+            1,
+            0,
+            0,
+            0,
+            Some("Staging diff"),
+        );
+        assert!(out.contains("## Staging diff"));
+        assert!(
+            !out.contains("## flint check"),
+            "custom heading must REPLACE the default, not append"
+        );
+        // Marker still leads regardless of heading.
+        assert!(out.starts_with(MARKDOWN_MARKER));
+    }
+
+    // Parser for $GITHUB_REF on pull_request events. Critical that bogus
+    // values (push refs, tags, malformed strings) return None so the
+    // caller surfaces a clear error rather than posting to PR #0 or
+    // truncating non-numeric noise.
+    #[test]
+    fn parse_github_pr_ref_accepts_pull_request_refs() {
+        assert_eq!(parse_github_pr_ref("refs/pull/1/merge"), Some("1"));
+        assert_eq!(parse_github_pr_ref("refs/pull/12345/merge"), Some("12345"));
+        // pull_request_target also uses /merge but `/head` shows up too.
+        assert_eq!(parse_github_pr_ref("refs/pull/42/head"), Some("42"));
+    }
+
+    #[test]
+    fn parse_github_pr_ref_rejects_non_pr_refs() {
+        // Push to main.
+        assert_eq!(parse_github_pr_ref("refs/heads/main"), None);
+        // Tag push.
+        assert_eq!(parse_github_pr_ref("refs/tags/v1.0.0"), None);
+        // Empty.
+        assert_eq!(parse_github_pr_ref(""), None);
+        // Right prefix, but non-numeric PR id (would silently post to a
+        // nonsense PR if we didn't validate).
+        assert_eq!(parse_github_pr_ref("refs/pull/abc/merge"), None);
+        // Right prefix, empty number segment.
+        assert_eq!(parse_github_pr_ref("refs/pull//merge"), None);
+    }
+
+    // `--git` validation. The pure resolver is testable; the dispatcher
+    // just delegates to it.
+    #[test]
+    fn git_flag_off_passes_format_through_unchanged() {
+        assert_eq!(resolve_format_for_git(false, "text").unwrap(), "text");
+        assert_eq!(resolve_format_for_git(false, "json").unwrap(), "json");
+        assert_eq!(
+            resolve_format_for_git(false, "markdown").unwrap(),
+            "markdown"
+        );
+    }
+
+    #[test]
+    fn git_flag_upgrades_default_text_to_markdown() {
+        // The 90%-case CI invocation is `flint check --git` — no explicit
+        // format. We silently pick markdown rather than erroring on the
+        // default value the user didn't set.
+        assert_eq!(resolve_format_for_git(true, "text").unwrap(), "markdown");
+    }
+
+    #[test]
+    fn git_flag_keeps_explicit_markdown() {
+        assert_eq!(
+            resolve_format_for_git(true, "markdown").unwrap(),
+            "markdown"
+        );
+    }
+
+    #[test]
+    fn version_info_renders_all_required_fields() {
+        // Triage messages from users include this output verbatim, so the
+        // four labeled fields (Build / Target / Fleet sync) must always
+        // be present. The exact values come from build.rs env injection.
+        let out = render_version_info();
+        assert!(out.starts_with("flint "), "leading line must be 'flint <version>'");
+        assert!(out.contains("Build:"));
+        assert!(out.contains("Target:"));
+        assert!(out.contains("Fleet sync:"));
+        // Trailing newline so shells can append cleanly.
+        assert!(out.ends_with('\n'));
+    }
+
+    #[test]
+    fn version_info_includes_pkg_version() {
+        let out = render_version_info();
+        assert!(
+            out.contains(env!("CARGO_PKG_VERSION")),
+            "version line must include CARGO_PKG_VERSION"
+        );
+    }
+
+    #[test]
+    fn git_flag_rejects_incompatible_format() {
+        let err = resolve_format_for_git(true, "json").unwrap_err().to_string();
+        assert!(
+            err.contains("--git implies --format markdown"),
+            "error must explain the conflict, got: {err}"
+        );
+        assert!(err.contains("json"), "error must echo the offending format");
+    }
+
+    #[test]
+    fn markdown_renders_per_file_details_with_table() {
+        let report = make_report();
+        let pairs = vec![("teams/ws.yml".to_string(), &report)];
+        let out = render_markdown_report(&pairs, 1, 1, 1, 0, None);
+
+        assert!(out.contains("**Summary:** 1 error(s), 1 warning(s)"));
+        assert!(out.contains("<details><summary><code>teams/ws.yml</code>"));
+        assert!(out.contains("| Severity | Line | Rule | Message |"));
+        assert!(out.contains("❌ error"));
+        assert!(out.contains("⚠️ warning"));
+        assert!(out.contains("`required-fields`"));
+        assert!(out.contains("12:5"));
+        // Files with zero issues must be skipped, but our single file has issues.
+        assert_eq!(out.matches("<details>").count(), 1);
+    }
+
+    #[test]
+    fn markdown_skips_files_with_no_findings() {
+        let empty = linter::error::LintReport::new();
+        let busy = make_report();
+        let pairs = vec![
+            ("a.yml".to_string(), &empty),
+            ("b.yml".to_string(), &busy),
+        ];
+        let out = render_markdown_report(&pairs, 2, 1, 1, 0, None);
+        assert!(!out.contains("a.yml"), "empty files must not appear");
+        assert!(out.contains("b.yml"));
+    }
+
+    #[test]
+    fn markdown_escapes_pipes_and_backticks_in_messages() {
+        // Diagnostic messages can contain `|` (e.g. enum lists) and backticks
+        // (quoting field names). Both would break a markdown table row if
+        // emitted verbatim.
+        use linter::error::{LintError, LintReport};
+        let mut r = LintReport::new();
+        let mut err = LintError::error(
+            "value must be one of `a` | `b` | `c`",
+            "teams/ws.yml",
+        );
+        err.line = Some(1);
+        err.rule_code = Some("enum".into());
+        r.add(err);
+
+        let out = render_markdown_report(&[("teams/ws.yml".into(), &r)], 1, 1, 0, 0, None);
+        assert!(out.contains("\\|"), "pipes must be escaped in cells");
+        assert!(out.contains("\\`"), "backticks must be escaped in cells");
     }
 }

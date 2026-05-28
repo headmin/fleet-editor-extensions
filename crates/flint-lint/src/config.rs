@@ -7,8 +7,34 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
-/// Configuration file name.
+/// Configuration file name (repo-local, in `.fleetlint.toml` form).
 pub const CONFIG_FILE_NAME: &str = ".fleetlint.toml";
+
+/// Resolve the user-level config path from the process environment.
+///
+/// Search order: `$XDG_CONFIG_HOME/flint/config.toml`, then
+/// `$HOME/.config/flint/config.toml`. Returns `None` if neither env var
+/// is set (minimal CI containers, daemonized contexts).
+pub(crate) fn user_config_path() -> Option<PathBuf> {
+    resolve_user_config_path(
+        std::env::var("XDG_CONFIG_HOME").ok().as_deref(),
+        std::env::var("HOME").ok().as_deref(),
+    )
+}
+
+/// Pure resolver — testable without env mutation. Production callers go
+/// through [`user_config_path`]; tests construct env values inline.
+///
+/// An empty `XDG_CONFIG_HOME` is treated as unset (matches XDG basedir
+/// spec: "if XDG_CONFIG_HOME is either not set or empty, a default of
+/// $HOME/.config should be used").
+fn resolve_user_config_path(xdg: Option<&str>, home: Option<&str>) -> Option<PathBuf> {
+    let base = xdg
+        .filter(|s| !s.is_empty())
+        .map(PathBuf::from)
+        .or_else(|| home.map(|h| PathBuf::from(h).join(".config")))?;
+    Some(base.join("flint").join("config.toml"))
+}
 
 /// Fleet linter configuration loaded from `.fleetlint.toml`.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -298,11 +324,29 @@ impl FleetLintConfig {
         toml::from_str(content).map_err(|e| ConfigError::ParseError(e.to_string()))
     }
 
-    /// Find and load configuration by searching up from a starting path.
+    /// Find and load configuration, walking up from `start_path` and
+    /// then falling back to the user's XDG config directory.
     ///
-    /// Searches for `.fleetlint.toml` starting from `start_path` and
-    /// walking up to parent directories until found or root is reached.
+    /// Search order (first match wins):
+    /// 1. `.fleetlint.toml` in `start_path` or any ancestor directory.
+    /// 2. `$XDG_CONFIG_HOME/flint/config.toml` (or `$HOME/.config/flint/config.toml`).
+    ///
+    /// The user-level fallback lets contributors share lint preferences
+    /// across multiple Fleet GitOps checkouts without committing a config
+    /// to each repo — matches fleet-plan's `~/.config/fleet-plan.json`
+    /// convention. Repo-local config always wins, so a team file can
+    /// override a personal one without surprises.
     pub fn find_and_load(start_path: &Path) -> Option<(PathBuf, Self)> {
+        if let Some(hit) = Self::find_in_ancestors(start_path) {
+            return Some(hit);
+        }
+        Self::find_in_user_config()
+    }
+
+    /// Walk up from `start_path` looking for `.fleetlint.toml` (legacy
+    /// behavior, preserved for backward compatibility). Returns the
+    /// repo-local config if found and parseable.
+    fn find_in_ancestors(start_path: &Path) -> Option<(PathBuf, Self)> {
         let mut current = if start_path.is_file() {
             start_path.parent()?.to_path_buf()
         } else {
@@ -322,6 +366,21 @@ impl FleetLintConfig {
                 Some(parent) => current = parent.to_path_buf(),
                 None => return None,
             }
+        }
+    }
+
+    /// Look up the user-level config at `$XDG_CONFIG_HOME/flint/config.toml`
+    /// (or `$HOME/.config/flint/config.toml` if XDG_CONFIG_HOME isn't set).
+    /// Returns `None` if no home directory can be resolved, the file
+    /// doesn't exist, or it fails to parse.
+    fn find_in_user_config() -> Option<(PathBuf, Self)> {
+        let path = user_config_path()?;
+        if !path.exists() {
+            return None;
+        }
+        match Self::from_file(&path) {
+            Ok(config) => Some((path, config)),
+            Err(_) => None,
         }
     }
 
@@ -683,5 +742,37 @@ min_interval = 120
         assert!(config.thresholds.warn_select_star);
         // Rules should be empty
         assert!(config.rules.disabled.is_empty());
+    }
+
+    // User-level config fallback — XDG path resolution. The fs-touching
+    // outer `find_in_user_config` is not tested here (would need tempdir
+    // fixtures); the pure resolver covers all the branching logic.
+
+    #[test]
+    fn user_config_prefers_xdg_when_set() {
+        let p = resolve_user_config_path(Some("/custom/xdg"), Some("/home/alice")).unwrap();
+        assert_eq!(p, PathBuf::from("/custom/xdg/flint/config.toml"));
+    }
+
+    #[test]
+    fn user_config_falls_back_to_home_dot_config() {
+        let p = resolve_user_config_path(None, Some("/home/alice")).unwrap();
+        assert_eq!(p, PathBuf::from("/home/alice/.config/flint/config.toml"));
+    }
+
+    #[test]
+    fn user_config_empty_xdg_is_treated_as_unset() {
+        // XDG basedir spec: empty value falls back to $HOME/.config rather
+        // than resolving to a bare `flint/config.toml` in the cwd.
+        let p = resolve_user_config_path(Some(""), Some("/home/alice")).unwrap();
+        assert_eq!(p, PathBuf::from("/home/alice/.config/flint/config.toml"));
+    }
+
+    #[test]
+    fn user_config_returns_none_when_no_env_available() {
+        // Daemonized / minimal-container case — no usable path, caller
+        // must skip the user-level fallback entirely.
+        assert!(resolve_user_config_path(None, None).is_none());
+        assert!(resolve_user_config_path(Some(""), None).is_none());
     }
 }

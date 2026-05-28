@@ -31,6 +31,12 @@ fn main() {
     println!("cargo:rustc-env=FLEET_SYNC_DATE={}", sync_date);
     println!("cargo:rerun-if-env-changed=FLEET_SYNC_COMMIT");
     println!("cargo:rerun-if-env-changed=FLEET_SYNC_DATE");
+
+    // Target triple — cargo sets $TARGET for build scripts. Re-emit as a
+    // runtime env so `flint version` can show what arch the binary was
+    // compiled for (useful when triaging Intel vs. Apple Silicon issues).
+    let target = std::env::var("TARGET").unwrap_or_else(|_| "unknown".to_string());
+    println!("cargo:rustc-env=TARGET_TRIPLE={}", target);
 }
 
 fn round_to_10_minutes(dt: &chrono::DateTime<chrono::Utc>) -> String {
