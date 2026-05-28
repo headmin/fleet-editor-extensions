@@ -57,6 +57,35 @@ pub struct FleetLintConfig {
 
     /// Fleet server connection settings.
     pub fleet: FleetConnectionConfig,
+
+    /// LSP-specific settings (debounce, etc).
+    pub lsp: LspConfig,
+}
+
+/// LSP-specific settings.
+///
+/// Controls behavior that's only meaningful in the language-server context
+/// (not the CLI). Today this is just the keystroke debounce window, but the
+/// `[lsp]` section is the natural home for any future LSP-only knobs.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct LspConfig {
+    /// Milliseconds to wait after the last keystroke before linting.
+    /// Default 150ms (matches rust-analyzer's typing-debounce default —
+    /// imperceptible while typing, fast enough to feel responsive on pause).
+    /// Set to 0 to disable debouncing entirely (every keystroke re-lints).
+    pub lint_debounce_ms: u32,
+}
+
+impl Default for LspConfig {
+    fn default() -> Self {
+        // 150ms is the well-known sweet spot for typing-debounce. Lower
+        // values waste CPU on doomed lint runs; higher values are
+        // noticeable as input lag.
+        Self {
+            lint_debounce_ms: 150,
+        }
+    }
 }
 
 /// Rule enable/disable configuration.
@@ -742,6 +771,51 @@ min_interval = 120
         assert!(config.thresholds.warn_select_star);
         // Rules should be empty
         assert!(config.rules.disabled.is_empty());
+    }
+
+    // LSP config — debounce knob. Default 150ms, settable via [lsp]
+    // section in .fleetlint.toml. Zero disables debouncing entirely.
+
+    #[test]
+    fn lsp_config_defaults_to_150ms() {
+        let config = FleetLintConfig::default();
+        assert_eq!(config.lsp.lint_debounce_ms, 150);
+    }
+
+    #[test]
+    fn lsp_config_parses_explicit_value() {
+        let toml = r#"
+[lsp]
+lint_debounce_ms = 300
+"#;
+        let config = FleetLintConfig::parse(toml).unwrap();
+        assert_eq!(config.lsp.lint_debounce_ms, 300);
+    }
+
+    #[test]
+    fn lsp_config_zero_means_no_debounce() {
+        // Sentinel for "lint immediately on every keystroke" — useful for
+        // tests and for users isolating a perf bug to confirm it's not
+        // the debounce hiding the issue.
+        let toml = r#"
+[lsp]
+lint_debounce_ms = 0
+"#;
+        let config = FleetLintConfig::parse(toml).unwrap();
+        assert_eq!(config.lsp.lint_debounce_ms, 0);
+    }
+
+    #[test]
+    fn lsp_config_absent_section_uses_default() {
+        // A config file that doesn't mention [lsp] at all should still
+        // produce the 150ms default, not crash. This is the path for
+        // existing repos that don't know about the new section yet.
+        let toml = r#"
+[rules]
+disabled = []
+"#;
+        let config = FleetLintConfig::parse(toml).unwrap();
+        assert_eq!(config.lsp.lint_debounce_ms, 150);
     }
 
     // User-level config fallback — XDG path resolution. The fs-touching

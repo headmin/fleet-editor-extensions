@@ -53,6 +53,14 @@ pub struct FleetLspBackend {
     gitops_enabled: RwLock<bool>,
     /// Whether live completions are enabled in config.
     live_completions_enabled: RwLock<bool>,
+    /// Per-document timestamp of the latest `did_change` request.
+    ///
+    /// Drives keystroke debouncing: when a change handler completes its
+    /// sleep window, it compares its own stored instant against this
+    /// value. If they differ, a newer change has come in and this
+    /// handler's lint is stale — it returns without linting. The
+    /// debouncer is thus stateless beyond this single timestamp per URI.
+    last_change_request: DashMap<String, std::time::Instant>,
 }
 
 impl FleetLspBackend {
@@ -67,7 +75,35 @@ impl FleetLspBackend {
             resource_cache: Arc::new(RwLock::new(None)),
             gitops_enabled: RwLock::new(false),
             live_completions_enabled: RwLock::new(false),
+            last_change_request: DashMap::new(),
         }
+    }
+
+    /// Read the lint-debounce window from the active linter config.
+    ///
+    /// Falls back to the 150ms default if config isn't loaded or the lock
+    /// is poisoned — debouncing must degrade gracefully, never deadlock or
+    /// panic the LSP.
+    fn lint_debounce_ms(&self) -> u32 {
+        self.linter
+            .read()
+            .ok()
+            .and_then(|linter| linter.config().map(|c| c.lsp.lint_debounce_ms))
+            .unwrap_or(150)
+    }
+
+    /// Decide whether a debounced lint request should proceed.
+    ///
+    /// Pure helper, extracted so the coalesce-stale-requests logic is
+    /// unit-testable without spinning up the LSP. Returns true iff the
+    /// caller's own scheduled timestamp matches the latest recorded one
+    /// for this URI — meaning no newer change has come in during the
+    /// debounce sleep.
+    fn debounce_decision(
+        my_instant: std::time::Instant,
+        latest: Option<std::time::Instant>,
+    ) -> bool {
+        matches!(latest, Some(t) if t == my_instant)
     }
 
     /// Load configuration from workspace root.
@@ -216,15 +252,33 @@ impl FleetLspBackend {
     }
 
     /// Handle document change - lint and publish diagnostics (Layer 1).
+    ///
+    /// Splits into a synchronous cache update plus an async lint+publish so
+    /// the debouncer in `did_change` can update the cache immediately (so
+    /// subsequent edits see fresh content) while deferring the expensive
+    /// lint+publish.
     async fn on_change(&self, uri: String, content: String) {
-        // Cache the document content
-        self.documents.insert(uri.clone(), content.clone());
+        self.cache_document(uri.clone(), content);
+        self.lint_and_publish(&uri).await;
+    }
 
-        // Lint the document
-        let diagnostics = self.lint_document(&uri, &content);
+    /// Insert the latest content for `uri` into the document cache.
+    /// Synchronous, idempotent, safe to call on every keystroke.
+    fn cache_document(&self, uri: String, content: String) {
+        self.documents.insert(uri, content);
+    }
 
-        // Parse URI for publishing
-        if let Ok(url) = Url::parse(&uri) {
+    /// Lint the cached content for `uri` and publish diagnostics.
+    /// Used by `on_change` for the open/save paths, and by the debounced
+    /// did_change path after the sleep window completes. Returns silently
+    /// if the document is no longer in the cache (closed mid-flight).
+    async fn lint_and_publish(&self, uri: &str) {
+        let content = match self.documents.get(uri) {
+            Some(entry) => entry.value().clone(),
+            None => return,
+        };
+        let diagnostics = self.lint_document(uri, &content);
+        if let Ok(url) = Url::parse(uri) {
             self.client
                 .publish_diagnostics(url, diagnostics, None)
                 .await;
@@ -673,19 +727,66 @@ impl LanguageServer for FleetLspBackend {
     async fn did_change(&self, params: DidChangeTextDocumentParams) {
         let uri = params.text_document.uri.to_string();
         // We request FULL sync, so there's always exactly one change with full content
-        if let Some(change) = params.content_changes.into_iter().next() {
-            self.on_change(uri, change.text).await;
+        let Some(change) = params.content_changes.into_iter().next() else {
+            return;
+        };
+
+        // Cache the content synchronously so subsequent edits (and any
+        // in-flight lint task) see the latest text. This is cheap.
+        self.cache_document(uri.clone(), change.text);
+
+        let debounce_ms = self.lint_debounce_ms();
+        if debounce_ms == 0 {
+            // Debouncing disabled — preserve pre-debounce behavior of
+            // linting on every keystroke. Used by perf-debugging users
+            // and by tests setting `lint_debounce_ms = 0`.
+            self.lint_and_publish(&uri).await;
+            return;
         }
+
+        // Record this handler's own scheduled instant. Newer did_change
+        // calls overwrite it before we wake up; we'll detect that and
+        // skip the lint. No JoinHandle bookkeeping, no spawned tasks.
+        let my_instant = std::time::Instant::now();
+        self.last_change_request
+            .insert(uri.clone(), my_instant);
+
+        tokio::time::sleep(std::time::Duration::from_millis(debounce_ms as u64)).await;
+
+        let still_latest = Self::debounce_decision(
+            my_instant,
+            self.last_change_request.get(&uri).map(|e| *e.value()),
+        );
+        if !still_latest {
+            return;
+        }
+
+        self.lint_and_publish(&uri).await;
     }
 
     async fn did_save(&self, params: DidSaveTextDocumentParams) {
         let uri = params.text_document.uri.to_string();
+
+        // Invalidate any pending debounced lints by overwriting the
+        // scheduled-instant. Then re-lint synchronously so the user
+        // always sees fresh diagnostics on Ctrl+S, never the delayed
+        // pending-window result.
+        self.last_change_request
+            .insert(uri.clone(), std::time::Instant::now());
+        self.lint_and_publish(&uri).await;
+
         // Layer 2: run gitops validation asynchronously
         self.run_gitops_validation(&uri).await;
     }
 
     async fn did_close(&self, params: DidCloseTextDocumentParams) {
         let uri = params.text_document.uri.to_string();
+
+        // Invalidate any pending debounced lint so a stale lint doesn't
+        // publish diagnostics against a closed document. (Pending lints
+        // won't crash on closed docs — `lint_and_publish` no-ops when the
+        // cache entry is missing — but skipping the work is cleaner.)
+        self.last_change_request.remove(&uri);
 
         // Remove from cache
         self.documents.remove(&uri);
@@ -1773,5 +1874,100 @@ mod context_tests {
             snippets.is_empty(),
             "Should not offer label blocks outside labels: section"
         );
+    }
+}
+
+#[cfg(test)]
+mod debounce_tests {
+    //! Keystroke-debounce logic. The orchestration around tokio::sleep and
+    //! the LSP `Client` is hard to mock cleanly, so we test the pure
+    //! decision helper (`FleetLspBackend::debounce_decision`) and verify
+    //! `DashMap`'s overwrite semantics — together those cover every
+    //! branch the live handlers exercise.
+
+    use super::FleetLspBackend;
+    use dashmap::DashMap;
+    use std::time::{Duration, Instant};
+
+    /// Helper: produce two distinct instants. Sleeping 1ms is the smallest
+    /// reliable way to guarantee distinct `Instant` values across two
+    /// readings without relying on platform clock resolution.
+    fn two_instants() -> (Instant, Instant) {
+        let a = Instant::now();
+        std::thread::sleep(Duration::from_millis(1));
+        let b = Instant::now();
+        assert_ne!(a, b);
+        (a, b)
+    }
+
+    #[test]
+    fn decision_proceeds_when_my_instant_is_still_latest() {
+        // The handler stored its own instant and nothing newer overwrote
+        // it during the sleep window — it should lint.
+        let (mine, _other) = two_instants();
+        assert!(FleetLspBackend::debounce_decision(mine, Some(mine)));
+    }
+
+    #[test]
+    fn decision_skips_when_newer_request_overwrote_mine() {
+        // The handler woke up to find a newer change had updated the
+        // timestamp during its sleep — the newer handler will do the
+        // lint, so this one must skip.
+        let (mine, newer) = two_instants();
+        assert!(!FleetLspBackend::debounce_decision(mine, Some(newer)));
+    }
+
+    #[test]
+    fn decision_skips_when_no_record_exists() {
+        // did_close removed the entry while we were sleeping. Skip
+        // rather than lint diagnostics against a closed document.
+        let mine = Instant::now();
+        assert!(!FleetLspBackend::debounce_decision(mine, None));
+    }
+
+    #[test]
+    fn dashmap_insert_overwrites_in_natural_order() {
+        // The debouncer relies on DashMap's overwrite semantics: the last
+        // `insert(key, value)` wins. This test pins that contract — if
+        // DashMap's semantics ever change (e.g. to merge-by-key), the
+        // debouncer breaks silently. Better to fail here.
+        let map: DashMap<String, Instant> = DashMap::new();
+        let first = Instant::now();
+        std::thread::sleep(Duration::from_millis(1));
+        let second = Instant::now();
+
+        map.insert("uri".into(), first);
+        map.insert("uri".into(), second);
+
+        let stored = map.get("uri").map(|e| *e.value()).unwrap();
+        assert_eq!(stored, second, "later insert must overwrite earlier");
+        assert_ne!(stored, first);
+    }
+
+    #[test]
+    fn coalesce_simulation_matches_expected_outcome() {
+        // Simulate the full coalesce flow without touching tokio or the
+        // LSP client: three handlers each record their instant in order;
+        // only the third's instant survives in the map; only the third's
+        // decision returns true. This is what makes rapid typing
+        // collapse to one lint at the end of the burst.
+        let map: DashMap<String, Instant> = DashMap::new();
+
+        let t1 = Instant::now();
+        std::thread::sleep(Duration::from_millis(1));
+        let t2 = Instant::now();
+        std::thread::sleep(Duration::from_millis(1));
+        let t3 = Instant::now();
+
+        // Each handler in turn writes its own timestamp.
+        map.insert("uri".into(), t1);
+        map.insert("uri".into(), t2);
+        map.insert("uri".into(), t3);
+
+        // After all handlers wake up, each evaluates the decision:
+        let latest = map.get("uri").map(|e| *e.value());
+        assert!(!FleetLspBackend::debounce_decision(t1, latest));
+        assert!(!FleetLspBackend::debounce_decision(t2, latest));
+        assert!(FleetLspBackend::debounce_decision(t3, latest));
     }
 }
