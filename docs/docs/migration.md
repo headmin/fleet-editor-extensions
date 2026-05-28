@@ -166,6 +166,11 @@ controls:
     - paths: ../platforms/linux/scripts/*.sh
 ```
 
+#### Profile identity (PayloadUUID)
+
+!!! note
+    Apple MDM identifies a configuration profile by the top-level `PayloadUUID` inside the `.mobileconfig`, not by its filename or path. As long as the UUID is unchanged, Fleet MDM (and most other MDM platforms) recognize the profile across edits and will not redeploy it — file renames, directory moves, and YAML reference restructuring don't trigger a redeploy on their own. Changing the UUID does.
+
 #### Labels: per-file to glob
 
 ```yaml
