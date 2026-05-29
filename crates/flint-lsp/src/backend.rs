@@ -7,15 +7,17 @@ use tower_lsp::jsonrpc::Result;
 use tower_lsp::lsp_types::{
     CodeActionParams, CodeActionProviderCapability, CodeActionResponse, CompletionOptions,
     CompletionParams, CompletionResponse, Diagnostic, DiagnosticSeverity,
-    DidChangeTextDocumentParams, DidCloseTextDocumentParams, DidOpenTextDocumentParams,
-    DidSaveTextDocumentParams, DocumentLink, DocumentLinkParams, DocumentSymbolParams,
-    DocumentSymbolResponse, ExecuteCommandOptions, ExecuteCommandParams, FoldingRange,
-    FoldingRangeParams, GotoDefinitionParams, GotoDefinitionResponse, Hover, HoverParams,
-    HoverProviderCapability, InitializeParams, InitializeResult, InitializedParams, MessageType,
-    OneOf, Position, Range, SaveOptions, SemanticTokensFullOptions, SemanticTokensOptions,
-    SemanticTokensParams, SemanticTokensResult, SemanticTokensServerCapabilities,
-    ServerCapabilities, ServerInfo, TextDocumentSyncCapability, TextDocumentSyncKind,
-    TextDocumentSyncOptions, TextDocumentSyncSaveOptions, Url,
+    DidChangeTextDocumentParams, DidChangeWatchedFilesParams,
+    DidChangeWatchedFilesRegistrationOptions, DidCloseTextDocumentParams,
+    DidOpenTextDocumentParams, DidSaveTextDocumentParams, DocumentLink, DocumentLinkParams,
+    DocumentSymbolParams, DocumentSymbolResponse, ExecuteCommandOptions, ExecuteCommandParams,
+    FileSystemWatcher, FoldingRange, FoldingRangeParams, GlobPattern, GotoDefinitionParams,
+    GotoDefinitionResponse, Hover, HoverParams, HoverProviderCapability, InitializeParams,
+    InitializeResult, InitializedParams, MessageType, OneOf, Position, Range, Registration,
+    SaveOptions, SemanticTokensFullOptions, SemanticTokensOptions, SemanticTokensParams,
+    SemanticTokensResult, SemanticTokensServerCapabilities, ServerCapabilities, ServerInfo,
+    TextDocumentSyncCapability, TextDocumentSyncKind, TextDocumentSyncOptions,
+    TextDocumentSyncSaveOptions, Url,
 };
 use tower_lsp::{Client, LanguageServer};
 
@@ -104,6 +106,48 @@ impl FleetLspBackend {
         latest: Option<std::time::Instant>,
     ) -> bool {
         matches!(latest, Some(t) if t == my_instant)
+    }
+
+    /// Build the LSP registration for the .fleetlint.toml file watcher.
+    ///
+    /// Extracted as a pure constructor so tests can assert the glob
+    /// pattern and method name without going through the live client.
+    /// The `kind = None` means "all events" — create, change, and delete
+    /// all trigger our reload (delete is a no-op today; see handler).
+    fn fleetlint_watcher_registration() -> Registration {
+        Registration {
+            id: "flint-fleetlint-watcher".to_string(),
+            method: "workspace/didChangeWatchedFiles".to_string(),
+            register_options: Some(
+                serde_json::to_value(DidChangeWatchedFilesRegistrationOptions {
+                    watchers: vec![FileSystemWatcher {
+                        glob_pattern: GlobPattern::String("**/.fleetlint.toml".to_string()),
+                        kind: None,
+                    }],
+                })
+                .expect("DidChangeWatchedFilesRegistrationOptions must serialize"),
+            ),
+        }
+    }
+
+    /// Register the .fleetlint.toml watcher with the client.
+    ///
+    /// Best-effort: clients that don't support dynamic registration log
+    /// a warning and the LSP continues with the static behavior (config
+    /// loaded once at initialize). Doesn't panic — file watching is a
+    /// quality-of-life feature, not a correctness requirement.
+    async fn register_fleetlint_watcher(&self) {
+        let registration = Self::fleetlint_watcher_registration();
+        if let Err(e) = self.client.register_capability(vec![registration]).await {
+            self.client
+                .log_message(
+                    MessageType::WARNING,
+                    format!(
+                        "Could not register .fleetlint.toml watcher ({e}); config edits will require LSP restart"
+                    ),
+                )
+                .await;
+        }
     }
 
     /// Load configuration from workspace root.
@@ -645,6 +689,17 @@ impl LanguageServer for FleetLspBackend {
             .log_message(MessageType::INFO, "Fleet LSP server initialized")
             .await;
 
+        // Register a workspace file watcher so the client (editor) tells us
+        // when .fleetlint.toml changes. Without this, config edits require
+        // an LSP restart — the config is otherwise loaded once at
+        // `initialize` and never refreshed.
+        //
+        // `**/.fleetlint.toml` covers configs at the workspace root and in
+        // any subdirectory; `find_and_load` already walks up from the file
+        // being linted to pick the nearest one, so a single broad glob is
+        // enough — no per-config-file registration needed.
+        self.register_fleetlint_watcher().await;
+
         // Check if workspace has Fleet files; if not, suggest getting started
         let needs_scaffold = {
             let root = self.workspace_root.read().ok().and_then(|r| r.clone());
@@ -777,6 +832,50 @@ impl LanguageServer for FleetLspBackend {
 
         // Layer 2: run gitops validation asynchronously
         self.run_gitops_validation(&uri).await;
+    }
+
+    async fn did_change_watched_files(&self, params: DidChangeWatchedFilesParams) {
+        // Our watcher only matches `**/.fleetlint.toml`, so every event
+        // here is a config change. Multiple events in one batch (rare —
+        // would mean two config files changed simultaneously) collapse
+        // to a single reload: find_and_load walks up from the workspace
+        // root and picks the nearest one regardless of which file fired.
+        if params.changes.is_empty() {
+            return;
+        }
+
+        self.client
+            .log_message(
+                MessageType::INFO,
+                ".fleetlint.toml changed; reloading config",
+            )
+            .await;
+
+        // Reload from the workspace root. If the config file was deleted,
+        // find_and_load returns None and the previous in-memory config
+        // stays in force — acceptable for v1 (a follow-up could reset to
+        // defaults explicitly; for now, deleting the config without a
+        // replacement is unusual).
+        let workspace_root = self
+            .workspace_root
+            .read()
+            .ok()
+            .and_then(|r| r.clone());
+        if let Some(root) = workspace_root {
+            self.load_config(&root);
+        }
+
+        // Republish diagnostics for every open document so users
+        // immediately see the effect of the new rule config — without
+        // this, the new rules don't fire until the user edits each file.
+        let open_uris: Vec<String> = self
+            .documents
+            .iter()
+            .map(|entry| entry.key().clone())
+            .collect();
+        for uri in open_uris {
+            self.lint_and_publish(&uri).await;
+        }
     }
 
     async fn did_close(&self, params: DidCloseTextDocumentParams) {
@@ -1888,6 +1987,7 @@ mod debounce_tests {
     use super::FleetLspBackend;
     use dashmap::DashMap;
     use std::time::{Duration, Instant};
+    use tower_lsp::lsp_types::{DidChangeWatchedFilesRegistrationOptions, GlobPattern};
 
     /// Helper: produce two distinct instants. Sleeping 1ms is the smallest
     /// reliable way to guarantee distinct `Instant` values across two
@@ -1942,6 +2042,38 @@ mod debounce_tests {
         let stored = map.get("uri").map(|e| *e.value()).unwrap();
         assert_eq!(stored, second, "later insert must overwrite earlier");
         assert_ne!(stored, first);
+    }
+
+    #[test]
+    fn fleetlint_watcher_registration_targets_correct_method_and_glob() {
+        // The whole feature rests on the client receiving change events
+        // for .fleetlint.toml. If the method name or glob pattern drifts,
+        // the watcher silently never fires. Pin both.
+        let reg = FleetLspBackend::fleetlint_watcher_registration();
+        assert_eq!(reg.method, "workspace/didChangeWatchedFiles");
+        assert_eq!(reg.id, "flint-fleetlint-watcher");
+
+        let opts: DidChangeWatchedFilesRegistrationOptions =
+            serde_json::from_value(reg.register_options.expect("register_options must be set"))
+                .expect("register_options must deserialize back to the expected type");
+        assert_eq!(opts.watchers.len(), 1);
+
+        match &opts.watchers[0].glob_pattern {
+            GlobPattern::String(s) => {
+                assert_eq!(
+                    s, "**/.fleetlint.toml",
+                    "glob must match config files at any depth from the workspace root"
+                );
+            }
+            other => panic!("expected String glob pattern, got {other:?}"),
+        }
+
+        // `kind = None` is the LSP convention for "all events" (create,
+        // change, delete). If we ever narrow this, the test catches it.
+        assert!(
+            opts.watchers[0].kind.is_none(),
+            "watcher should fire on all event kinds"
+        );
     }
 
     #[test]
