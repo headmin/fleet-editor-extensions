@@ -1184,6 +1184,351 @@ fn check_path_fields(
     }
 }
 
+// ============================================================================
+// Rule 11: Shebang Syntax
+// ============================================================================
+
+/// Warns when POSIX shell scripts referenced via `path:` lack a shebang.
+///
+/// macOS/Linux scripts deployed via Fleet MDM are invoked by the orbit
+/// agent, which respects shebangs to pick the interpreter. A `.sh` file
+/// without `#!/bin/sh` may be invoked with `sh` on Linux but `bash` on
+/// macOS, producing different runtime behavior — a class of "works on
+/// my machine" bug. Surfacing this at lint time avoids the surprise.
+///
+/// Scope: only checks files ending in `.sh`, `.zsh`, `.bash` — the
+/// platforms where shebang is the convention. PowerShell (`.ps1`) and
+/// batch scripts have their own header conventions and aren't checked.
+pub struct ShebangSyntaxRule;
+
+impl Rule for ShebangSyntaxRule {
+    fn name(&self) -> &'static str {
+        "shebang-syntax"
+    }
+    fn description(&self) -> &'static str {
+        "Checks that referenced .sh/.zsh/.bash script files start with a shebang (#!)"
+    }
+    fn category(&self) -> &'static str {
+        "semantic"
+    }
+    fn default_severity(&self) -> Severity {
+        Severity::Warning
+    }
+
+    fn check(&self, _config: &FleetConfig, file: &Path, source: &str) -> Vec<LintError> {
+        let yaml = match parse_yaml(source) {
+            Some(v) => v,
+            None => return Vec::new(),
+        };
+
+        let mut errors = Vec::new();
+        let mut script_paths: Vec<String> = Vec::new();
+        collect_path_refs_recursive(&yaml, &mut script_paths);
+
+        // Resolve script paths relative to the YAML file's parent.
+        // Fleet GitOps convention: `path:` refs are relative to the file
+        // that contains them, not to the workspace root.
+        let yaml_dir = file.parent().unwrap_or_else(|| Path::new("."));
+
+        for rel_path in script_paths {
+            if !is_posix_shell_script(&rel_path) {
+                continue;
+            }
+            let abs_path = yaml_dir.join(&rel_path);
+            // Missing file is a different rule's job (path-reference);
+            // we only check shebangs in files that actually exist.
+            let content = match std::fs::read_to_string(&abs_path) {
+                Ok(c) => c,
+                Err(_) => continue,
+            };
+            let first_line = content.lines().next().unwrap_or("");
+            if !first_line.starts_with("#!") {
+                let mut err = LintError::warning(
+                    format!("Script '{}' is missing a shebang (#!) on first line", rel_path),
+                    file,
+                )
+                .with_rule_code("shebang-syntax")
+                .with_help("Add `#!/bin/sh` (or `#!/usr/bin/env bash`) as the first line so the interpreter is unambiguous across platforms");
+                // Try to point at the path: line where this script was referenced.
+                if let Some(line) = find_key_line(source, "path", 0) {
+                    err = err.with_location(line, 0);
+                }
+                errors.push(err);
+            }
+        }
+        errors
+    }
+}
+
+/// Recursively walk a YAML value and collect every `path:` string field.
+///
+/// Catches script references regardless of where they live in the
+/// schema (controls.scripts, software.packages[].install_script.path,
+/// platforms.*.scripts, etc.) without encoding each location.
+fn collect_path_refs_recursive(v: &serde_yaml::Value, out: &mut Vec<String>) {
+    match v {
+        serde_yaml::Value::Mapping(map) => {
+            for (k, val) in map {
+                if k.as_str() == Some("path") {
+                    if let Some(s) = val.as_str() {
+                        out.push(s.to_string());
+                    }
+                }
+                collect_path_refs_recursive(val, out);
+            }
+        }
+        serde_yaml::Value::Sequence(seq) => {
+            for item in seq {
+                collect_path_refs_recursive(item, out);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn is_posix_shell_script(path: &str) -> bool {
+    path.ends_with(".sh") || path.ends_with(".zsh") || path.ends_with(".bash")
+}
+
+// ============================================================================
+// Rule 12: Webhook Endpoint Validity
+// ============================================================================
+
+/// Validates that webhook destination URLs and integration URLs are
+/// well-formed HTTPS URLs.
+///
+/// Fleet sends webhooks server-to-server, so the receiver must be
+/// reachable from Fleet's network. A misconfigured URL (missing
+/// scheme, plain HTTP, spaces, empty host) silently fails when the
+/// webhook fires — and webhook delivery isn't retried, so a single
+/// typo can drop alerts forever. Catch it before the manifest applies.
+///
+/// Skips env-var refs (`$WEBHOOK_URL`) and 1Password refs (`op://...`)
+/// since those resolve server-side and can't be validated locally.
+pub struct WebhookEndpointRule;
+
+impl Rule for WebhookEndpointRule {
+    fn name(&self) -> &'static str {
+        "webhook-endpoint-valid"
+    }
+    fn description(&self) -> &'static str {
+        "Checks that webhook destination URLs and integration URLs are well-formed HTTPS URLs"
+    }
+    fn category(&self) -> &'static str {
+        "semantic"
+    }
+    fn default_severity(&self) -> Severity {
+        Severity::Warning
+    }
+
+    fn check(&self, _config: &FleetConfig, file: &Path, source: &str) -> Vec<LintError> {
+        let yaml = match parse_yaml(source) {
+            Some(v) => v,
+            None => return Vec::new(),
+        };
+
+        let mut errors = Vec::new();
+
+        // Known webhook URL locations. Both top-level (legacy) and
+        // org_settings-nested (current) paths are checked because real
+        // repos have both, depending on how old the config is.
+        let webhook_names = &[
+            "host_status_webhook",
+            "failing_policies_webhook",
+            "vulnerabilities_webhook",
+            "activities_webhook",
+        ];
+        for name in webhook_names {
+            check_webhook_url_field(&yaml, &["webhook_settings", name], "destination_url", file, &mut errors);
+            check_webhook_url_field(
+                &yaml,
+                &["org_settings", "webhook_settings", name],
+                "destination_url",
+                file,
+                &mut errors,
+            );
+        }
+
+        // Integration `url` fields. Same dual-location pattern.
+        for integration in &["jira", "zendesk"] {
+            check_webhook_url_field(&yaml, &["integrations", integration], "url", file, &mut errors);
+            check_webhook_url_field(
+                &yaml,
+                &["org_settings", "integrations", integration],
+                "url",
+                file,
+                &mut errors,
+            );
+        }
+
+        errors
+    }
+}
+
+fn check_webhook_url_field(
+    yaml: &serde_yaml::Value,
+    path: &[&str],
+    field: &str,
+    file: &Path,
+    errors: &mut Vec<LintError>,
+) {
+    // Walk the path manually so we handle both terminal shapes:
+    // - mapping terminal (`webhook_settings.host_status_webhook.destination_url`)
+    // - sequence terminal (`integrations.jira[].url`)
+    // `collect_items_at_path` only handles the sequence case, which is
+    // why webhook checks need this custom walk.
+    let mut current = yaml;
+    for &key in path {
+        match current.get(key) {
+            Some(v) => current = v,
+            None => return,
+        }
+    }
+
+    let items: Vec<&serde_yaml::Value> = match current {
+        serde_yaml::Value::Sequence(seq) => seq.iter().collect(),
+        serde_yaml::Value::Mapping(_) => vec![current],
+        _ => return,
+    };
+
+    for item in items {
+        if let Some(url) = mapping_get_str(item, field) {
+            if let Some(reason) = webhook_url_problem(url) {
+                errors.push(
+                    LintError::warning(
+                        format!("'{}' is not a valid webhook URL ({}): {}", field, reason, url),
+                        file,
+                    )
+                    .with_rule_code("webhook-endpoint-valid")
+                    .with_help(
+                        "Webhook URLs must use https:// and include a host (e.g. https://hooks.example.com/path)",
+                    ),
+                );
+            }
+        }
+    }
+}
+
+/// Inspect a URL string and return a short description of what's wrong,
+/// or `None` if the value is acceptable (including env-var/op:// refs
+/// that can't be validated locally).
+///
+/// Conservative on purpose: rejects only clearly-broken values. A full
+/// RFC-3986 parser would require pulling in the `url` crate; the simple
+/// checks here catch the realistic typos without that dep weight.
+fn webhook_url_problem(url: &str) -> Option<&'static str> {
+    if url.is_empty() {
+        return Some("empty");
+    }
+    // Env var / 1Password refs resolve server-side; not validatable here.
+    if url.starts_with('$') || url.starts_with("op://") {
+        return None;
+    }
+    if url.contains(char::is_whitespace) {
+        return Some("contains whitespace");
+    }
+    if !url.starts_with("https://") {
+        if url.starts_with("http://") {
+            return Some("plain HTTP — use https://");
+        }
+        return Some("missing https:// scheme");
+    }
+    let after_scheme = &url["https://".len()..];
+    let host = after_scheme.split('/').next().unwrap_or("");
+    if host.is_empty() {
+        return Some("missing host");
+    }
+    None
+}
+
+// ============================================================================
+// Rule 13: Calendar-Event Integration Coercion
+// ============================================================================
+
+/// Warns when policies enable `calendar_events_enabled: true` but the
+/// required `google_calendar` integration is not configured.
+///
+/// `calendar_events_enabled` is a per-policy opt-in; the actual calendar
+/// integration lives in `org_settings.integrations.google_calendar[]`.
+/// Forgetting the integration is silent — Fleet accepts the policy YAML
+/// and only fails to schedule calendar events at runtime. This rule
+/// surfaces the mismatch before deploy.
+///
+/// Scoped to `FleetConfig` files (default.yml, fleets/*, teams/*) where
+/// both policies and the integrations block can co-exist. Team-level
+/// policy files without integrations are normal — they inherit from
+/// the global default.yml — and don't trigger this rule.
+pub struct CalendarEventCoercionRule;
+
+impl Rule for CalendarEventCoercionRule {
+    fn name(&self) -> &'static str {
+        "calendar-event-coercion"
+    }
+    fn description(&self) -> &'static str {
+        "Checks that policies enabling calendar events have a configured google_calendar integration"
+    }
+    fn category(&self) -> &'static str {
+        "semantic"
+    }
+    fn default_severity(&self) -> Severity {
+        Severity::Warning
+    }
+
+    fn check(&self, _config: &FleetConfig, file: &Path, source: &str) -> Vec<LintError> {
+        if !matches!(detect_file_type(file), FileType::FleetConfig) {
+            return Vec::new();
+        }
+
+        let yaml = match parse_yaml(source) {
+            Some(v) => v,
+            None => return Vec::new(),
+        };
+
+        let policies = collect_items_at_path(&yaml, &["policies"]);
+        let mut offenders: Vec<String> = Vec::new();
+        for policy in &policies {
+            let enabled = policy
+                .get("calendar_events_enabled")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
+            if enabled {
+                let name = mapping_get_str(policy, "name").unwrap_or("(unnamed)");
+                offenders.push(name.to_string());
+            }
+        }
+
+        if offenders.is_empty() {
+            return Vec::new();
+        }
+
+        // Calendar integration can live at either of two paths. We
+        // consider it "configured" if the sequence exists and is non-empty.
+        let calendar_configured = !collect_items_at_path(&yaml, &["integrations", "google_calendar"]).is_empty()
+            || !collect_items_at_path(&yaml, &["org_settings", "integrations", "google_calendar"]).is_empty();
+
+        if calendar_configured {
+            return Vec::new();
+        }
+
+        offenders
+            .into_iter()
+            .map(|name| {
+                LintError::warning(
+                    format!(
+                        "Policy '{}' has calendar_events_enabled: true but no google_calendar integration is configured",
+                        name
+                    ),
+                    file,
+                )
+                .with_rule_code("calendar-event-coercion")
+                .with_help(
+                    "Add `integrations.google_calendar` (or `org_settings.integrations.google_calendar`) with at least one entry. Without the integration, the calendar feature silently no-ops at runtime.",
+                )
+            })
+            .collect()
+    }
+}
+
 fn check_secret_field(
     yaml: &serde_yaml::Value,
     path: &[&str],
@@ -1894,5 +2239,259 @@ mod tests {
         assert!(!is_valid_date("15-06-2025")); // wrong format
         assert!(!is_valid_date("2025/06/15")); // wrong separator
         assert!(!is_valid_date("not-a-date"));
+    }
+
+    // -- ShebangSyntaxRule --
+    // These tests touch the filesystem because the rule reads the
+    // referenced script files. tempfile gives us a per-test scratch
+    // directory so concurrent test runs don't collide.
+
+    #[test]
+    fn shebang_rule_flags_sh_script_without_shebang() {
+        let tmp = tempfile::tempdir().unwrap();
+        let script_path = tmp.path().join("install.sh");
+        std::fs::write(&script_path, "echo hello\n").unwrap();
+
+        let yaml_path = tmp.path().join("default.yml");
+        let source = "controls:\n  scripts:\n    - path: install.sh\n";
+        std::fs::write(&yaml_path, source).unwrap();
+
+        let errors = ShebangSyntaxRule.check(
+            &FleetConfig::default(),
+            &yaml_path,
+            source,
+        );
+        assert_eq!(errors.len(), 1);
+        assert!(errors[0].message.contains("missing a shebang"));
+    }
+
+    #[test]
+    fn shebang_rule_accepts_sh_script_with_shebang() {
+        let tmp = tempfile::tempdir().unwrap();
+        let script_path = tmp.path().join("install.sh");
+        std::fs::write(&script_path, "#!/bin/sh\necho hello\n").unwrap();
+
+        let yaml_path = tmp.path().join("default.yml");
+        let source = "controls:\n  scripts:\n    - path: install.sh\n";
+        std::fs::write(&yaml_path, source).unwrap();
+
+        let errors = ShebangSyntaxRule.check(
+            &FleetConfig::default(),
+            &yaml_path,
+            source,
+        );
+        assert!(errors.is_empty(), "shebang present, should not warn: {errors:?}");
+    }
+
+    #[test]
+    fn shebang_rule_ignores_ps1_and_other_non_posix_scripts() {
+        // PowerShell, batch, and Python scripts have their own conventions
+        // and aren't checked. .ps1 specifically must NOT trigger this rule.
+        let tmp = tempfile::tempdir().unwrap();
+        std::fs::write(tmp.path().join("install.ps1"), "Write-Host hi\n").unwrap();
+
+        let yaml_path = tmp.path().join("default.yml");
+        let source = "controls:\n  scripts:\n    - path: install.ps1\n";
+        std::fs::write(&yaml_path, source).unwrap();
+
+        let errors = ShebangSyntaxRule.check(
+            &FleetConfig::default(),
+            &yaml_path,
+            source,
+        );
+        assert!(errors.is_empty(), ".ps1 must not trigger shebang rule");
+    }
+
+    #[test]
+    fn shebang_rule_silent_when_script_file_does_not_exist() {
+        // Missing-file is path-reference rule's job, not ours. Stay quiet
+        // so we don't double-report and so missing optional scripts don't
+        // produce noise.
+        let tmp = tempfile::tempdir().unwrap();
+        let yaml_path = tmp.path().join("default.yml");
+        let source = "controls:\n  scripts:\n    - path: nonexistent.sh\n";
+        std::fs::write(&yaml_path, source).unwrap();
+
+        let errors = ShebangSyntaxRule.check(
+            &FleetConfig::default(),
+            &yaml_path,
+            source,
+        );
+        assert!(errors.is_empty());
+    }
+
+    #[test]
+    fn is_posix_shell_script_extension_matrix() {
+        assert!(is_posix_shell_script("foo.sh"));
+        assert!(is_posix_shell_script("nested/dir/foo.bash"));
+        assert!(is_posix_shell_script("install.zsh"));
+        assert!(!is_posix_shell_script("foo.ps1"));
+        assert!(!is_posix_shell_script("foo.py"));
+        assert!(!is_posix_shell_script("foo.txt"));
+        assert!(!is_posix_shell_script("foo.shell")); // not a real extension
+    }
+
+    // -- WebhookEndpointRule --
+    // Pure YAML, no fs needed.
+
+    #[test]
+    fn webhook_rule_accepts_https_url() {
+        let errors = lint(
+            &WebhookEndpointRule,
+            "webhook_settings:\n  host_status_webhook:\n    destination_url: https://hooks.example.com/fleet\n",
+        );
+        assert!(errors.is_empty());
+    }
+
+    #[test]
+    fn webhook_rule_flags_plain_http() {
+        // Plain HTTP is rejected because tokens travel in the body or
+        // headers — sending over an unencrypted channel would leak them.
+        let errors = lint(
+            &WebhookEndpointRule,
+            "webhook_settings:\n  host_status_webhook:\n    destination_url: http://hooks.example.com/fleet\n",
+        );
+        assert_eq!(errors.len(), 1);
+        assert!(errors[0].message.contains("plain HTTP"));
+    }
+
+    #[test]
+    fn webhook_rule_flags_missing_scheme() {
+        let errors = lint(
+            &WebhookEndpointRule,
+            "webhook_settings:\n  host_status_webhook:\n    destination_url: hooks.example.com/fleet\n",
+        );
+        assert_eq!(errors.len(), 1);
+        assert!(errors[0].message.contains("missing https"));
+    }
+
+    #[test]
+    fn webhook_rule_accepts_env_var_refs() {
+        // Server-side resolution — we can't validate, so we don't warn.
+        // Mirrors secret-hygiene's $VAR-skip behavior.
+        let errors = lint(
+            &WebhookEndpointRule,
+            "webhook_settings:\n  host_status_webhook:\n    destination_url: $WEBHOOK_URL\n",
+        );
+        assert!(errors.is_empty());
+    }
+
+    #[test]
+    fn webhook_rule_accepts_1password_refs() {
+        let errors = lint(
+            &WebhookEndpointRule,
+            "webhook_settings:\n  host_status_webhook:\n    destination_url: op://vault/item/url\n",
+        );
+        assert!(errors.is_empty());
+    }
+
+    #[test]
+    fn webhook_rule_flags_whitespace_in_url() {
+        let errors = lint(
+            &WebhookEndpointRule,
+            "webhook_settings:\n  host_status_webhook:\n    destination_url: \"https://hooks example.com\"\n",
+        );
+        assert_eq!(errors.len(), 1);
+        assert!(errors[0].message.contains("whitespace"));
+    }
+
+    #[test]
+    fn webhook_rule_handles_org_settings_path() {
+        // Same logic, different schema location. Both paths in the wild.
+        let errors = lint(
+            &WebhookEndpointRule,
+            "org_settings:\n  webhook_settings:\n    failing_policies_webhook:\n      destination_url: not-a-url\n",
+        );
+        assert_eq!(errors.len(), 1);
+    }
+
+    #[test]
+    fn webhook_url_problem_unit_matrix() {
+        // Pure helper — exhaustive matrix for confidence.
+        assert_eq!(webhook_url_problem("https://example.com"), None);
+        assert_eq!(webhook_url_problem("https://example.com/path"), None);
+        assert_eq!(webhook_url_problem("$VAR"), None);
+        assert_eq!(webhook_url_problem("op://vault/x"), None);
+        assert_eq!(webhook_url_problem(""), Some("empty"));
+        assert_eq!(webhook_url_problem("http://example.com"), Some("plain HTTP — use https://"));
+        assert_eq!(webhook_url_problem("example.com"), Some("missing https:// scheme"));
+        assert_eq!(webhook_url_problem("https://"), Some("missing host"));
+        assert_eq!(webhook_url_problem("https:// has spaces"), Some("contains whitespace"));
+    }
+
+    // -- CalendarEventCoercionRule --
+
+    #[test]
+    fn calendar_rule_flags_enabled_without_integration() {
+        let errors = lint_at(
+            &CalendarEventCoercionRule,
+            "policies:\n  - name: Onboarding\n    calendar_events_enabled: true\n",
+            "default.yml",
+        );
+        assert_eq!(errors.len(), 1);
+        assert!(errors[0].message.contains("Onboarding"));
+        assert!(errors[0].message.contains("calendar_events_enabled"));
+    }
+
+    #[test]
+    fn calendar_rule_silent_when_integration_present() {
+        // Same policy, but with the integration block — must NOT warn.
+        let errors = lint_at(
+            &CalendarEventCoercionRule,
+            "policies:\n  - name: Onboarding\n    calendar_events_enabled: true\nintegrations:\n  google_calendar:\n    - domain: example.com\n",
+            "default.yml",
+        );
+        assert!(errors.is_empty(), "integration present, should be silent: {errors:?}");
+    }
+
+    #[test]
+    fn calendar_rule_accepts_integration_under_org_settings() {
+        // The integration can live at either top-level or under
+        // org_settings — both schemas exist in real repos.
+        let errors = lint_at(
+            &CalendarEventCoercionRule,
+            "policies:\n  - name: P\n    calendar_events_enabled: true\norg_settings:\n  integrations:\n    google_calendar:\n      - domain: example.com\n",
+            "default.yml",
+        );
+        assert!(errors.is_empty());
+    }
+
+    #[test]
+    fn calendar_rule_silent_when_no_policy_opts_in() {
+        let errors = lint_at(
+            &CalendarEventCoercionRule,
+            "policies:\n  - name: Normal\n",
+            "default.yml",
+        );
+        assert!(errors.is_empty());
+    }
+
+    #[test]
+    fn calendar_rule_skips_non_fleet_config_files() {
+        // Team-level policy files commonly opt in to calendar events
+        // without containing the integration block — the integration is
+        // global. This rule must NOT fire on those files.
+        let errors = lint_at(
+            &CalendarEventCoercionRule,
+            "- name: P\n  calendar_events_enabled: true\n",
+            "policies/team-a/onboarding.yml",
+        );
+        assert!(errors.is_empty(), "non-FleetConfig files must be skipped");
+    }
+
+    #[test]
+    fn calendar_rule_reports_each_offending_policy_separately() {
+        // Two policies both opt in without the integration — both should
+        // appear in the diagnostics, not just the first one. Users need
+        // to know every offender so they can fix them in one pass.
+        let errors = lint_at(
+            &CalendarEventCoercionRule,
+            "policies:\n  - name: A\n    calendar_events_enabled: true\n  - name: B\n    calendar_events_enabled: true\n",
+            "default.yml",
+        );
+        assert_eq!(errors.len(), 2);
+        let messages: Vec<&str> = errors.iter().map(|e| e.message.as_str()).collect();
+        assert!(messages.iter().any(|m| m.contains("'A'")));
+        assert!(messages.iter().any(|m| m.contains("'B'")));
     }
 }
