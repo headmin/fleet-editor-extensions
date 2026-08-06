@@ -95,38 +95,6 @@ fn validate_node(
                 }
             }
         }
-        SchemaNode::ArrayOneOf(variants) => {
-            if let serde_yaml::Value::Sequence(items) = value {
-                for (idx, item) in items.iter().enumerate() {
-                    let item_path = format!("{}[{}]", path, idx);
-                    // Try each variant; use the one with fewest errors
-                    let mut best_errors: Option<Vec<LintError>> = None;
-
-                    for variant in variants {
-                        let mut variant_errors = Vec::new();
-                        validate_node(item, variant, &item_path, source, file, &mut variant_errors);
-
-                        match &best_errors {
-                            None => best_errors = Some(variant_errors),
-                            Some(current_best) => {
-                                if variant_errors.len() < current_best.len() {
-                                    best_errors = Some(variant_errors);
-                                }
-                            }
-                        }
-
-                        // Perfect match — no errors
-                        if best_errors.as_ref().is_some_and(|e| e.is_empty()) {
-                            break;
-                        }
-                    }
-
-                    if let Some(errs) = best_errors {
-                        errors.extend(errs);
-                    }
-                }
-            }
-        }
         SchemaNode::BooleanLeaf => {
             // Validate that the value is a boolean.
             // serde_yaml (YAML 1.2) only parses true/false as Bool.
@@ -434,6 +402,83 @@ mod tests {
         let config = FleetConfig::default();
         let path = PathBuf::from(file_name);
         StructuralValidationRule.check(&config, &path, yaml)
+    }
+
+    // Issue #13: a policy path reference may carry inline fields (Fleet's
+    // Policy struct embeds BaseItem alongside the full spec), and
+    // agent_options.path must not be blamed on policies[0].
+    #[test]
+    fn test_policy_path_ref_with_labels_and_agent_options_path() {
+        let yaml = r#"
+name: Servers
+policies:
+  - path: ../platforms/linux/policies/baseline.policies.yml
+    labels_include_any:
+      - Ubuntu
+reports:
+  - path: ../platforms/all/reports/usb.reports.yml
+agent_options:
+  path: ../platforms/agent-options.yml
+"#;
+        let errors = check(yaml, "fleets/servers.yml");
+        assert!(
+            errors.is_empty(),
+            "path refs with inline fields should be valid: {:?}",
+            errors.iter().map(|e| &e.message).collect::<Vec<_>>()
+        );
+    }
+
+    // Issue #12: features.historical_data is valid at org and team level.
+    #[test]
+    fn test_features_historical_data() {
+        let yaml = r#"
+org_settings:
+  features:
+    enable_host_users: true
+    historical_data:
+      uptime: true
+      vulnerabilities: true
+"#;
+        let errors = check(yaml, "default.yml");
+        assert!(errors.is_empty(), "{:?}", errors);
+
+        let team_yaml = r#"
+name: Workstations
+settings:
+  features:
+    historical_data:
+      vulnerabilities: false
+"#;
+        let errors = check(team_yaml, "fleets/workstations.yml");
+        assert!(errors.is_empty(), "{:?}", errors);
+
+        // Unknown sub-key still flagged
+        let bad = r#"
+org_settings:
+  features:
+    historical_data:
+      cpu_usage: true
+"#;
+        let errors = check(bad, "default.yml");
+        assert_eq!(errors.len(), 1, "{:?}", errors);
+        assert!(errors[0].message.contains("cpu_usage"));
+    }
+
+    // Issue #14: certificate SAN attribute (Fleet 4.86).
+    #[test]
+    fn test_android_certificate_subject_alternative_name() {
+        let yaml = r#"
+name: Android
+controls:
+  android_settings:
+    certificates:
+      - name: WiFi cert
+        certificate_authority_name: MyCA
+        subject_name: CN=%EmailAddress%
+        subject_alternative_name: '%EmailAddress%'
+"#;
+        let errors = check(yaml, "fleets/android.yml");
+        assert!(errors.is_empty(), "{:?}", errors);
     }
 
     #[test]

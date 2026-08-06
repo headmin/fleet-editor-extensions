@@ -14,8 +14,6 @@ pub enum SchemaNode {
     Mapping(HashMap<&'static str, SchemaNode>),
     /// An array whose items follow a given schema.
     Array(Box<SchemaNode>),
-    /// An array whose items can be one of several schemas (oneOf).
-    ArrayOneOf(Vec<SchemaNode>),
     /// A scalar or opaque value (no children to validate).
     Leaf,
     /// A boolean value — only `true`/`false` (and YAML 1.1 equivalents) are valid.
@@ -92,8 +90,24 @@ fn array(item: SchemaNode) -> SchemaNode {
     SchemaNode::Array(Box::new(item))
 }
 
-fn array_one_of(variants: Vec<SchemaNode>) -> SchemaNode {
-    SchemaNode::ArrayOneOf(variants)
+/// Extend an inline-item mapping with `fleet.BaseItem` keys (`path`, `paths`).
+///
+/// Fleet's gitops structs embed `fleet.BaseItem` alongside the full spec
+/// (pkg/spec/gitops.go: `type Policy struct { fleet.BaseItem; GitOpsPolicySpec }`,
+/// same shape for Query and Label), so an external-file reference may carry
+/// any inline field next to `path:` (e.g. `labels_include_any` on a policy
+/// path ref). Modeling this as one mapping instead of a oneOf also produces
+/// precise unknown-key errors (issue #13: a oneOf best-variant pick blamed
+/// `path` under `policies[0]` and pointed at `agent_options.path`).
+fn with_base_item(node: SchemaNode) -> SchemaNode {
+    match node {
+        SchemaNode::Mapping(mut children) => {
+            children.insert("path", SchemaNode::Leaf);
+            children.insert("paths", SchemaNode::Leaf);
+            SchemaNode::Mapping(children)
+        }
+        other => other,
+    }
 }
 
 fn leaf() -> SchemaNode {
@@ -111,10 +125,6 @@ fn open_mapping() -> SchemaNode {
 // ---------------------------------------------------------------------------
 // Shared sub-schemas (matching the strict JSON schema $defs)
 // ---------------------------------------------------------------------------
-
-fn path_ref_schema() -> SchemaNode {
-    mapping(vec![("path", leaf()), ("paths", leaf())])
-}
 
 fn controls_script_targeting() -> SchemaNode {
     mapping(vec![
@@ -154,10 +164,13 @@ fn android_settings_schema() -> SchemaNode {
         ("configuration_profiles", array(controls_script_targeting())), // rename of custom_settings
         (
             "certificates",
+            // Source: server/fleet/certificate_templates.go — SAN support
+            // added in Fleet 4.86 (issue #14).
             array(mapping(vec![
                 ("name", leaf()),
                 ("certificate_authority_name", leaf()),
                 ("subject_name", leaf()),
+                ("subject_alternative_name", leaf()),
             ])),
         ),
     ])
@@ -501,19 +514,31 @@ fn webhook_settings_per_fleet() -> SchemaNode {
     ])
 }
 
-fn org_settings_strict() -> SchemaNode {
+fn features_schema() -> SchemaNode {
+    // Source: server/fleet/app.go Features struct. Shared between
+    // org_settings.features and team-level settings.features.
     mapping(vec![
+        ("additional_queries", open_mapping()),
+        ("enable_host_users", boolean_leaf()),
+        ("enable_software_inventory", boolean_leaf()),
+        ("detail_query_overrides", open_mapping()),
+        ("osquery_detail", open_mapping()),
+        ("osquery_policy", open_mapping()),
+        // Per-dataset dashboard collection toggles (app.go
+        // HistoricalDataSettings, issue #12). Sub-keys default to true.
         (
-            "features",
+            "historical_data",
             mapping(vec![
-                ("additional_queries", open_mapping()),
-                ("enable_host_users", boolean_leaf()),
-                ("enable_software_inventory", boolean_leaf()),
-                ("detail_query_overrides", open_mapping()),
-                ("osquery_detail", open_mapping()),
-                ("osquery_policy", open_mapping()),
+                ("uptime", boolean_leaf()),
+                ("vulnerabilities", boolean_leaf()),
             ]),
         ),
+    ])
+}
+
+fn org_settings_strict() -> SchemaNode {
+    mapping(vec![
+        ("features", features_schema()),
         (
             "fleet_desktop",
             mapping(vec![
@@ -624,17 +649,7 @@ fn org_settings_strict() -> SchemaNode {
 
 fn team_settings_strict() -> SchemaNode {
     mapping(vec![
-        (
-            "features",
-            mapping(vec![
-                ("additional_queries", open_mapping()),
-                ("enable_host_users", boolean_leaf()),
-                ("enable_software_inventory", boolean_leaf()),
-                ("detail_query_overrides", open_mapping()),
-                ("osquery_detail", open_mapping()),
-                ("osquery_policy", open_mapping()),
-            ]),
-        ),
+        ("features", features_schema()),
         (
             "host_expiry_settings",
             mapping(vec![
@@ -676,19 +691,19 @@ pub fn default_schema() -> SchemaNode {
     mapping(vec![
         (
             "labels",
-            array_one_of(vec![label_inline_strict(), path_ref_schema()]),
+            array(with_base_item(label_inline_strict())),
         ),
         (
             "policies",
-            array_one_of(vec![policy_inline_strict(), path_ref_schema()]),
+            array(with_base_item(policy_inline_strict())),
         ),
         (
             "queries",
-            array_one_of(vec![query_inline_strict(), path_ref_schema()]),
+            array(with_base_item(query_inline_strict())),
         ),
         (
             "reports",
-            array_one_of(vec![query_inline_strict(), path_ref_schema()]),
+            array(with_base_item(query_inline_strict())),
         ),
         ("agent_options", agent_options_inline()),
         ("controls", controls_schema()),
@@ -705,19 +720,19 @@ pub fn fleet_schema() -> SchemaNode {
         ("name", leaf()),
         (
             "labels",
-            array_one_of(vec![label_inline_strict(), path_ref_schema()]),
+            array(with_base_item(label_inline_strict())),
         ),
         (
             "policies",
-            array_one_of(vec![policy_inline_strict(), path_ref_schema()]),
+            array(with_base_item(policy_inline_strict())),
         ),
         (
             "queries",
-            array_one_of(vec![query_inline_strict(), path_ref_schema()]),
+            array(with_base_item(query_inline_strict())),
         ),
         (
             "reports",
-            array_one_of(vec![query_inline_strict(), path_ref_schema()]),
+            array(with_base_item(query_inline_strict())),
         ),
         ("agent_options", agent_options_inline()),
         ("controls", controls_schema()),
@@ -729,17 +744,17 @@ pub fn fleet_schema() -> SchemaNode {
 
 /// Schema for `lib/policies/*.yml` files (array of policies).
 pub fn policy_schema() -> SchemaNode {
-    array_one_of(vec![policy_inline_strict(), path_ref_schema()])
+    array(with_base_item(policy_inline_strict()))
 }
 
 /// Schema for `lib/queries/*.yml` files (array of queries).
 pub fn query_schema() -> SchemaNode {
-    array_one_of(vec![query_inline_strict(), path_ref_schema()])
+    array(with_base_item(query_inline_strict()))
 }
 
 /// Schema for `lib/labels/*.yml` files (array of labels).
 pub fn label_schema() -> SchemaNode {
-    array_one_of(vec![label_inline_strict(), path_ref_schema()])
+    array(with_base_item(label_inline_strict()))
 }
 
 // ---------------------------------------------------------------------------
@@ -820,6 +835,10 @@ pub static KEY_REGISTRY: Lazy<KeyRegistry> = Lazy::new(|| {
         "controls.android_settings.certificates[]",
     );
     reg.register("subject_name", "controls.android_settings.certificates[]");
+    reg.register(
+        "subject_alternative_name",
+        "controls.android_settings.certificates[]",
+    );
 
     // controls.macos_updates / ios_updates / ipados_updates children
     reg.register("deadline", "controls.macos_updates");
@@ -881,6 +900,10 @@ pub static KEY_REGISTRY: Lazy<KeyRegistry> = Lazy::new(|| {
     reg.register("additional_queries", "org_settings.features");
     reg.register("enable_host_users", "org_settings.features");
     reg.register("enable_software_inventory", "org_settings.features");
+    reg.register("historical_data", "org_settings.features");
+    // features.historical_data children (app.go HistoricalDataSettings)
+    reg.register("uptime", "org_settings.features.historical_data");
+    reg.register("vulnerabilities", "org_settings.features.historical_data");
 
     // org_settings.fleet_desktop children
     reg.register("transparency_url", "org_settings.fleet_desktop");
@@ -1269,25 +1292,25 @@ mod tests {
     #[test]
     fn test_schema_for_policies() {
         let schema = schema_for_path(Path::new("lib/policies/security.yml"));
-        assert!(matches!(schema, SchemaNode::ArrayOneOf(_)));
+        assert!(matches!(schema, SchemaNode::Array(_)));
     }
 
     #[test]
     fn test_schema_for_queries() {
         let schema = schema_for_path(Path::new("lib/queries/compliance.yml"));
-        assert!(matches!(schema, SchemaNode::ArrayOneOf(_)));
+        assert!(matches!(schema, SchemaNode::Array(_)));
     }
 
     #[test]
     fn test_schema_for_labels() {
         let schema = schema_for_path(Path::new("lib/labels/hosts.yml"));
-        assert!(matches!(schema, SchemaNode::ArrayOneOf(_)));
+        assert!(matches!(schema, SchemaNode::Array(_)));
     }
 
     #[test]
     fn test_schema_for_reports() {
         let schema = schema_for_path(Path::new("lib/reports/compliance.yml"));
-        assert!(matches!(schema, SchemaNode::ArrayOneOf(_)));
+        assert!(matches!(schema, SchemaNode::Array(_)));
     }
 
     #[test]
