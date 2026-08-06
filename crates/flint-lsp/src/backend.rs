@@ -156,9 +156,13 @@ impl FleetLspBackend {
             // Check Fleet connection settings before moving config
             let fleet_config = config.fleet.clone();
 
-            // Update linter with new config
+            // Update linter with new config. The config's [files] globs are
+            // relative to the config file's directory, so record it too.
             if let Ok(mut linter) = self.linter.write() {
                 linter.set_config(config);
+                if let Some(root) = config_path.parent() {
+                    linter.set_config_root(root.to_path_buf());
+                }
             }
 
             // Log that we found a config
@@ -342,6 +346,13 @@ impl FleetLspBackend {
 
         // Use the linter's lint_content method
         let linter = self.linter.read().expect("linter lock poisoned");
+
+        // Respect the config's [files] include/exclude patterns — don't
+        // publish diagnostics for files the user excluded (issue #15).
+        if !linter.should_lint(&file_path_buf) {
+            return Vec::new();
+        }
+
         let mut diagnostics = match linter.lint_content(content, std::path::Path::new(&file_path)) {
             Ok(report) => {
                 // Convert all errors to diagnostics

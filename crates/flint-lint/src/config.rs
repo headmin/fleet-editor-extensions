@@ -434,8 +434,15 @@ impl FleetLintConfig {
     }
 
     /// Check if a file path should be linted based on include/exclude patterns.
+    ///
+    /// `file_path` should be relative to the directory containing the config
+    /// file, since that is what the `[files]` glob patterns are written
+    /// against (e.g. `include = ["./fleets/*.yml"]`).
+    ///
+    /// Excludes always win. When `include` is non-empty, a file must match
+    /// at least one include pattern; otherwise any YAML file is included.
     pub fn should_lint_file(&self, file_path: &Path) -> bool {
-        let path_str = file_path.to_string_lossy();
+        let path_str = normalize_path(&file_path.to_string_lossy());
 
         // Check excludes first
         for pattern in &self.files.exclude {
@@ -444,14 +451,16 @@ impl FleetLintConfig {
             }
         }
 
-        // Then check includes
-        for pattern in &self.files.include {
-            if matches_glob(pattern, &path_str) {
-                return true;
-            }
+        // Then check includes: non-empty include list is an allowlist
+        if !self.files.include.is_empty() {
+            return self
+                .files
+                .include
+                .iter()
+                .any(|pattern| matches_glob(pattern, &path_str));
         }
 
-        // Default to including YAML files
+        // No include patterns: default to including YAML files
         matches!(
             file_path.extension().and_then(|e| e.to_str()),
             Some("yml" | "yaml")
@@ -571,8 +580,19 @@ live_completions = false
     }
 }
 
+/// Normalize a path or pattern for glob matching: use forward slashes and
+/// strip a leading `./` so `./fleets/*.yml` and `fleets/prod.yml` compare
+/// in the same form.
+fn normalize_path(s: &str) -> String {
+    let s = s.replace('\\', "/");
+    s.strip_prefix("./").map(str::to_string).unwrap_or(s)
+}
+
 /// Simple glob pattern matching.
 fn matches_glob(pattern: &str, path: &str) -> bool {
+    let pattern = normalize_path(pattern);
+    let path = normalize_path(path);
+
     // Convert glob pattern to regex
     let mut regex_pattern = String::new();
     let mut chars = pattern.chars().peekable();
@@ -620,7 +640,7 @@ fn matches_glob(pattern: &str, path: &str) -> bool {
     }
 
     if let Ok(re) = regex::Regex::new(&format!("^{}$", regex_pattern)) {
-        return re.is_match(path);
+        return re.is_match(&path);
     }
 
     false
@@ -744,6 +764,62 @@ warn = ["duplicate-names"]
         assert!(!config.should_lint_file(Path::new("node_modules/foo.yml")));
         assert!(!config.should_lint_file(Path::new("target/test.yml")));
         assert!(!config.should_lint_file(Path::new("script.js")));
+    }
+
+    // Regression test for issue #15: a custom [files] include list must act
+    // as an allowlist, `./`-prefixed patterns must match, and root-level
+    // excludes like "cspell.config.yaml" must be honored.
+    #[test]
+    fn test_should_lint_file_custom_include_exclude() {
+        let toml = r#"
+[files]
+include = ["./fleets/*.yml", "./lib/**/*.yaml"]
+exclude = [
+    "**/node_modules/**",
+    "**/target/**",
+    "**/.git/**",
+    "**/dist/**",
+    "cspell.config.yaml"
+]
+"#;
+        let config = FleetLintConfig::parse(toml).unwrap();
+
+        // Explicitly excluded root-level file
+        assert!(!config.should_lint_file(Path::new("cspell.config.yaml")));
+        assert!(!config.should_lint_file(Path::new("./cspell.config.yaml")));
+
+        // Files matching the includes
+        assert!(config.should_lint_file(Path::new("fleets/prod.yml")));
+        assert!(config.should_lint_file(Path::new("./fleets/prod.yml")));
+        assert!(config.should_lint_file(Path::new("lib/macos/policies.yaml")));
+
+        // YAML files NOT in the include list must be skipped
+        assert!(!config.should_lint_file(Path::new("random.yml")));
+        assert!(!config.should_lint_file(Path::new("docs/mkdocs.yaml")));
+        assert!(!config.should_lint_file(Path::new("fleets/nested/deep.yml")));
+    }
+
+    #[test]
+    fn test_matches_glob_dot_slash_prefix() {
+        assert!(matches_glob("./fleets/*.yml", "fleets/prod.yml"));
+        assert!(matches_glob("fleets/*.yml", "./fleets/prod.yml"));
+        assert!(matches_glob("./lib/**/*.yaml", "lib/a/b/c.yaml"));
+        assert!(!matches_glob("./fleets/*.yml", "other/prod.yml"));
+    }
+
+    #[test]
+    fn test_should_lint_file_empty_include_falls_back_to_yaml() {
+        let toml = r#"
+[files]
+include = []
+exclude = ["**/node_modules/**"]
+"#;
+        let config = FleetLintConfig::parse(toml).unwrap();
+
+        assert!(config.should_lint_file(Path::new("anything.yml")));
+        assert!(config.should_lint_file(Path::new("deep/nested/file.yaml")));
+        assert!(!config.should_lint_file(Path::new("script.js")));
+        assert!(!config.should_lint_file(Path::new("node_modules/a.yml")));
     }
 
     #[test]

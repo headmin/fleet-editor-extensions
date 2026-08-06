@@ -482,7 +482,7 @@ policis:
             err.message
         );
         assert!(
-            err.help.as_ref().map_or(false, |h| h.contains("policies")),
+            err.help.as_ref().is_some_and(|h| h.contains("policies")),
             "Should suggest 'policies': {:?}",
             err.help
         );

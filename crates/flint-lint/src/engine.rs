@@ -19,6 +19,9 @@ use std::path::{Path, PathBuf};
 pub struct Linter {
     rules: RuleSet,
     config: Option<FleetLintConfig>,
+    /// Directory containing the loaded `.fleetlint.toml`, when known.
+    /// `[files]` include/exclude globs are resolved relative to this.
+    config_root: Option<PathBuf>,
 }
 
 impl Linter {
@@ -26,6 +29,7 @@ impl Linter {
         Self {
             rules: RuleSet::default_rules(),
             config: None,
+            config_root: None,
         }
     }
 
@@ -33,6 +37,7 @@ impl Linter {
         Self {
             rules,
             config: None,
+            config_root: None,
         }
     }
 
@@ -45,12 +50,18 @@ impl Linter {
         Self {
             rules: RuleSet::default_rules_with_version(version_ctx),
             config: Some(config),
+            config_root: None,
         }
     }
 
     /// Create a linter by searching for configuration from a path.
     pub fn from_path(start_path: &Path) -> Self {
-        let config = FleetLintConfig::find_and_load(start_path).map(|(_, c)| c);
+        let loaded = FleetLintConfig::find_and_load(start_path);
+        let config_root = loaded.as_ref().and_then(|(config_path, _)| {
+            let root = config_path.parent()?;
+            Some(root.canonicalize().unwrap_or_else(|_| root.to_path_buf()))
+        });
+        let config = loaded.map(|(_, c)| c);
         let version_ctx = config
             .as_ref()
             .map(|c| {
@@ -63,6 +74,7 @@ impl Linter {
         Self {
             rules: RuleSet::default_rules_with_version(version_ctx),
             config,
+            config_root,
         }
     }
 
@@ -79,6 +91,37 @@ impl Linter {
     /// Set the configuration.
     pub fn set_config(&mut self, config: FleetLintConfig) {
         self.config = Some(config);
+    }
+
+    /// Set the directory that `[files]` include/exclude globs are relative
+    /// to (the directory containing the loaded `.fleetlint.toml`).
+    pub fn set_config_root(&mut self, root: PathBuf) {
+        self.config_root = Some(root.canonicalize().unwrap_or(root));
+    }
+
+    /// Check whether a file should be linted per the config's `[files]`
+    /// include/exclude patterns. Returns `true` when no config is loaded.
+    ///
+    /// Glob patterns are matched against the path relative to the config
+    /// root when known, so `include = ["./fleets/*.yml"]` works regardless
+    /// of whether callers pass absolute or relative paths.
+    pub fn should_lint(&self, file_path: &Path) -> bool {
+        let Some(config) = &self.config else {
+            return true;
+        };
+
+        let candidate = self
+            .config_root
+            .as_ref()
+            .and_then(|root| {
+                let abs = file_path
+                    .canonicalize()
+                    .unwrap_or_else(|_| file_path.to_path_buf());
+                abs.strip_prefix(root).ok().map(Path::to_path_buf)
+            })
+            .unwrap_or_else(|| file_path.to_path_buf());
+
+        config.should_lint_file(&candidate)
     }
 
     /// Lint a single file
@@ -288,11 +331,16 @@ impl Linter {
     ) -> Result<Vec<(PathBuf, LintReport)>> {
         let pattern = pattern.unwrap_or("**/*.{yml,yaml}");
 
-        // Find all YAML files
+        // Find all YAML files, then apply the config's [files]
+        // include/exclude patterns (issue #15)
         let yaml_files = find_yaml_files(dir, pattern)?;
 
         // Lint each file (parallel if > 3 files)
-        let file_refs: Vec<&Path> = yaml_files.iter().map(|p| p.as_path()).collect();
+        let file_refs: Vec<&Path> = yaml_files
+            .iter()
+            .map(|p| p.as_path())
+            .filter(|p| self.should_lint(p))
+            .collect();
         self.lint_files(&file_refs)
     }
 }
@@ -652,6 +700,60 @@ mod tests {
     use super::*;
     use std::io::Write;
     use tempfile::NamedTempFile;
+
+    // Regression test for issue #15: lint_directory must honor the
+    // [files] include/exclude patterns from .fleetlint.toml.
+    #[test]
+    fn test_lint_directory_respects_config_include_exclude() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+
+        std::fs::write(
+            root.join(".fleetlint.toml"),
+            r#"
+[files]
+include = ["./fleets/*.yml", "./lib/**/*.yaml"]
+exclude = ["**/node_modules/**", "cspell.config.yaml"]
+"#,
+        )
+        .unwrap();
+
+        std::fs::create_dir_all(root.join("fleets")).unwrap();
+        std::fs::create_dir_all(root.join("lib/macos")).unwrap();
+
+        let policy_yaml = "policies:\n  - name: Test\n    query: SELECT 1;\n    platform: darwin\n";
+        std::fs::write(root.join("fleets/prod.yml"), policy_yaml).unwrap();
+        std::fs::write(root.join("lib/macos/policies.yaml"), policy_yaml).unwrap();
+        // Files that must NOT be linted
+        std::fs::write(root.join("cspell.config.yaml"), "version: '0.2'\nwords: []\n").unwrap();
+        std::fs::write(root.join("random.yml"), "foo: bar\n").unwrap();
+
+        let linter = Linter::from_path(root);
+        let results = linter.lint_directory(root, None).unwrap();
+
+        let linted: Vec<String> = results
+            .iter()
+            .map(|(p, _)| p.file_name().unwrap().to_string_lossy().to_string())
+            .collect();
+
+        assert!(linted.contains(&"prod.yml".to_string()), "include pattern should match fleets/prod.yml, got {linted:?}");
+        assert!(linted.contains(&"policies.yaml".to_string()), "include pattern should match lib/**, got {linted:?}");
+        assert!(!linted.contains(&"cspell.config.yaml".to_string()), "excluded file was linted: {linted:?}");
+        assert!(!linted.contains(&"random.yml".to_string()), "file outside include list was linted: {linted:?}");
+    }
+
+    #[test]
+    fn test_lint_directory_no_config_lints_all_yaml() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+
+        std::fs::write(root.join("a.yml"), "foo: bar\n").unwrap();
+        std::fs::write(root.join("b.yaml"), "foo: bar\n").unwrap();
+
+        let linter = Linter::new();
+        let results = linter.lint_directory(root, None).unwrap();
+        assert_eq!(results.len(), 2);
+    }
 
     #[test]
     fn test_lint_valid_config() {

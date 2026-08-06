@@ -8,7 +8,7 @@
 //! Run with: cargo test -p flint-lint --test fleet_compat -- --ignored
 
 use flint_lint::engine::Linter;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 /// Find a Fleet GitOps test directory.
 /// Priority: FLEET_TEST_DIR env > /private/tmp/it-and-security > skip

@@ -693,7 +693,6 @@ mod tests {
     }
 
     #[test]
-    #[test]
     fn test_hover_paths_in_controls() {
         let source = r#"controls:
   apple_settings:
