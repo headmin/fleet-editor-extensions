@@ -1,6 +1,6 @@
 [package]
 name = "flint-zed"
-version = "0.1.3"
+version = "0.1.4"
 edition = "2021"
 description = "Zed extension for Flint — Fleet GitOps YAML linting"
 license = "MIT"
