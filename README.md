@@ -24,7 +24,7 @@ Flint is an LSP that brings intelligent editor features to any IDE: schema valid
 
 | Editor | Package | Install |
 |--------|---------|---------|
-| VS Code | [`flint-<version>.vsix`](editors/vscode/) | `code --install-extension flint-0.1.2.vsix` |
+| VS Code | [`flint-<version>.vsix`](editors/vscode/) | `code --install-extension flint-0.1.4.vsix` |
 | Zed | [Flint extension](editors/zed/) | Install from Zed extension gallery |
 | Sublime Text | [Flint LSP](editors/sublime/) | Install via Package Control |
 | JetBrains | [Flint plugin](editors/jetbrains/) | Requires `flint` on PATH |

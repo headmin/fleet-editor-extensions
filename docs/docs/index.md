@@ -33,7 +33,7 @@ graph LR
 
 **macOS** — download the signed & notarized PKG:
 
-> [flint-0.1.2.pkg](https://github.com/headmin/fleet-editor-extensions/releases/latest/download/flint-0.1.2.pkg)
+> [flint-0.1.4.pkg](https://github.com/headmin/fleet-editor-extensions/releases/latest/download/flint-0.1.4.pkg)
 
 **Linux** — install via script:
 
@@ -58,8 +58,8 @@ flint init
 
 | Editor | Install |
 |--------|---------|
-| **VS Code** | Download [flint-0.1.2.vsix](https://github.com/headmin/fleet-editor-extensions/releases/latest/download/flint-0.1.2.vsix) → `Extensions: Install from VSIX` |
-| **Zed** | Download [flint-zed-extension-0.1.2.zip](https://github.com/headmin/fleet-editor-extensions/releases/latest/download/flint-zed-extension-0.1.2.zip) → install `flint` binary to PATH |
+| **VS Code** | Download [flint-0.1.4.vsix](https://github.com/headmin/fleet-editor-extensions/releases/latest/download/flint-0.1.4.vsix) → `Extensions: Install from VSIX` |
+| **Zed** | Download [flint-zed-0.1.4.zip](https://github.com/headmin/fleet-editor-extensions/releases/latest/download/flint-zed-0.1.4.zip) → install `flint` binary to PATH |
 | **Sublime Text** | Install `flint` binary, add [LSP-flint](editors.md) config |
 | **Neovim** | Install `flint` binary, configure as LSP with `cmd = {"flint", "lsp"}` |
 

@@ -27,7 +27,7 @@ The extension activates automatically for Fleet GitOps YAML files.
 
 ## Zed
 
-Install the **Flint** extension: download `flint-zed-extension-<version>.zip` from [releases](https://github.com/headmin/fleet-editor-extensions/releases), extract, then in Zed: `Cmd+Shift+P` → "zed: install dev extension" → select the folder.
+Install the **Flint** extension: download `flint-zed-<version>.zip` from [releases](https://github.com/headmin/fleet-editor-extensions/releases), extract, then in Zed: `Cmd+Shift+P` → "zed: install dev extension" → select the folder.
 
 Add to your Zed settings (`Cmd+,`):
 

@@ -15,11 +15,11 @@ Zed editor extension for Fleet GitOps YAML validation, completions, and diagnost
 
 ### Option A: Dev extension (from zip)
 
-1. Download `flint-zed-extension-<version>.zip` from [GitHub Releases](https://github.com/headmin/fleet-editor-extensions/releases)
+1. Download `flint-zed-<version>.zip` from [GitHub Releases](https://github.com/headmin/fleet-editor-extensions/releases)
 
 2. Extract:
    ```bash
-   unzip flint-zed-extension-0.1.2.zip -d ~/flint-zed
+   unzip flint-zed-0.1.4.zip -d ~/flint-zed
    ```
 
 3. In Zed: `Cmd+Shift+P` → "zed: install dev extension" → select `~/flint-zed`

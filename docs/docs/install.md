@@ -60,5 +60,5 @@ A [`.devcontainer`](https://github.com/headmin/fleet-editor-extensions/tree/main
 
 ```bash
 flint --version
-# flint 0.1.2+20260403.0910 (Fleet sync: ...)
+# flint 0.1.4+20260621.0730 (Fleet sync: ...)
 ```
