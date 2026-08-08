@@ -25,8 +25,16 @@ COCKPIT-METHODOLOGY.md
 # Python / Zensical docs
 docs/.venv/
 docs/site/
+docs/.wrangler/
 __pycache__/
 
 # Package builds
 pkg/*/build/
 pkg/*/payload/
+/.github
+/.vscode
+/scripts
+/.claude
+/editors/vscode/bin
+/editors/vscode/bin
+editors/vscode/bin/flint-darwin-arm64

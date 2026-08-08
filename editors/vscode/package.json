@@ -2,7 +2,7 @@
   "name": "flint",
   "displayName": "Flint — Fleet GitOps",
   "description": "Linter and language server for Fleet GitOps YAML configuration files",
-  "version": "0.1.4",
+  "version": "0.2.0",
   "publisher": "fleetdm",
   "license": "Apache-2.0",
   "repository": {
