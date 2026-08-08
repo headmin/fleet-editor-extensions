@@ -103,6 +103,14 @@ pub fn generate_index(cmd: &clap::Command, writer: &mut impl Write) -> Result<()
     )?;
     writeln!(
         buf,
+        "- fix broken path: refs (moved files), or wire unwired profiles/scripts/software → `--sop paths`"
+    )?;
+    writeln!(
+        buf,
+        "- generate a stanza from a .pkg/.mobileconfig/.sql etc, add/update software, policies, scripts → `--sop software`"
+    )?;
+    writeln!(
+        buf,
         "- extend flint with a new Fleet YAML field (working ON this repo) → `--sop add-field`"
     )?;
     writeln!(buf)?;
@@ -134,6 +142,14 @@ pub fn generate_index(cmd: &clap::Command, writer: &mut impl Write) -> Result<()
     writeln!(
         buf,
         "- `--sop author`      — schema-as-contract loop for authoring Fleet YAML"
+    )?;
+    writeln!(
+        buf,
+        "- `--sop paths`       — fix broken path: refs (--fix) + report/wire unwired artifacts"
+    )?;
+    writeln!(
+        buf,
+        "- `--sop software`    — generate stanzas from .pkg/app/profile/query; update, policy, scripts"
     )?;
     writeln!(
         buf,
@@ -382,8 +398,10 @@ pub fn generate_sop(tool: &str, writer: &mut impl Write) -> Result<()> {
         "hooks" | "hook" | "pre-commit" => SOP_HOOKS,
         "author" | "yaml" | "write" => SOP_AUTHOR,
         "add-field" | "addfield" | "extend" | "schema" => SOP_ADD_FIELD,
+        "paths" | "path" | "unwired" | "wire" => SOP_PATHS,
+        "software" | "pkg" | "app" | "profile" | "query" | "new" | "generate" => SOP_SOFTWARE,
         _ => bail!(
-            "Unknown SOP: '{tool}'. Available: lint, migrate, lsp, hooks, author, add-field"
+            "Unknown SOP: '{tool}'. Available: lint, migrate, lsp, hooks, author, add-field, paths, software"
         ),
     };
     writer.write_all(sop.as_bytes())?;
@@ -446,7 +464,10 @@ min_interval = 60                    # query interval bounds (seconds)
 max_interval = 86400
 
 [files]
-include = ["**/*.yml", "**/*.yaml"]
+# include unset = everything not excluded. If you narrow it, use DIRECTORY
+# globs ("platforms/**"), never extension globs — a non-empty include is
+# authoritative and also scopes the cross-file rules, which report on
+# scripts/profiles, so "**/*.yml" would silently disable them.
 exclude = ["node_modules", "target"]
 
 [deprecations]
@@ -758,6 +779,138 @@ PROCEDURE add_fleet_field(field_name, parent_path, field_type, valid_values?):
 - Skipping a regression test → the next refactor will silently break it.
 "#;
 
+const SOP_PATHS: &str = r#"# SOP: Path references — fix broken refs & wire unwired artifacts
+
+Two inverse problems over the repo's `path:`/`paths:` dependency graph:
+  A. broken references — a `path:` (or a policy's
+     `install_software.package_path:`) whose target file is missing (often a
+     moved file after a folder reorg).
+  B. unwired artifacts — a file that exists but NO fleet/team config references.
+
+PROCEDURE fix_broken_paths(dir):
+  # Phase 1 — Report
+  RUN: `flint paths <dir>`
+  READS as before→after blocks grouped by file:
+    L<line>  - <old path>   (not found)
+             + <new path>   (moved here)   # unique basename match → auto-fixable
+    L<line>  ? <old path>   (reason)        # ambiguous or genuinely missing
+  ALSO surfaced as the `path-exists` lint rule in `flint check` and the editor.
+
+  # Phase 2 — Apply
+  RUN: `flint paths <dir> --fix`
+  EFFECT: rewrites every UNAMBIGUOUS reference (single basename match) in place.
+  Ambiguous (multiple candidates) / missing (no candidate) are left for manual fix.
+  In the editor: a quick-fix lightbulb offers each candidate; a "Fix all N
+  references to <file>" action repairs every referrer across the workspace.
+
+PROCEDURE wire_unwired(dir):
+  # Phase 1 — Report orphans
+  RUN: `flint paths <dir> --unwired`
+  Groups artifacts no config references, by directory, each routed to the
+  GitOps section that would wire it (current Fleet keys):
+    .mobileconfig / DDM .json → controls.apple_settings.configuration_profiles
+    .xml (Windows CSP)        → controls.windows_settings.configuration_profiles
+    .sh / .ps1                → controls.scripts
+    enrollment .dep.json      → controls.setup_experience.apple_setup_assistant
+    software/*.yml            → software.packages
+    policies|queries|reports  → policies / queries
+  Prints copy-paste `paths:` glob + individual `path:` lines, relative to where
+  THIS repo's fleet files live (not a hardcoded ../).
+
+  # Phase 2 — Interactive wiring (modifies files only on explicit yes)
+  RUN: `flint paths <dir> --unwired --interactive`
+  PER GROUP it lists each artifact (name/scope/payload-type), then PER FLEET asks
+  [y]es / [a]ll-remaining / [n]o / [s]kip group / [q]uit.
+    [y] → choose [g]lob (one rule, no labels) or [p]er-file (per-path labels)
+    [a] → wire the glob into this and every remaining fleet at once
+  PER-FILE prompts labels_include_any AND labels_exclude_any (independent,
+  combinable: broad include + targeted exclude).
+  FLAGS:
+    --label-stubs[=blank|comment]  blank labels → emit the empty key (=blank,
+                                   default) or a commented stub (=comment)
+    --only <glob>                  limit target fleets (e.g. "fleets/acfg-*.yml")
+
+# Key facts
+- path: is a single file; paths: is a glob (`*`, `?`, `**`). A glob cannot be
+  label-scoped — per-path labels require the per-file style.
+- Inserts land after the last REAL entry of the section (never below trailing
+  commented-out blocks), and convert an inline `key: []` to a block first.
+"#;
+
+const SOP_SOFTWARE: &str = r#"# SOP: Generate Fleet GitOps stanzas from real artifacts
+
+Read a real file and emit the matching GitOps YAML (no hand-transcription).
+All generators support `-o <file>` to append; profiles/software support `--wire`
+to insert interactively into a chosen fleet (run from INSIDE your GitOps repo —
+software is url-based so the installer may live anywhere, e.g. ~/Downloads).
+
+PROCEDURE add_software_package(installer):
+  # macOS .pkg
+  RUN: `flint gen software --from <file.pkg>`            # minimal: comment header + hash_sha256
+  RUN: `flint gen software --from <file.pkg> --full`     # full stanza: url placeholder, self_service,
+                                                         # commented display_name/categories/labels/scripts
+  ADD `setup_experience: true` (install during Setup Assistant / OOBE):
+    `flint gen software --from <file.pkg> --full --setup-experience`
+  WIRE into a fleet (prompts for setup_experience unless --setup-experience given):
+    `flint gen software --from <file.pkg> --wire`
+  WRITE a standalone software file (the `path:`-referenced mapping form):
+    `flint gen software --from <file.pkg> --standalone`            # → <name>.package.yml next to the .pkg
+    `flint gen software --from <file.pkg> --standalone --full -o <dir>`   # full scaffolding, random name in <dir>
+    `flint gen software --from <file.pkg> --standalone -o <name>.yml`     # exact filename (refuses overwrite)
+  EFFECT: name derived from the installer (`<name>.package.yml`), -2/-3 on collision; honors --full and
+  --setup-experience. hash_sha256 leads the file; url is a fill-in placeholder.
+  OTHER installer formats (same command, dispatch by extension):
+    `flint gen software --from <file>`   # .deb (ar+tar), .ipa (unzip+plutil), .msi (msiinfo),
+                                         # .rpm (rpm), .exe/.tar.gz (hash + placeholders)
+                                         # .dmg is NOT a Fleet format — repackage to .pkg.
+  BATCH a directory: `flint gen software --from <dir>` / `flint gen profile --from <dir>`.
+
+PROCEDURE keep_a_package_current(installer, software_file):
+  # New release of an already-referenced package:
+  RUN: `flint gen software --from <new.pkg> --update <software_file>`
+  EFFECT: matches the stanza by package identifier and refreshes hash_sha256,
+  version (header), and the url filename — leaving comments/labels/self_service intact.
+
+PROCEDURE generate_install_check_policy(pkg):
+  RUN: `flint gen policy --from <file.pkg>`           # via package_receipts (package_id+version)
+  RUN: `flint gen policy --from <file.pkg> --apps`    # via apps table (bundle_identifier)
+  RUN: `flint gen policy --from <file.pkg> --enforce` # + install_software (auto-install on fail)
+  Uses osquery's semantic version_compare (>= target). No version → existence check.
+  The plain form is an AUDIT policy (reports drift). --enforce appends an
+  install_software.hash_sha256 automation so Fleet auto-installs the package on
+  failing hosts; the package must also be listed under software (same hash).
+
+PROCEDURE default_install_uninstall_scripts(pkg):
+  RUN: `flint gen scripts --from <file.pkg> -o <dir>`
+  Writes Fleet's VERBATIM default install.sh + uninstall.sh ($PACKAGE_ID is
+  substituted by the Fleet server at upload; do not hardcode it).
+
+PROCEDURE add_configuration_profile(file):
+  RUN: `flint gen profile --from <file.mobileconfig>`  # → configuration_profiles entry
+       # header: display name — identifier [scope] · nested PayloadType
+  RUN: `flint gen profile --from <file.json>`          # DDM declaration (Type + Identifier)
+  RUN: `flint gen profile --from <file.xml>`           # Windows CSP (LocURI context)
+  RUN: `flint gen profile --from <enroll.dep.json>`    # → setup_experience.apple_setup_assistant
+  FLAGS: --full (label stubs), --wire (insert into a fleet, path per-fleet-relative)
+  MITIGATE a duplicate-payload-uuid finding:
+    `flint gen profile --from <file.mobileconfig> --regen-uuid`   # mints a fresh PayloadUUID
+
+PROCEDURE add_query_or_policy(sql):
+  RUN: `flint gen query --from <file.sql>`    # query stanza; platform inferred from the
+                                              # osquery tables referenced (intersection)
+  RUN: `flint gen policy --from <file.sql>`   # policy stanza around that query
+  Unknown tables → platform left as a commented placeholder to fill in.
+
+PROCEDURE scaffold_new(kind):
+  RUN: `flint gen <profile|fleet|policy|query|label>`  # blank template; -o to write
+  `gen profile` (no --from) mints a fresh PayloadUUID (uuidgen).
+
+# Fleet Maintained Apps (FMA) — referenced by slug, no file to scan
+- software.fleet_maintained_apps entries use `slug: <app>/<platform>` (e.g.
+  `slug: santa/darwin`), optionally `setup_experience: true`, labels, version.
+- An inline comment after the slug is fine: `slug: santa/darwin # Santa`.
+"#;
+
 // ── JSON mode ────────────────────────────────────────────────────────
 
 /// Generate JSON schema of the CLI.
@@ -961,7 +1114,7 @@ pub fn install_skill(version: &str) -> Result<()> {
     }
 
     eprintln!("  Agents will now discover flint automatically.");
-    eprintln!("  Regenerate anytime with: flint help-ai --install-skill");
+    eprintln!("  Regenerate anytime with: flint setup-agent");
 
     Ok(())
 }
