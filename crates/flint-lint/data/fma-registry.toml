@@ -1,0 +1,4574 @@
+# ============================================================================
+# Fleet Maintained Apps — slug registry for completion and validation
+# Auto-generated from fleet/ee/maintained-apps/outputs/
+# (1141 apps, 2026-08-07, fleet main @ 3c8df41762)
+# Slug format: {name}/{platform} (e.g., slack/darwin)
+#
+# To regenerate: from fleet/ee/maintained-apps/outputs/, emit one [[fma]]
+# block per directory with name = dir and platforms = its *.json basenames.
+# ============================================================================
+
+[[fma]]
+name = "010-editor"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "1password"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "3df-zephyr-free"
+platforms = ["windows"]
+
+[[fma]]
+name = "4k-slideshow-maker"
+platforms = ["darwin"]
+
+[[fma]]
+name = "4k-stogram"
+platforms = ["darwin"]
+
+[[fma]]
+name = "4k-video-downloader-plus"
+platforms = ["windows"]
+
+[[fma]]
+name = "4k-video-downloader"
+platforms = ["darwin"]
+
+[[fma]]
+name = "4k-video-to-mp3"
+platforms = ["darwin"]
+
+[[fma]]
+name = "4k-youtube-to-mp3"
+platforms = ["darwin"]
+
+[[fma]]
+name = "7-zip"
+platforms = ["windows"]
+
+[[fma]]
+name = "8x8-work"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "a-better-finder-rename"
+platforms = ["darwin"]
+
+[[fma]]
+name = "ableton-live-suite"
+platforms = ["darwin"]
+
+[[fma]]
+name = "abstract"
+platforms = ["darwin"]
+
+[[fma]]
+name = "acorn"
+platforms = ["darwin"]
+
+[[fma]]
+name = "activedock"
+platforms = ["darwin"]
+
+[[fma]]
+name = "activitywatch"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "actual"
+platforms = ["darwin"]
+
+[[fma]]
+name = "adguard"
+platforms = ["darwin"]
+
+[[fma]]
+name = "adlock"
+platforms = ["darwin"]
+
+[[fma]]
+name = "adobe-acrobat-pro"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "adobe-acrobat-reader"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "adobe-creative-cloud"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "adobe-digital-editions"
+platforms = ["darwin"]
+
+[[fma]]
+name = "adobe-dng-converter"
+platforms = ["darwin"]
+
+[[fma]]
+name = "advanced-installer"
+platforms = ["windows"]
+
+[[fma]]
+name = "advanced-renamer"
+platforms = ["darwin"]
+
+[[fma]]
+name = "affinity-designer"
+platforms = ["darwin"]
+
+[[fma]]
+name = "affinity-designer@1"
+platforms = ["darwin"]
+
+[[fma]]
+name = "affinity-photo"
+platforms = ["darwin"]
+
+[[fma]]
+name = "affinity-photo@1"
+platforms = ["darwin"]
+
+[[fma]]
+name = "affinity-publisher"
+platforms = ["darwin"]
+
+[[fma]]
+name = "affinity-publisher@1"
+platforms = ["darwin"]
+
+[[fma]]
+name = "affinity"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "agent-ransack"
+platforms = ["windows"]
+
+[[fma]]
+name = "air-explorer"
+platforms = ["windows"]
+
+[[fma]]
+name = "airbuddy"
+platforms = ["darwin"]
+
+[[fma]]
+name = "aircall"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "airdroid"
+platforms = ["darwin"]
+
+[[fma]]
+name = "airparrot"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "airserver"
+platforms = ["darwin"]
+
+[[fma]]
+name = "airtable"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "airtame"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "airy"
+platforms = ["darwin"]
+
+[[fma]]
+name = "akiflow"
+platforms = ["darwin"]
+
+[[fma]]
+name = "alacritty"
+platforms = ["windows"]
+
+[[fma]]
+name = "alcove"
+platforms = ["darwin"]
+
+[[fma]]
+name = "aldente"
+platforms = ["darwin"]
+
+[[fma]]
+name = "alfaview"
+platforms = ["windows"]
+
+[[fma]]
+name = "alloy"
+platforms = ["darwin"]
+
+[[fma]]
+name = "allway-sync"
+platforms = ["windows"]
+
+[[fma]]
+name = "alt-tab"
+platforms = ["darwin"]
+
+[[fma]]
+name = "altair-graphql-client"
+platforms = ["darwin"]
+
+[[fma]]
+name = "amadeus-pro"
+platforms = ["darwin"]
+
+[[fma]]
+name = "amadine"
+platforms = ["darwin"]
+
+[[fma]]
+name = "amazon-chime"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "amazon-corretto-11"
+platforms = ["windows"]
+
+[[fma]]
+name = "amazon-corretto-17"
+platforms = ["windows"]
+
+[[fma]]
+name = "amazon-corretto-21"
+platforms = ["windows"]
+
+[[fma]]
+name = "amazon-corretto-24"
+platforms = ["windows"]
+
+[[fma]]
+name = "amazon-corretto-25"
+platforms = ["windows"]
+
+[[fma]]
+name = "amazon-corretto-26"
+platforms = ["windows"]
+
+[[fma]]
+name = "amazon-corretto-8"
+platforms = ["windows"]
+
+[[fma]]
+name = "amazon-corretto-jre-8"
+platforms = ["windows"]
+
+[[fma]]
+name = "amazon-dcv-client"
+platforms = ["windows"]
+
+[[fma]]
+name = "amazon-dcv-server"
+platforms = ["windows"]
+
+[[fma]]
+name = "amazon-redshift-odbc-driver"
+platforms = ["windows"]
+
+[[fma]]
+name = "amazon-workspaces"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "amethyst"
+platforms = ["darwin"]
+
+[[fma]]
+name = "amie"
+platforms = ["darwin"]
+
+[[fma]]
+name = "android-studio"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "angry-ip-scanner"
+platforms = ["darwin"]
+
+[[fma]]
+name = "anka-virtualization"
+platforms = ["darwin"]
+
+[[fma]]
+name = "another-redis-desktop-manager"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "antigravity-ide"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "antigravity"
+platforms = ["darwin"]
+
+[[fma]]
+name = "antinote"
+platforms = ["darwin"]
+
+[[fma]]
+name = "anyburn"
+platforms = ["windows"]
+
+[[fma]]
+name = "anydesk"
+platforms = ["darwin"]
+
+[[fma]]
+name = "anydo"
+platforms = ["darwin"]
+
+[[fma]]
+name = "anytype"
+platforms = ["darwin"]
+
+[[fma]]
+name = "aomei-backupper-standard"
+platforms = ["windows"]
+
+[[fma]]
+name = "apidog"
+platforms = ["darwin"]
+
+[[fma]]
+name = "app-fair"
+platforms = ["darwin"]
+
+[[fma]]
+name = "apparency"
+platforms = ["darwin"]
+
+[[fma]]
+name = "appcleaner"
+platforms = ["darwin"]
+
+[[fma]]
+name = "appium-inspector"
+platforms = ["darwin"]
+
+[[fma]]
+name = "applite"
+platforms = ["darwin"]
+
+[[fma]]
+name = "aptakube"
+platforms = ["windows"]
+
+[[fma]]
+name = "arc"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "archaeology"
+platforms = ["darwin"]
+
+[[fma]]
+name = "arduino-ide"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "asana"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "asset-catalog-tinkerer"
+platforms = ["darwin"]
+
+[[fma]]
+name = "atext"
+platforms = ["darwin"]
+
+[[fma]]
+name = "audacity"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "audio-hijack"
+platforms = ["darwin"]
+
+[[fma]]
+name = "audiveris"
+platforms = ["windows"]
+
+[[fma]]
+name = "autopsy"
+platforms = ["windows"]
+
+[[fma]]
+name = "avast-secure-browser"
+platforms = ["darwin"]
+
+[[fma]]
+name = "aviatrix-vpn-client"
+platforms = ["darwin"]
+
+[[fma]]
+name = "avs-image-converter"
+platforms = ["windows"]
+
+[[fma]]
+name = "avs-media-player"
+platforms = ["windows"]
+
+[[fma]]
+name = "aws-cli"
+platforms = ["windows"]
+
+[[fma]]
+name = "aws-sam-cli"
+platforms = ["windows"]
+
+[[fma]]
+name = "aws-session-manager-plugin"
+platforms = ["windows"]
+
+[[fma]]
+name = "aws-vpn-client"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "axure-rp"
+platforms = ["darwin"]
+
+[[fma]]
+name = "azul-zulu-25-jdk"
+platforms = ["windows"]
+
+[[fma]]
+name = "azul-zulu-25-jre"
+platforms = ["windows"]
+
+[[fma]]
+name = "azure-data-studio"
+platforms = ["windows"]
+
+[[fma]]
+name = "azure-functions-core-tools"
+platforms = ["windows"]
+
+[[fma]]
+name = "background-music"
+platforms = ["darwin"]
+
+[[fma]]
+name = "badgeify"
+platforms = ["darwin"]
+
+[[fma]]
+name = "balenaetcher"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "balsamiq-wireframes"
+platforms = ["darwin"]
+
+[[fma]]
+name = "bambu-studio"
+platforms = ["darwin"]
+
+[[fma]]
+name = "bandiview"
+platforms = ["windows"]
+
+[[fma]]
+name = "bartender"
+platforms = ["darwin"]
+
+[[fma]]
+name = "batfi"
+platforms = ["darwin"]
+
+[[fma]]
+name = "bbedit"
+platforms = ["darwin"]
+
+[[fma]]
+name = "bdash"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "beaver-notes"
+platforms = ["darwin"]
+
+[[fma]]
+name = "beekeeper-studio"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "beeper"
+platforms = ["darwin"]
+
+[[fma]]
+name = "betterdisplay"
+platforms = ["darwin"]
+
+[[fma]]
+name = "bettermouse"
+platforms = ["darwin"]
+
+[[fma]]
+name = "bettertouchtool"
+platforms = ["darwin"]
+
+[[fma]]
+name = "betterzip"
+platforms = ["darwin"]
+
+[[fma]]
+name = "beyond-compare"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "bezel"
+platforms = ["darwin"]
+
+[[fma]]
+name = "bibdesk"
+platforms = ["darwin"]
+
+[[fma]]
+name = "binance"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "biscuit"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "bitbox"
+platforms = ["darwin"]
+
+[[fma]]
+name = "bitrix24"
+platforms = ["darwin"]
+
+[[fma]]
+name = "bitwarden"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "bitwig-studio"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "bleachbit"
+platforms = ["windows"]
+
+[[fma]]
+name = "blender"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "bleunlock"
+platforms = ["darwin"]
+
+[[fma]]
+name = "blip"
+platforms = ["darwin"]
+
+[[fma]]
+name = "bluej"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "bluewallet"
+platforms = ["darwin"]
+
+[[fma]]
+name = "blurscreen"
+platforms = ["darwin"]
+
+[[fma]]
+name = "boltai"
+platforms = ["darwin"]
+
+[[fma]]
+name = "bome-network"
+platforms = ["darwin"]
+
+[[fma]]
+name = "boom-3d"
+platforms = ["darwin"]
+
+[[fma]]
+name = "boop"
+platforms = ["darwin"]
+
+[[fma]]
+name = "boost-note"
+platforms = ["darwin"]
+
+[[fma]]
+name = "box-drive"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "box-tools"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "brave-browser"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "breaktimer"
+platforms = ["darwin"]
+
+[[fma]]
+name = "bricklink-studio"
+platforms = ["darwin"]
+
+[[fma]]
+name = "browserstacklocal"
+platforms = ["windows"]
+
+[[fma]]
+name = "bruno"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "bulk-crap-uninstaller"
+platforms = ["windows"]
+
+[[fma]]
+name = "bunch"
+platforms = ["darwin"]
+
+[[fma]]
+name = "burp-suite-community"
+platforms = ["windows"]
+
+[[fma]]
+name = "burp-suite-professional"
+platforms = ["windows"]
+
+[[fma]]
+name = "burp-suite"
+platforms = ["darwin"]
+
+[[fma]]
+name = "busycontacts"
+platforms = ["darwin"]
+
+[[fma]]
+name = "buttercup"
+platforms = ["darwin"]
+
+[[fma]]
+name = "buzz"
+platforms = ["darwin"]
+
+[[fma]]
+name = "cacher"
+platforms = ["darwin"]
+
+[[fma]]
+name = "caffeine"
+platforms = ["darwin"]
+
+[[fma]]
+name = "calibre"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "calibrite-profiler"
+platforms = ["darwin"]
+
+[[fma]]
+name = "camo-studio"
+platforms = ["darwin"]
+
+[[fma]]
+name = "camtasia"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "camunda-modeler"
+platforms = ["darwin"]
+
+[[fma]]
+name = "canva"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "capcut"
+platforms = ["darwin"]
+
+[[fma]]
+name = "captain"
+platforms = ["darwin"]
+
+[[fma]]
+name = "capto"
+platforms = ["darwin"]
+
+[[fma]]
+name = "carbon-copy-cloner"
+platforms = ["darwin"]
+
+[[fma]]
+name = "cardhop"
+platforms = ["darwin"]
+
+[[fma]]
+name = "cavalry"
+platforms = ["darwin"]
+
+[[fma]]
+name = "cellprofiler"
+platforms = ["darwin"]
+
+[[fma]]
+name = "certify-the-web"
+platforms = ["windows"]
+
+[[fma]]
+name = "chalk"
+platforms = ["darwin"]
+
+[[fma]]
+name = "charles"
+platforms = ["darwin"]
+
+[[fma]]
+name = "charmstone"
+platforms = ["darwin"]
+
+[[fma]]
+name = "chatbox"
+platforms = ["windows"]
+
+[[fma]]
+name = "chatgpt-atlas"
+platforms = ["darwin"]
+
+[[fma]]
+name = "chatgpt"
+platforms = ["darwin"]
+
+[[fma]]
+name = "chatwise"
+platforms = ["darwin"]
+
+[[fma]]
+name = "cheetah3d"
+platforms = ["darwin"]
+
+[[fma]]
+name = "chef-workstation"
+platforms = ["windows"]
+
+[[fma]]
+name = "cherry-keys"
+platforms = ["windows"]
+
+[[fma]]
+name = "cherry-studio"
+platforms = ["darwin"]
+
+[[fma]]
+name = "chime"
+platforms = ["darwin"]
+
+[[fma]]
+name = "choosy"
+platforms = ["darwin"]
+
+[[fma]]
+name = "chrome-remote-desktop-host"
+platforms = ["darwin"]
+
+[[fma]]
+name = "chrome-remote-desktop"
+platforms = ["windows"]
+
+[[fma]]
+name = "cinc"
+platforms = ["windows"]
+
+[[fma]]
+name = "cisco-jabber"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "cisco-webex-recorder-and-player"
+platforms = ["windows"]
+
+[[fma]]
+name = "citrix-workspace"
+platforms = ["darwin"]
+
+[[fma]]
+name = "claude-devtools"
+platforms = ["darwin"]
+
+[[fma]]
+name = "claude"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "cleanclip"
+platforms = ["darwin"]
+
+[[fma]]
+name = "cleanmymac"
+platforms = ["darwin"]
+
+[[fma]]
+name = "cleanshot"
+platforms = ["darwin"]
+
+[[fma]]
+name = "clickshare"
+platforms = ["darwin"]
+
+[[fma]]
+name = "clickup"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "clion"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "clipboardfusion"
+platforms = ["windows"]
+
+[[fma]]
+name = "clipbook"
+platforms = ["darwin"]
+
+[[fma]]
+name = "clipgrab"
+platforms = ["darwin"]
+
+[[fma]]
+name = "clipy"
+platforms = ["darwin"]
+
+[[fma]]
+name = "clockassist"
+platforms = ["windows"]
+
+[[fma]]
+name = "clocker"
+platforms = ["darwin"]
+
+[[fma]]
+name = "clockify"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "clop"
+platforms = ["darwin"]
+
+[[fma]]
+name = "cloudflare-warp"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "cloudmounter"
+platforms = ["darwin"]
+
+[[fma]]
+name = "cmake-app"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "cmux"
+platforms = ["darwin"]
+
+[[fma]]
+name = "coconutbattery"
+platforms = ["darwin"]
+
+[[fma]]
+name = "codeedit"
+platforms = ["darwin"]
+
+[[fma]]
+name = "codemeter-runtime-kit"
+platforms = ["windows"]
+
+[[fma]]
+name = "coderunner"
+platforms = ["darwin"]
+
+[[fma]]
+name = "codex-app"
+platforms = ["darwin"]
+
+[[fma]]
+name = "codexbar"
+platforms = ["darwin"]
+
+[[fma]]
+name = "cog-app"
+platforms = ["darwin"]
+
+[[fma]]
+name = "colorsnapper"
+platforms = ["darwin"]
+
+[[fma]]
+name = "colour-contrast-analyser"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "comet"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "command-tab-plus"
+platforms = ["darwin"]
+
+[[fma]]
+name = "commander-one"
+platforms = ["darwin"]
+
+[[fma]]
+name = "commander"
+platforms = ["darwin"]
+
+[[fma]]
+name = "companion"
+platforms = ["darwin"]
+
+[[fma]]
+name = "connect-fonts"
+platforms = ["darwin"]
+
+[[fma]]
+name = "copilot-money"
+platforms = ["darwin"]
+
+[[fma]]
+name = "cork"
+platforms = ["darwin"]
+
+[[fma]]
+name = "coteditor"
+platforms = ["darwin"]
+
+[[fma]]
+name = "cpu-z"
+platforms = ["windows"]
+
+[[fma]]
+name = "crashplan"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "creative-force-kelvin"
+platforms = ["windows"]
+
+[[fma]]
+name = "creative-force-triad"
+platforms = ["windows"]
+
+[[fma]]
+name = "crestron-airmedia-peripherals"
+platforms = ["windows"]
+
+[[fma]]
+name = "crestron-airmedia"
+platforms = ["windows"]
+
+[[fma]]
+name = "cribl-edge"
+platforms = ["windows"]
+
+[[fma]]
+name = "crisisgo"
+platforms = ["windows"]
+
+[[fma]]
+name = "crossover"
+platforms = ["darwin"]
+
+[[fma]]
+name = "cryptomator"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "crystaldiskmark"
+platforms = ["windows"]
+
+[[fma]]
+name = "crystalfetch"
+platforms = ["darwin"]
+
+[[fma]]
+name = "cube-browser"
+platforms = ["windows"]
+
+[[fma]]
+name = "cursor"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "cursorsense"
+platforms = ["darwin"]
+
+[[fma]]
+name = "cursr"
+platforms = ["darwin"]
+
+[[fma]]
+name = "customshortcuts"
+platforms = ["darwin"]
+
+[[fma]]
+name = "cyberduck-cli"
+platforms = ["windows"]
+
+[[fma]]
+name = "cyberduck"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "cycling74-max"
+platforms = ["darwin"]
+
+[[fma]]
+name = "daisydisk"
+platforms = ["darwin"]
+
+[[fma]]
+name = "dangerzone"
+platforms = ["darwin"]
+
+[[fma]]
+name = "dante-controller"
+platforms = ["darwin"]
+
+[[fma]]
+name = "darkmodebuddy"
+platforms = ["darwin"]
+
+[[fma]]
+name = "darktable"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "dash"
+platforms = ["darwin"]
+
+[[fma]]
+name = "dataflare"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "datagrip"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "dataspell"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "dax-studio"
+platforms = ["windows"]
+
+[[fma]]
+name = "dayflow"
+platforms = ["darwin"]
+
+[[fma]]
+name = "db-browser-for-sqlite"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "dbeaver-community"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "dbeaver-enterprise"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "dbeaverlite"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "dbeaverultimate"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "dbgate"
+platforms = ["darwin"]
+
+[[fma]]
+name = "dbvisualizer"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "dcv-viewer"
+platforms = ["darwin"]
+
+[[fma]]
+name = "debookee"
+platforms = ["darwin"]
+
+[[fma]]
+name = "deckset"
+platforms = ["darwin"]
+
+[[fma]]
+name = "deepl"
+platforms = ["darwin"]
+
+[[fma]]
+name = "deezer"
+platforms = ["darwin"]
+
+[[fma]]
+name = "default-folder-x"
+platforms = ["darwin"]
+
+[[fma]]
+name = "delinea-connection-manager"
+platforms = ["windows"]
+
+[[fma]]
+name = "dell-command-update"
+platforms = ["windows"]
+
+[[fma]]
+name = "dell-display-and-peripheral-manager"
+platforms = ["windows"]
+
+[[fma]]
+name = "descript"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "deskpad"
+platforms = ["darwin"]
+
+[[fma]]
+name = "desktime"
+platforms = ["darwin"]
+
+[[fma]]
+name = "devin-desktop"
+platforms = ["darwin"]
+
+[[fma]]
+name = "devknife"
+platforms = ["darwin"]
+
+[[fma]]
+name = "devolutions-launcher"
+platforms = ["windows"]
+
+[[fma]]
+name = "devolutions-workspace"
+platforms = ["windows"]
+
+[[fma]]
+name = "devonsphere-express"
+platforms = ["darwin"]
+
+[[fma]]
+name = "devonthink"
+platforms = ["darwin"]
+
+[[fma]]
+name = "devpod"
+platforms = ["windows"]
+
+[[fma]]
+name = "devtoys"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "devutils"
+platforms = ["darwin"]
+
+[[fma]]
+name = "dfu-blaster-pro"
+platforms = ["darwin"]
+
+[[fma]]
+name = "dialpad"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "dictionaries"
+platforms = ["darwin"]
+
+[[fma]]
+name = "diffusionbee"
+platforms = ["darwin"]
+
+[[fma]]
+name = "digikam"
+platforms = ["darwin"]
+
+[[fma]]
+name = "digiseal-reader"
+platforms = ["windows"]
+
+[[fma]]
+name = "directory-opus"
+platforms = ["windows"]
+
+[[fma]]
+name = "discord"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "disk-drill"
+platforms = ["darwin"]
+
+[[fma]]
+name = "displaylink"
+platforms = ["darwin"]
+
+[[fma]]
+name = "dngrep"
+platforms = ["windows"]
+
+[[fma]]
+name = "dockdoor"
+platforms = ["darwin"]
+
+[[fma]]
+name = "docker-desktop"
+platforms = ["darwin"]
+
+[[fma]]
+name = "docker"
+platforms = ["windows"]
+
+[[fma]]
+name = "dockfix"
+platforms = ["darwin"]
+
+[[fma]]
+name = "dockside"
+platforms = ["darwin"]
+
+[[fma]]
+name = "dockview"
+platforms = ["darwin"]
+
+[[fma]]
+name = "dot"
+platforms = ["darwin"]
+
+[[fma]]
+name = "doughnut"
+platforms = ["darwin"]
+
+[[fma]]
+name = "downie"
+platforms = ["darwin"]
+
+[[fma]]
+name = "draftable-desktop"
+platforms = ["windows"]
+
+[[fma]]
+name = "drata-agent"
+platforms = ["darwin"]
+
+[[fma]]
+name = "drawbot"
+platforms = ["darwin"]
+
+[[fma]]
+name = "drawio"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "drofus"
+platforms = ["windows"]
+
+[[fma]]
+name = "dropbox"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "dropdmg"
+platforms = ["darwin"]
+
+[[fma]]
+name = "droplr"
+platforms = ["darwin"]
+
+[[fma]]
+name = "dropshare"
+platforms = ["darwin"]
+
+[[fma]]
+name = "dropzone"
+platforms = ["darwin"]
+
+[[fma]]
+name = "druva-insync"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "duckduckgo"
+platforms = ["darwin"]
+
+[[fma]]
+name = "duet"
+platforms = ["darwin"]
+
+[[fma]]
+name = "duo-desktop"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "dupeguru"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "dymo-connect"
+platforms = ["darwin"]
+
+[[fma]]
+name = "dymo-id"
+platforms = ["windows"]
+
+[[fma]]
+name = "dynalist"
+platforms = ["windows"]
+
+[[fma]]
+name = "eaglefiler"
+platforms = ["darwin"]
+
+[[fma]]
+name = "easydict"
+platforms = ["darwin"]
+
+[[fma]]
+name = "easyfind"
+platforms = ["darwin"]
+
+[[fma]]
+name = "eclipse-ide"
+platforms = ["darwin"]
+
+[[fma]]
+name = "eclipse-temurin-jdk-11"
+platforms = ["windows"]
+
+[[fma]]
+name = "eclipse-temurin-jdk-17"
+platforms = ["windows"]
+
+[[fma]]
+name = "eclipse-temurin-jdk-21"
+platforms = ["windows"]
+
+[[fma]]
+name = "eclipse-temurin-jdk-8"
+platforms = ["windows"]
+
+[[fma]]
+name = "eclipse-temurin-jre-11"
+platforms = ["windows"]
+
+[[fma]]
+name = "eclipse-temurin-jre-17"
+platforms = ["windows"]
+
+[[fma]]
+name = "eclipse-temurin-jre-21"
+platforms = ["windows"]
+
+[[fma]]
+name = "eclipse-temurin-jre-8"
+platforms = ["windows"]
+
+[[fma]]
+name = "egnyte-webedit"
+platforms = ["windows"]
+
+[[fma]]
+name = "egnyte"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "electronmail"
+platforms = ["darwin"]
+
+[[fma]]
+name = "electrum"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "element"
+platforms = ["darwin"]
+
+[[fma]]
+name = "elephas"
+platforms = ["darwin"]
+
+[[fma]]
+name = "elevate-uc"
+platforms = ["windows"]
+
+[[fma]]
+name = "elgato-camera-hub"
+platforms = ["darwin"]
+
+[[fma]]
+name = "elgato-capture-device-utility"
+platforms = ["darwin"]
+
+[[fma]]
+name = "elgato-control-center"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "elgato-game-capture-hd"
+platforms = ["darwin"]
+
+[[fma]]
+name = "elgato-stream-deck"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "elgato-wave-link"
+platforms = ["darwin"]
+
+[[fma]]
+name = "elmedia-player"
+platforms = ["darwin"]
+
+[[fma]]
+name = "emclient"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "endnote"
+platforms = ["windows"]
+
+[[fma]]
+name = "enpass"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "ente-auth"
+platforms = ["darwin"]
+
+[[fma]]
+name = "epic-games"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "equinox"
+platforms = ["darwin"]
+
+[[fma]]
+name = "etrecheckpro"
+platforms = ["darwin"]
+
+[[fma]]
+name = "evernote"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "exifcleaner"
+platforms = ["darwin"]
+
+[[fma]]
+name = "exifrenamer"
+platforms = ["darwin"]
+
+[[fma]]
+name = "expressvpn"
+platforms = ["darwin"]
+
+[[fma]]
+name = "extradock"
+platforms = ["darwin"]
+
+[[fma]]
+name = "fantastical"
+platforms = ["darwin"]
+
+[[fma]]
+name = "far2l"
+platforms = ["darwin"]
+
+[[fma]]
+name = "farrago"
+platforms = ["darwin"]
+
+[[fma]]
+name = "fastmail"
+platforms = ["darwin"]
+
+[[fma]]
+name = "fastscripts"
+platforms = ["darwin"]
+
+[[fma]]
+name = "fellow"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "ferdium"
+platforms = ["darwin"]
+
+[[fma]]
+name = "fetch-app"
+platforms = ["darwin"]
+
+[[fma]]
+name = "figma"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "file-juicer"
+platforms = ["darwin"]
+
+[[fma]]
+name = "filebeat"
+platforms = ["windows"]
+
+[[fma]]
+name = "filemaker-pro"
+platforms = ["darwin"]
+
+[[fma]]
+name = "filen"
+platforms = ["darwin"]
+
+[[fma]]
+name = "fing"
+platforms = ["darwin"]
+
+[[fma]]
+name = "firealpaca"
+platforms = ["darwin"]
+
+[[fma]]
+name = "firefly-iota-desktop"
+platforms = ["darwin"]
+
+[[fma]]
+name = "firefly-shimmer"
+platforms = ["darwin"]
+
+[[fma]]
+name = "firefox"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "firefox@developer-edition"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "firefox@esr"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "firefox@nightly"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "fission"
+platforms = ["darwin"]
+
+[[fma]]
+name = "fleet-desktop"
+platforms = ["darwin"]
+
+[[fma]]
+name = "flexoptix"
+platforms = ["darwin"]
+
+[[fma]]
+name = "flexwhere"
+platforms = ["windows"]
+
+[[fma]]
+name = "fluid"
+platforms = ["darwin"]
+
+[[fma]]
+name = "flux-app"
+platforms = ["darwin"]
+
+[[fma]]
+name = "focusrite-control-2"
+platforms = ["darwin"]
+
+[[fma]]
+name = "folx"
+platforms = ["darwin"]
+
+[[fma]]
+name = "fontbase"
+platforms = ["darwin"]
+
+[[fma]]
+name = "fontlab"
+platforms = ["darwin"]
+
+[[fma]]
+name = "forecast"
+platforms = ["darwin"]
+
+[[fma]]
+name = "fork"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "forklift"
+platforms = ["darwin"]
+
+[[fma]]
+name = "fortify"
+platforms = ["windows"]
+
+[[fma]]
+name = "foxit-pdf-editor"
+platforms = ["windows"]
+
+[[fma]]
+name = "foxit-pdf-reader"
+platforms = ["windows"]
+
+[[fma]]
+name = "framer"
+platforms = ["darwin"]
+
+[[fma]]
+name = "franz"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "free-download-manager"
+platforms = ["darwin"]
+
+[[fma]]
+name = "freecad"
+platforms = ["windows"]
+
+[[fma]]
+name = "freefilesync"
+platforms = ["darwin"]
+
+[[fma]]
+name = "front"
+platforms = ["darwin"]
+
+[[fma]]
+name = "fsmonitor"
+platforms = ["darwin"]
+
+[[fma]]
+name = "funter"
+platforms = ["darwin"]
+
+[[fma]]
+name = "galaxy-modeler"
+platforms = ["windows"]
+
+[[fma]]
+name = "garmin-basecamp"
+platforms = ["windows"]
+
+[[fma]]
+name = "garmin-express"
+platforms = ["darwin"]
+
+[[fma]]
+name = "gather"
+platforms = ["darwin"]
+
+[[fma]]
+name = "gdevelop"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "geany"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "geekbench"
+platforms = ["darwin"]
+
+[[fma]]
+name = "gemini"
+platforms = ["darwin"]
+
+[[fma]]
+name = "genesys-cloud"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "geogebra-classic"
+platforms = ["windows"]
+
+[[fma]]
+name = "gephi"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "ghostty"
+platforms = ["darwin"]
+
+[[fma]]
+name = "gimp"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "git-extensions"
+platforms = ["windows"]
+
+[[fma]]
+name = "git"
+platforms = ["windows"]
+
+[[fma]]
+name = "gitfinder"
+platforms = ["darwin"]
+
+[[fma]]
+name = "github-copilot-for-xcode"
+platforms = ["darwin"]
+
+[[fma]]
+name = "github-desktop"
+platforms = ["windows"]
+
+[[fma]]
+name = "github"
+platforms = ["darwin"]
+
+[[fma]]
+name = "gitify"
+platforms = ["darwin"]
+
+[[fma]]
+name = "gitkraken"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "gitup-app"
+platforms = ["darwin"]
+
+[[fma]]
+name = "glyphs"
+platforms = ["darwin"]
+
+[[fma]]
+name = "gnupg"
+platforms = ["windows"]
+
+[[fma]]
+name = "go"
+platforms = ["windows"]
+
+[[fma]]
+name = "go2shell"
+platforms = ["darwin"]
+
+[[fma]]
+name = "goanywhere-openpgp-studio"
+platforms = ["windows"]
+
+[[fma]]
+name = "godot"
+platforms = ["darwin"]
+
+[[fma]]
+name = "godspeed"
+platforms = ["darwin"]
+
+[[fma]]
+name = "gog-galaxy"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "goland"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "goldendict-ng"
+platforms = ["windows"]
+
+[[fma]]
+name = "goodsync"
+platforms = ["darwin"]
+
+[[fma]]
+name = "google-ads-editor"
+platforms = ["windows"]
+
+[[fma]]
+name = "google-chrome"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "google-credential-provider-for-windows"
+platforms = ["windows"]
+
+[[fma]]
+name = "google-drive"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "google-earth-pro"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "google-gemini"
+platforms = ["darwin"]
+
+[[fma]]
+name = "google-web-designer"
+platforms = ["windows"]
+
+[[fma]]
+name = "gotomeeting"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "gpg-suite"
+platforms = ["darwin"]
+
+[[fma]]
+name = "gpg4win"
+platforms = ["windows"]
+
+[[fma]]
+name = "gpodder"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "grammarly-desktop"
+platforms = ["darwin"]
+
+[[fma]]
+name = "grandperspective"
+platforms = ["darwin"]
+
+[[fma]]
+name = "granola"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "graphviz"
+platforms = ["windows"]
+
+[[fma]]
+name = "grepwin"
+platforms = ["windows"]
+
+[[fma]]
+name = "grids"
+platforms = ["darwin"]
+
+[[fma]]
+name = "groove-omnidialer"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "gyazo"
+platforms = ["darwin"]
+
+[[fma]]
+name = "hammerspoon"
+platforms = ["darwin"]
+
+[[fma]]
+name = "handbrake-app"
+platforms = ["darwin"]
+
+[[fma]]
+name = "handbrake"
+platforms = ["windows"]
+
+[[fma]]
+name = "hazel"
+platforms = ["darwin"]
+
+[[fma]]
+name = "hazeover"
+platforms = ["darwin"]
+
+[[fma]]
+name = "heidisql"
+platforms = ["windows"]
+
+[[fma]]
+name = "helium"
+platforms = ["darwin"]
+
+[[fma]]
+name = "hex-fiend"
+platforms = ["darwin"]
+
+[[fma]]
+name = "hey-desktop"
+platforms = ["darwin"]
+
+[[fma]]
+name = "hiddenbar"
+platforms = ["darwin"]
+
+[[fma]]
+name = "hides"
+platforms = ["darwin"]
+
+[[fma]]
+name = "hidock"
+platforms = ["darwin"]
+
+[[fma]]
+name = "highlight-ai"
+platforms = ["darwin"]
+
+[[fma]]
+name = "hive-app"
+platforms = ["darwin"]
+
+[[fma]]
+name = "home-assistant"
+platforms = ["darwin"]
+
+[[fma]]
+name = "homerow"
+platforms = ["darwin"]
+
+[[fma]]
+name = "hot"
+platforms = ["darwin"]
+
+[[fma]]
+name = "houdahspot"
+platforms = ["darwin"]
+
+[[fma]]
+name = "hp-easy-admin"
+platforms = ["darwin"]
+
+[[fma]]
+name = "hp-prime-virtual-calculator"
+platforms = ["windows"]
+
+[[fma]]
+name = "hubstaff"
+platforms = ["darwin"]
+
+[[fma]]
+name = "huly"
+platforms = ["darwin"]
+
+[[fma]]
+name = "hwmonitor"
+platforms = ["windows"]
+
+[[fma]]
+name = "hyper"
+platforms = ["darwin"]
+
+[[fma]]
+name = "hyperkey"
+platforms = ["darwin"]
+
+[[fma]]
+name = "i1profiler"
+platforms = ["darwin"]
+
+[[fma]]
+name = "ibm-notifier"
+platforms = ["darwin"]
+
+[[fma]]
+name = "ibm-semeru-jdk-11"
+platforms = ["windows"]
+
+[[fma]]
+name = "ibm-semeru-jdk-17"
+platforms = ["windows"]
+
+[[fma]]
+name = "ibm-semeru-jdk-21"
+platforms = ["windows"]
+
+[[fma]]
+name = "ibm-semeru-jdk-8"
+platforms = ["windows"]
+
+[[fma]]
+name = "ibm-semeru-jre-11"
+platforms = ["windows"]
+
+[[fma]]
+name = "ibm-semeru-jre-17"
+platforms = ["windows"]
+
+[[fma]]
+name = "ibm-semeru-jre-21"
+platforms = ["windows"]
+
+[[fma]]
+name = "ibm-semeru-jre-8"
+platforms = ["windows"]
+
+[[fma]]
+name = "icon-composer"
+platforms = ["darwin"]
+
+[[fma]]
+name = "iconjar"
+platforms = ["darwin"]
+
+[[fma]]
+name = "idagio"
+platforms = ["darwin"]
+
+[[fma]]
+name = "iexplorer"
+platforms = ["darwin"]
+
+[[fma]]
+name = "iina"
+platforms = ["darwin"]
+
+[[fma]]
+name = "imageglass"
+platforms = ["windows"]
+
+[[fma]]
+name = "imazing-converter"
+platforms = ["darwin"]
+
+[[fma]]
+name = "imazing-heic-converter"
+platforms = ["windows"]
+
+[[fma]]
+name = "imazing-profile-editor"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "imazing"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "imhex"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "infix-pdf-editor"
+platforms = ["windows"]
+
+[[fma]]
+name = "inkscape"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "input-source-pro"
+platforms = ["darwin"]
+
+[[fma]]
+name = "insomnia"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "install4j"
+platforms = ["windows"]
+
+[[fma]]
+name = "intellidock"
+platforms = ["darwin"]
+
+[[fma]]
+name = "intellij-idea-ce"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "intellij-idea"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "intune-company-portal"
+platforms = ["darwin"]
+
+[[fma]]
+name = "invesalius"
+platforms = ["darwin"]
+
+[[fma]]
+name = "irfanview"
+platforms = ["windows"]
+
+[[fma]]
+name = "ironpython"
+platforms = ["windows"]
+
+[[fma]]
+name = "isobuster"
+platforms = ["windows"]
+
+[[fma]]
+name = "istherenet"
+platforms = ["darwin"]
+
+[[fma]]
+name = "iterm2"
+platforms = ["darwin"]
+
+[[fma]]
+name = "itsycal"
+platforms = ["darwin"]
+
+[[fma]]
+name = "itunes"
+platforms = ["windows"]
+
+[[fma]]
+name = "jabra-direct"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "jami"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "jamovi"
+platforms = ["darwin"]
+
+[[fma]]
+name = "jasp"
+platforms = ["darwin"]
+
+[[fma]]
+name = "jellyfin"
+platforms = ["darwin"]
+
+[[fma]]
+name = "jetbrains-toolbox"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "jiggler"
+platforms = ["darwin"]
+
+[[fma]]
+name = "jitsi-meet"
+platforms = ["darwin"]
+
+[[fma]]
+name = "joplin"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "jordanbaird-ice"
+platforms = ["darwin"]
+
+[[fma]]
+name = "julia-app"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "jump-desktop"
+platforms = ["darwin"]
+
+[[fma]]
+name = "kaleidoscope"
+platforms = ["darwin"]
+
+[[fma]]
+name = "kap"
+platforms = ["darwin"]
+
+[[fma]]
+name = "kdenlive"
+platforms = ["darwin"]
+
+[[fma]]
+name = "keepassxc"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "keeper-password-manager"
+platforms = ["darwin"]
+
+[[fma]]
+name = "keepingyouawake"
+platforms = ["darwin"]
+
+[[fma]]
+name = "keeweb"
+platforms = ["darwin"]
+
+[[fma]]
+name = "keka"
+platforms = ["darwin"]
+
+[[fma]]
+name = "keyboard-cowboy"
+platforms = ["darwin"]
+
+[[fma]]
+name = "keyboard-maestro"
+platforms = ["darwin"]
+
+[[fma]]
+name = "keyboardcleantool"
+platforms = ["darwin"]
+
+[[fma]]
+name = "keycastr"
+platforms = ["darwin"]
+
+[[fma]]
+name = "keyclu"
+platforms = ["darwin"]
+
+[[fma]]
+name = "keystore-explorer"
+platforms = ["darwin"]
+
+[[fma]]
+name = "kiro-cli"
+platforms = ["darwin"]
+
+[[fma]]
+name = "kiro"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "kitty"
+platforms = ["darwin"]
+
+[[fma]]
+name = "klokki"
+platforms = ["darwin"]
+
+[[fma]]
+name = "knime"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "knockknock"
+platforms = ["darwin"]
+
+[[fma]]
+name = "krisp"
+platforms = ["darwin"]
+
+[[fma]]
+name = "krita"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "lapce"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "lasso-app"
+platforms = ["darwin"]
+
+[[fma]]
+name = "last-window-quits"
+platforms = ["darwin"]
+
+[[fma]]
+name = "lastpass"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "latest"
+platforms = ["darwin"]
+
+[[fma]]
+name = "launchbar"
+platforms = ["darwin"]
+
+[[fma]]
+name = "lenovo-dock-manager"
+platforms = ["windows"]
+
+[[fma]]
+name = "lenovo-system-update"
+platforms = ["windows"]
+
+[[fma]]
+name = "lens"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "libreoffice"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "lightburn"
+platforms = ["darwin"]
+
+[[fma]]
+name = "linear"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "linearmouse"
+platforms = ["darwin"]
+
+[[fma]]
+name = "lingon-x"
+platforms = ["darwin"]
+
+[[fma]]
+name = "little-snitch"
+platforms = ["darwin"]
+
+[[fma]]
+name = "lo-rain"
+platforms = ["darwin"]
+
+[[fma]]
+name = "local"
+platforms = ["darwin"]
+
+[[fma]]
+name = "localsend"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "locationsimulator"
+platforms = ["darwin"]
+
+[[fma]]
+name = "logi-options+"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "logitech-unifying-software"
+platforms = ["windows"]
+
+[[fma]]
+name = "logitune"
+platforms = ["darwin"]
+
+[[fma]]
+name = "logseq"
+platforms = ["darwin"]
+
+[[fma]]
+name = "lookaway"
+platforms = ["darwin"]
+
+[[fma]]
+name = "loom"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "loop"
+platforms = ["darwin"]
+
+[[fma]]
+name = "loopback"
+platforms = ["darwin"]
+
+[[fma]]
+name = "losslesscut"
+platforms = ["darwin"]
+
+[[fma]]
+name = "low-profile"
+platforms = ["darwin"]
+
+[[fma]]
+name = "lulu"
+platforms = ["darwin"]
+
+[[fma]]
+name = "lunacy"
+platforms = ["darwin"]
+
+[[fma]]
+name = "lunar"
+platforms = ["darwin"]
+
+[[fma]]
+name = "lunasea"
+platforms = ["darwin"]
+
+[[fma]]
+name = "lunatask"
+platforms = ["darwin"]
+
+[[fma]]
+name = "lycheeslicer"
+platforms = ["darwin"]
+
+[[fma]]
+name = "mac-mouse-fix"
+platforms = ["darwin"]
+
+[[fma]]
+name = "maccy"
+platforms = ["darwin"]
+
+[[fma]]
+name = "macdown"
+platforms = ["darwin"]
+
+[[fma]]
+name = "mace"
+platforms = ["darwin"]
+
+[[fma]]
+name = "macjournal"
+platforms = ["darwin"]
+
+[[fma]]
+name = "macpacker"
+platforms = ["darwin"]
+
+[[fma]]
+name = "macpass"
+platforms = ["darwin"]
+
+[[fma]]
+name = "macpilot"
+platforms = ["darwin"]
+
+[[fma]]
+name = "macs-fan-control"
+platforms = ["darwin"]
+
+[[fma]]
+name = "macsyzones"
+platforms = ["darwin"]
+
+[[fma]]
+name = "mactracker"
+platforms = ["darwin"]
+
+[[fma]]
+name = "macvim-app"
+platforms = ["darwin"]
+
+[[fma]]
+name = "macwhisper"
+platforms = ["darwin"]
+
+[[fma]]
+name = "maestral"
+platforms = ["darwin"]
+
+[[fma]]
+name = "magicquit"
+platforms = ["darwin"]
+
+[[fma]]
+name = "mailspring"
+platforms = ["darwin"]
+
+[[fma]]
+name = "malwarebytes"
+platforms = ["darwin"]
+
+[[fma]]
+name = "mark-text"
+platforms = ["darwin"]
+
+[[fma]]
+name = "marked-app"
+platforms = ["darwin"]
+
+[[fma]]
+name = "markedit"
+platforms = ["darwin"]
+
+[[fma]]
+name = "marsedit"
+platforms = ["darwin"]
+
+[[fma]]
+name = "marta"
+platforms = ["darwin"]
+
+[[fma]]
+name = "marvel"
+platforms = ["darwin"]
+
+[[fma]]
+name = "masscode"
+platforms = ["darwin"]
+
+[[fma]]
+name = "mattermost"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "meetingbar"
+platforms = ["darwin"]
+
+[[fma]]
+name = "megasync"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "mellel"
+platforms = ["darwin"]
+
+[[fma]]
+name = "melodics"
+platforms = ["darwin"]
+
+[[fma]]
+name = "memory-cleaner"
+platforms = ["darwin"]
+
+[[fma]]
+name = "memory"
+platforms = ["darwin"]
+
+[[fma]]
+name = "memoryanalyzer"
+platforms = ["darwin"]
+
+[[fma]]
+name = "mendeley-reference-manager"
+platforms = ["darwin"]
+
+[[fma]]
+name = "menubar-stats"
+platforms = ["darwin"]
+
+[[fma]]
+name = "menubarx"
+platforms = ["darwin"]
+
+[[fma]]
+name = "merlin-project"
+platforms = ["darwin"]
+
+[[fma]]
+name = "microsoft-365-copilot"
+platforms = ["darwin"]
+
+[[fma]]
+name = "microsoft-access-database-engine-2016"
+platforms = ["windows"]
+
+[[fma]]
+name = "microsoft-auto-update"
+platforms = ["darwin"]
+
+[[fma]]
+name = "microsoft-azure-storage-explorer"
+platforms = ["darwin"]
+
+[[fma]]
+name = "microsoft-dotnet-desktop-runtime-10"
+platforms = ["windows"]
+
+[[fma]]
+name = "microsoft-dotnet-runtime-10"
+platforms = ["windows"]
+
+[[fma]]
+name = "microsoft-dotnet-runtime-8"
+platforms = ["windows"]
+
+[[fma]]
+name = "microsoft-edge"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "microsoft-excel"
+platforms = ["darwin"]
+
+[[fma]]
+name = "microsoft-odbc-driver-17"
+platforms = ["windows"]
+
+[[fma]]
+name = "microsoft-odbc-driver-18"
+platforms = ["windows"]
+
+[[fma]]
+name = "microsoft-office"
+platforms = ["windows"]
+
+[[fma]]
+name = "microsoft-onenote"
+platforms = ["darwin"]
+
+[[fma]]
+name = "microsoft-outlook"
+platforms = ["darwin"]
+
+[[fma]]
+name = "microsoft-powerpoint"
+platforms = ["darwin"]
+
+[[fma]]
+name = "microsoft-remote-help"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "microsoft-teams"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "microsoft-word"
+platforms = ["darwin"]
+
+[[fma]]
+name = "middle"
+platforms = ["darwin"]
+
+[[fma]]
+name = "middleclick"
+platforms = ["darwin"]
+
+[[fma]]
+name = "milanote"
+platforms = ["darwin"]
+
+[[fma]]
+name = "mimecast"
+platforms = ["darwin"]
+
+[[fma]]
+name = "mimestream"
+platforms = ["darwin"]
+
+[[fma]]
+name = "mindmac"
+platforms = ["darwin"]
+
+[[fma]]
+name = "mindmanager"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "minisim"
+platforms = ["darwin"]
+
+[[fma]]
+name = "minstaller"
+platforms = ["darwin"]
+
+[[fma]]
+name = "miro"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "missive"
+platforms = ["darwin"]
+
+[[fma]]
+name = "mist"
+platforms = ["darwin"]
+
+[[fma]]
+name = "mixxx"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "mobirise"
+platforms = ["darwin"]
+
+[[fma]]
+name = "mockoon"
+platforms = ["darwin"]
+
+[[fma]]
+name = "modern-csv"
+platforms = ["darwin"]
+
+[[fma]]
+name = "mongodb-compass"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "monitorcontrol"
+platforms = ["darwin"]
+
+[[fma]]
+name = "moom"
+platforms = ["darwin"]
+
+[[fma]]
+name = "moonlight"
+platforms = ["darwin"]
+
+[[fma]]
+name = "morgen"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "mos"
+platforms = ["darwin"]
+
+[[fma]]
+name = "mountain-duck"
+platforms = ["darwin"]
+
+[[fma]]
+name = "mozilla-vpn"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "mqttx"
+platforms = ["darwin"]
+
+[[fma]]
+name = "mullvad-browser"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "mullvad-vpn"
+platforms = ["darwin"]
+
+[[fma]]
+name = "multitouch"
+platforms = ["darwin"]
+
+[[fma]]
+name = "mural"
+platforms = ["darwin"]
+
+[[fma]]
+name = "museeks"
+platforms = ["darwin"]
+
+[[fma]]
+name = "musescore"
+platforms = ["darwin"]
+
+[[fma]]
+name = "mx-power-gadget"
+platforms = ["darwin"]
+
+[[fma]]
+name = "mysqlworkbench"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "nagstamon"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "name-mangler"
+platforms = ["darwin"]
+
+[[fma]]
+name = "naps2"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "ndi-tools"
+platforms = ["darwin"]
+
+[[fma]]
+name = "neofinder"
+platforms = ["darwin"]
+
+[[fma]]
+name = "nessus-agent"
+platforms = ["windows"]
+
+[[fma]]
+name = "netiquette"
+platforms = ["darwin"]
+
+[[fma]]
+name = "netnewswire"
+platforms = ["darwin"]
+
+[[fma]]
+name = "netron"
+platforms = ["darwin"]
+
+[[fma]]
+name = "netspot"
+platforms = ["darwin"]
+
+[[fma]]
+name = "nextcloud-talk"
+platforms = ["darwin"]
+
+[[fma]]
+name = "nextcloud"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "nightfall"
+platforms = ["darwin"]
+
+[[fma]]
+name = "nitro-pdf-pro"
+platforms = ["darwin"]
+
+[[fma]]
+name = "nodejs"
+platforms = ["windows"]
+
+[[fma]]
+name = "nordlayer"
+platforms = ["darwin"]
+
+[[fma]]
+name = "nordpass"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "nordvpn"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "nosql-workbench"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "notchnook"
+platforms = ["darwin"]
+
+[[fma]]
+name = "notepad++"
+platforms = ["windows"]
+
+[[fma]]
+name = "notepadexe"
+platforms = ["darwin"]
+
+[[fma]]
+name = "notesnook"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "notesollama"
+platforms = ["darwin"]
+
+[[fma]]
+name = "notion-calendar"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "notion"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "noun-project"
+platforms = ["darwin"]
+
+[[fma]]
+name = "nova"
+platforms = ["darwin"]
+
+[[fma]]
+name = "novabench"
+platforms = ["darwin"]
+
+[[fma]]
+name = "nucleo"
+platforms = ["darwin"]
+
+[[fma]]
+name = "nudge"
+platforms = ["darwin"]
+
+[[fma]]
+name = "numi"
+platforms = ["darwin"]
+
+[[fma]]
+name = "nvda"
+platforms = ["windows"]
+
+[[fma]]
+name = "nvidia-geforce-now"
+platforms = ["darwin"]
+
+[[fma]]
+name = "obs"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "obsidian"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "ocenaudio"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "ok-json"
+platforms = ["darwin"]
+
+[[fma]]
+name = "okta-advanced-server-access"
+platforms = ["darwin"]
+
+[[fma]]
+name = "okta-verify"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "ollama"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "omnidisksweeper"
+platforms = ["darwin"]
+
+[[fma]]
+name = "omnifocus"
+platforms = ["darwin"]
+
+[[fma]]
+name = "omnigraffle"
+platforms = ["darwin"]
+
+[[fma]]
+name = "omnioutliner"
+platforms = ["darwin"]
+
+[[fma]]
+name = "omniplan"
+platforms = ["darwin"]
+
+[[fma]]
+name = "omnissa-horizon-client"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "one-switch"
+platforms = ["darwin"]
+
+[[fma]]
+name = "onedrive"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "onionshare"
+platforms = ["darwin"]
+
+[[fma]]
+name = "only-switch"
+platforms = ["darwin"]
+
+[[fma]]
+name = "onlyoffice"
+platforms = ["darwin"]
+
+[[fma]]
+name = "opal-composer"
+platforms = ["darwin"]
+
+[[fma]]
+name = "openaudible"
+platforms = ["darwin"]
+
+[[fma]]
+name = "openboard"
+platforms = ["darwin"]
+
+[[fma]]
+name = "opencloud"
+platforms = ["darwin"]
+
+[[fma]]
+name = "opencode-desktop"
+platforms = ["darwin"]
+
+[[fma]]
+name = "openinterminal"
+platforms = ["darwin"]
+
+[[fma]]
+name = "openlens"
+platforms = ["darwin"]
+
+[[fma]]
+name = "openmtp"
+platforms = ["darwin"]
+
+[[fma]]
+name = "openrct2"
+platforms = ["darwin"]
+
+[[fma]]
+name = "openrefine"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "opentoonz"
+platforms = ["darwin"]
+
+[[fma]]
+name = "openvpn-connect"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "opera"
+platforms = ["darwin"]
+
+[[fma]]
+name = "optimus-player"
+platforms = ["darwin"]
+
+[[fma]]
+name = "orbstack"
+platforms = ["darwin"]
+
+[[fma]]
+name = "origami-studio"
+platforms = ["darwin"]
+
+[[fma]]
+name = "p4v"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "pacifist"
+platforms = ["darwin"]
+
+[[fma]]
+name = "paint-dot-net"
+platforms = ["windows"]
+
+[[fma]]
+name = "pale-moon"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "paletro"
+platforms = ["darwin"]
+
+[[fma]]
+name = "parallels"
+platforms = ["darwin"]
+
+[[fma]]
+name = "pastebot"
+platforms = ["darwin"]
+
+[[fma]]
+name = "pcoipclient"
+platforms = ["darwin"]
+
+[[fma]]
+name = "pd"
+platforms = ["darwin"]
+
+[[fma]]
+name = "pdf-expert"
+platforms = ["darwin"]
+
+[[fma]]
+name = "pdf-pals"
+platforms = ["darwin"]
+
+[[fma]]
+name = "pdfsam-basic"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "pearcleaner"
+platforms = ["darwin"]
+
+[[fma]]
+name = "pgadmin4"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "phoenix-slides"
+platforms = ["darwin"]
+
+[[fma]]
+name = "photosrevive"
+platforms = ["darwin"]
+
+[[fma]]
+name = "photostickies"
+platforms = ["darwin"]
+
+[[fma]]
+name = "phpstorm"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "pibar"
+platforms = ["darwin"]
+
+[[fma]]
+name = "picview"
+platforms = ["darwin"]
+
+[[fma]]
+name = "piezo"
+platforms = ["darwin"]
+
+[[fma]]
+name = "pika"
+platforms = ["darwin"]
+
+[[fma]]
+name = "piphero"
+platforms = ["darwin"]
+
+[[fma]]
+name = "pixelsnap"
+platforms = ["darwin"]
+
+[[fma]]
+name = "plantronics-hub"
+platforms = ["windows"]
+
+[[fma]]
+name = "platypus"
+platforms = ["darwin"]
+
+[[fma]]
+name = "plex-htpc"
+platforms = ["darwin"]
+
+[[fma]]
+name = "plex-media-server"
+platforms = ["darwin"]
+
+[[fma]]
+name = "plex"
+platforms = ["darwin"]
+
+[[fma]]
+name = "plistedit-pro"
+platforms = ["darwin"]
+
+[[fma]]
+name = "plugdata"
+platforms = ["darwin"]
+
+[[fma]]
+name = "podman-desktop"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "popchar"
+platforms = ["darwin"]
+
+[[fma]]
+name = "popclip"
+platforms = ["darwin"]
+
+[[fma]]
+name = "popsql"
+platforms = ["darwin"]
+
+[[fma]]
+name = "portfolioperformance"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "postgres-app"
+platforms = ["darwin"]
+
+[[fma]]
+name = "postgresql-15"
+platforms = ["windows"]
+
+[[fma]]
+name = "postgresql-16"
+platforms = ["windows"]
+
+[[fma]]
+name = "postgresql-17"
+platforms = ["windows"]
+
+[[fma]]
+name = "postgresql-18"
+platforms = ["windows"]
+
+[[fma]]
+name = "postico"
+platforms = ["darwin"]
+
+[[fma]]
+name = "postman"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "power-automate"
+platforms = ["windows"]
+
+[[fma]]
+name = "power-bi"
+platforms = ["windows"]
+
+[[fma]]
+name = "power-monitor"
+platforms = ["darwin"]
+
+[[fma]]
+name = "powerphotos"
+platforms = ["darwin"]
+
+[[fma]]
+name = "powershell"
+platforms = ["windows"]
+
+[[fma]]
+name = "powertoys"
+platforms = ["windows"]
+
+[[fma]]
+name = "pppc-utility"
+platforms = ["darwin"]
+
+[[fma]]
+name = "preform"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "principle"
+platforms = ["darwin"]
+
+[[fma]]
+name = "prism"
+platforms = ["darwin"]
+
+[[fma]]
+name = "prisma-browser"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "pritunl"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "privileges"
+platforms = ["darwin"]
+
+[[fma]]
+name = "prizmo"
+platforms = ["darwin"]
+
+[[fma]]
+name = "processing"
+platforms = ["darwin"]
+
+[[fma]]
+name = "processspy"
+platforms = ["darwin"]
+
+[[fma]]
+name = "pronotes"
+platforms = ["darwin"]
+
+[[fma]]
+name = "proton-drive"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "proton-mail-bridge"
+platforms = ["darwin"]
+
+[[fma]]
+name = "proton-mail"
+platforms = ["darwin"]
+
+[[fma]]
+name = "proton-meet"
+platforms = ["darwin"]
+
+[[fma]]
+name = "proton-pass"
+platforms = ["darwin"]
+
+[[fma]]
+name = "protonvpn"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "protopie"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "proxifier"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "proxyman"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "pulsar"
+platforms = ["darwin"]
+
+[[fma]]
+name = "purevpn"
+platforms = ["darwin"]
+
+[[fma]]
+name = "putty"
+platforms = ["windows"]
+
+[[fma]]
+name = "pycharm-ce"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "pycharm"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "python-3.13"
+platforms = ["windows"]
+
+[[fma]]
+name = "python-3.14"
+platforms = ["windows"]
+
+[[fma]]
+name = "qemu"
+platforms = ["windows"]
+
+[[fma]]
+name = "qlab"
+platforms = ["darwin"]
+
+[[fma]]
+name = "qlmarkdown"
+platforms = ["darwin"]
+
+[[fma]]
+name = "qspace-pro"
+platforms = ["darwin"]
+
+[[fma]]
+name = "quip"
+platforms = ["darwin"]
+
+[[fma]]
+name = "qview"
+platforms = ["darwin"]
+
+[[fma]]
+name = "r"
+platforms = ["windows"]
+
+[[fma]]
+name = "radio-silence"
+platforms = ["darwin"]
+
+[[fma]]
+name = "raindropio"
+platforms = ["darwin"]
+
+[[fma]]
+name = "rancher"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "rapidapi"
+platforms = ["darwin"]
+
+[[fma]]
+name = "rapidweaver"
+platforms = ["darwin"]
+
+[[fma]]
+name = "raycast"
+platforms = ["darwin"]
+
+[[fma]]
+name = "readest"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "reaper"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "recents"
+platforms = ["darwin"]
+
+[[fma]]
+name = "rectangle-pro"
+platforms = ["darwin"]
+
+[[fma]]
+name = "rectangle"
+platforms = ["darwin"]
+
+[[fma]]
+name = "recut"
+platforms = ["darwin"]
+
+[[fma]]
+name = "redcine-x-pro"
+platforms = ["darwin"]
+
+[[fma]]
+name = "redis-pro"
+platforms = ["darwin"]
+
+[[fma]]
+name = "reflector"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "reminders-menubar"
+platforms = ["darwin"]
+
+[[fma]]
+name = "remote-buddy"
+platforms = ["darwin"]
+
+[[fma]]
+name = "remote-desktop-manager"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "reqable"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "requestly"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "retcon"
+platforms = ["darwin"]
+
+[[fma]]
+name = "retroarch"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "retrobatch"
+platforms = ["darwin"]
+
+[[fma]]
+name = "rewritebar"
+platforms = ["darwin"]
+
+[[fma]]
+name = "rider"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "rightfont"
+platforms = ["darwin"]
+
+[[fma]]
+name = "rive"
+platforms = ["darwin"]
+
+[[fma]]
+name = "rize"
+platforms = ["darwin"]
+
+[[fma]]
+name = "robofont"
+platforms = ["darwin"]
+
+[[fma]]
+name = "roboform"
+platforms = ["darwin"]
+
+[[fma]]
+name = "rocket-chat"
+platforms = ["darwin"]
+
+[[fma]]
+name = "rocket-typist"
+platforms = ["darwin"]
+
+[[fma]]
+name = "rocket"
+platforms = ["darwin"]
+
+[[fma]]
+name = "rocketman-choices-packager"
+platforms = ["darwin"]
+
+[[fma]]
+name = "royal-tsx"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "rstudio"
+platforms = ["windows"]
+
+[[fma]]
+name = "rsyncui"
+platforms = ["darwin"]
+
+[[fma]]
+name = "rtools"
+platforms = ["windows"]
+
+[[fma]]
+name = "rubymine"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "runjs"
+platforms = ["darwin"]
+
+[[fma]]
+name = "rustdesk"
+platforms = ["darwin"]
+
+[[fma]]
+name = "rustrover"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "sabnzbd"
+platforms = ["darwin"]
+
+[[fma]]
+name = "safe-exam-browser"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "sanesidebuttons"
+platforms = ["darwin"]
+
+[[fma]]
+name = "santa"
+platforms = ["darwin"]
+
+[[fma]]
+name = "sc-menu"
+platforms = ["darwin"]
+
+[[fma]]
+name = "scratch"
+platforms = ["darwin"]
+
+[[fma]]
+name = "screen-studio"
+platforms = ["darwin"]
+
+[[fma]]
+name = "screenflick"
+platforms = ["darwin"]
+
+[[fma]]
+name = "screenflow"
+platforms = ["darwin"]
+
+[[fma]]
+name = "screenfocus"
+platforms = ["darwin"]
+
+[[fma]]
+name = "scribe"
+platforms = ["windows"]
+
+[[fma]]
+name = "scribus"
+platforms = ["darwin"]
+
+[[fma]]
+name = "scrivener"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "secretive"
+platforms = ["darwin"]
+
+[[fma]]
+name = "securesafe"
+platforms = ["darwin"]
+
+[[fma]]
+name = "selfcontrol"
+platforms = ["darwin"]
+
+[[fma]]
+name = "sensei"
+platforms = ["darwin"]
+
+[[fma]]
+name = "sequel-ace"
+platforms = ["darwin"]
+
+[[fma]]
+name = "session"
+platforms = ["darwin"]
+
+[[fma]]
+name = "setapp"
+platforms = ["darwin"]
+
+[[fma]]
+name = "sf-symbols"
+platforms = ["darwin"]
+
+[[fma]]
+name = "shapr3d"
+platforms = ["darwin"]
+
+[[fma]]
+name = "sharefile"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "shift"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "shifty"
+platforms = ["darwin"]
+
+[[fma]]
+name = "shortcat"
+platforms = ["darwin"]
+
+[[fma]]
+name = "shotcut"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "shottr"
+platforms = ["darwin"]
+
+[[fma]]
+name = "sidenotes"
+platforms = ["darwin"]
+
+[[fma]]
+name = "sigmaos"
+platforms = ["darwin"]
+
+[[fma]]
+name = "signal"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "simple-comic"
+platforms = ["darwin"]
+
+[[fma]]
+name = "sirimote"
+platforms = ["darwin"]
+
+[[fma]]
+name = "sketch"
+platforms = ["darwin"]
+
+[[fma]]
+name = "slab"
+platforms = ["darwin"]
+
+[[fma]]
+name = "slack"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "slicer"
+platforms = ["darwin"]
+
+[[fma]]
+name = "slidepad"
+platforms = ["darwin"]
+
+[[fma]]
+name = "sloth"
+platforms = ["darwin"]
+
+[[fma]]
+name = "smallstepagent"
+platforms = ["darwin"]
+
+[[fma]]
+name = "smartsheet"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "smartsvn"
+platforms = ["darwin"]
+
+[[fma]]
+name = "smoothscroll"
+platforms = ["darwin"]
+
+[[fma]]
+name = "smultron"
+platforms = ["darwin"]
+
+[[fma]]
+name = "snagit"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "snapmotion"
+platforms = ["darwin"]
+
+[[fma]]
+name = "snowflake-snowsql"
+platforms = ["darwin"]
+
+[[fma]]
+name = "sococo"
+platforms = ["darwin"]
+
+[[fma]]
+name = "sonic-visualiser"
+platforms = ["darwin"]
+
+[[fma]]
+name = "sonicwall-netextender"
+platforms = ["windows"]
+
+[[fma]]
+name = "sonobus"
+platforms = ["darwin"]
+
+[[fma]]
+name = "sonos"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "sony-ps-remote-play"
+platforms = ["darwin"]
+
+[[fma]]
+name = "soulver"
+platforms = ["darwin"]
+
+[[fma]]
+name = "sound-control"
+platforms = ["darwin"]
+
+[[fma]]
+name = "sound-siphon"
+platforms = ["darwin"]
+
+[[fma]]
+name = "soundanchor"
+platforms = ["darwin"]
+
+[[fma]]
+name = "soundsource"
+platforms = ["darwin"]
+
+[[fma]]
+name = "sourcetree"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "spamsieve"
+platforms = ["darwin"]
+
+[[fma]]
+name = "spectra-app"
+platforms = ["darwin"]
+
+[[fma]]
+name = "spitfire-audio"
+platforms = ["darwin"]
+
+[[fma]]
+name = "splashtop-business"
+platforms = ["darwin"]
+
+[[fma]]
+name = "splashtop-streamer"
+platforms = ["darwin"]
+
+[[fma]]
+name = "splice"
+platforms = ["darwin"]
+
+[[fma]]
+name = "spokenly"
+platforms = ["darwin"]
+
+[[fma]]
+name = "spotify"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "spyder"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "sql-server-management-studio"
+platforms = ["windows"]
+
+[[fma]]
+name = "sqlectron"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "sqlpro-for-mssql"
+platforms = ["darwin"]
+
+[[fma]]
+name = "sqlpro-for-mysql"
+platforms = ["darwin"]
+
+[[fma]]
+name = "sqlpro-for-postgres"
+platforms = ["darwin"]
+
+[[fma]]
+name = "sqlpro-for-sqlite"
+platforms = ["darwin"]
+
+[[fma]]
+name = "sqlpro-studio"
+platforms = ["darwin"]
+
+[[fma]]
+name = "squash"
+platforms = ["darwin"]
+
+[[fma]]
+name = "ssh-config-editor"
+platforms = ["darwin"]
+
+[[fma]]
+name = "standard-notes"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "staruml"
+platforms = ["darwin"]
+
+[[fma]]
+name = "stats"
+platforms = ["darwin"]
+
+[[fma]]
+name = "steam"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "steermouse"
+platforms = ["darwin"]
+
+[[fma]]
+name = "stellarium"
+platforms = ["darwin"]
+
+[[fma]]
+name = "stillcolor"
+platforms = ["darwin"]
+
+[[fma]]
+name = "stretchly"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "sublime-merge"
+platforms = ["darwin"]
+
+[[fma]]
+name = "sublime-text"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "super-productivity"
+platforms = ["darwin"]
+
+[[fma]]
+name = "supercollider"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "superhuman"
+platforms = ["darwin"]
+
+[[fma]]
+name = "superkey"
+platforms = ["darwin"]
+
+[[fma]]
+name = "superwhisper"
+platforms = ["darwin"]
+
+[[fma]]
+name = "supportcompanion"
+platforms = ["darwin"]
+
+[[fma]]
+name = "surfshark"
+platforms = ["darwin"]
+
+[[fma]]
+name = "surge"
+platforms = ["darwin"]
+
+[[fma]]
+name = "suspicious-package"
+platforms = ["darwin"]
+
+[[fma]]
+name = "swiftbar"
+platforms = ["darwin"]
+
+[[fma]]
+name = "swiftdialog"
+platforms = ["darwin"]
+
+[[fma]]
+name = "swifty"
+platforms = ["darwin"]
+
+[[fma]]
+name = "swish"
+platforms = ["darwin"]
+
+[[fma]]
+name = "sync"
+platforms = ["darwin"]
+
+[[fma]]
+name = "syncmate"
+platforms = ["darwin"]
+
+[[fma]]
+name = "syncovery"
+platforms = ["darwin"]
+
+[[fma]]
+name = "syncthing-app"
+platforms = ["darwin"]
+
+[[fma]]
+name = "syntax-highlight"
+platforms = ["darwin"]
+
+[[fma]]
+name = "tabby"
+platforms = ["darwin"]
+
+[[fma]]
+name = "tableau-desktop"
+platforms = ["windows"]
+
+[[fma]]
+name = "tableau-prep"
+platforms = ["darwin"]
+
+[[fma]]
+name = "tableau"
+platforms = ["darwin"]
+
+[[fma]]
+name = "tableplus"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "tabtab"
+platforms = ["darwin"]
+
+[[fma]]
+name = "tailscale-app"
+platforms = ["darwin"]
+
+[[fma]]
+name = "tailscale"
+platforms = ["windows"]
+
+[[fma]]
+name = "taskade"
+platforms = ["darwin"]
+
+[[fma]]
+name = "taskbar"
+platforms = ["darwin"]
+
+[[fma]]
+name = "teacode"
+platforms = ["darwin"]
+
+[[fma]]
+name = "teamviewer-host"
+platforms = ["windows"]
+
+[[fma]]
+name = "teamviewer"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "telegram"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "teleport-connect"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "teleport-suite"
+platforms = ["darwin"]
+
+[[fma]]
+name = "termius"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "tex-live-utility"
+platforms = ["darwin"]
+
+[[fma]]
+name = "texshop"
+platforms = ["darwin"]
+
+[[fma]]
+name = "textexpander"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "thaw"
+platforms = ["darwin"]
+
+[[fma]]
+name = "the-unarchiver"
+platforms = ["darwin"]
+
+[[fma]]
+name = "thorium"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "threema"
+platforms = ["darwin"]
+
+[[fma]]
+name = "thumbsup"
+platforms = ["darwin"]
+
+[[fma]]
+name = "thunderbird"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "ticktick"
+platforms = ["darwin"]
+
+[[fma]]
+name = "tidal"
+platforms = ["darwin"]
+
+[[fma]]
+name = "tightvnc"
+platforms = ["windows"]
+
+[[fma]]
+name = "tiles"
+platforms = ["darwin"]
+
+[[fma]]
+name = "timescribe"
+platforms = ["darwin"]
+
+[[fma]]
+name = "timing"
+platforms = ["darwin"]
+
+[[fma]]
+name = "todoist-app"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "topaz-gigapixel-ai"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "topaz-photo-ai"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "topaz-video-ai"
+platforms = ["darwin"]
+
+[[fma]]
+name = "topnotch"
+platforms = ["darwin"]
+
+[[fma]]
+name = "tor-browser"
+platforms = ["darwin"]
+
+[[fma]]
+name = "tortoisegit"
+platforms = ["windows"]
+
+[[fma]]
+name = "tower"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "tradingview"
+platforms = ["darwin"]
+
+[[fma]]
+name = "transfer"
+platforms = ["darwin"]
+
+[[fma]]
+name = "transmission"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "transmit"
+platforms = ["darwin"]
+
+[[fma]]
+name = "trex"
+platforms = ["darwin"]
+
+[[fma]]
+name = "trezor-suite"
+platforms = ["darwin"]
+
+[[fma]]
+name = "tripmode"
+platforms = ["darwin"]
+
+[[fma]]
+name = "tunnelblick"
+platforms = ["darwin"]
+
+[[fma]]
+name = "tuple"
+platforms = ["darwin"]
+
+[[fma]]
+name = "twine-app"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "twingate"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "twobird"
+platforms = ["darwin"]
+
+[[fma]]
+name = "typeface"
+platforms = ["darwin"]
+
+[[fma]]
+name = "typinator"
+platforms = ["darwin"]
+
+[[fma]]
+name = "typora"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "ua-connect"
+platforms = ["darwin"]
+
+[[fma]]
+name = "ukelele"
+platforms = ["darwin"]
+
+[[fma]]
+name = "ultimaker-cura"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "unclutter"
+platforms = ["darwin"]
+
+[[fma]]
+name = "unicodechecker"
+platforms = ["darwin"]
+
+[[fma]]
+name = "unity-hub"
+platforms = ["darwin"]
+
+[[fma]]
+name = "updf"
+platforms = ["darwin"]
+
+[[fma]]
+name = "upscayl"
+platforms = ["darwin"]
+
+[[fma]]
+name = "usage-app"
+platforms = ["darwin"]
+
+[[fma]]
+name = "utm"
+platforms = ["darwin"]
+
+[[fma]]
+name = "vanilla"
+platforms = ["darwin"]
+
+[[fma]]
+name = "vc-redist-2013-x64"
+platforms = ["windows"]
+
+[[fma]]
+name = "vc-redist-x64"
+platforms = ["windows"]
+
+[[fma]]
+name = "vellum"
+platforms = ["darwin"]
+
+[[fma]]
+name = "vernier-spectral-analysis"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "versions"
+platforms = ["darwin"]
+
+[[fma]]
+name = "via"
+platforms = ["darwin"]
+
+[[fma]]
+name = "vimcal"
+platforms = ["darwin"]
+
+[[fma]]
+name = "virtualbox"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "virtualbuddy"
+platforms = ["darwin"]
+
+[[fma]]
+name = "viscosity"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "visual-paradigm"
+platforms = ["darwin"]
+
+[[fma]]
+name = "visual-studio-code"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "vivaldi"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "vivid-app"
+platforms = ["darwin"]
+
+[[fma]]
+name = "viz"
+platforms = ["darwin"]
+
+[[fma]]
+name = "vlc"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "vnc-server"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "vnc-viewer"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "voiceink"
+platforms = ["darwin"]
+
+[[fma]]
+name = "vpn-tracker-365"
+platforms = ["darwin"]
+
+[[fma]]
+name = "vscodium"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "vuescan"
+platforms = ["darwin"]
+
+[[fma]]
+name = "vyprvpn"
+platforms = ["darwin"]
+
+[[fma]]
+name = "vysor"
+platforms = ["darwin"]
+
+[[fma]]
+name = "wacom-tablet"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "warp"
+platforms = ["darwin"]
+
+[[fma]]
+name = "wave"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "wavebox"
+platforms = ["darwin"]
+
+[[fma]]
+name = "wealthfolio"
+platforms = ["darwin"]
+
+[[fma]]
+name = "weasis"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "webcatalog"
+platforms = ["darwin"]
+
+[[fma]]
+name = "webex"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "webstorm"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "wechat"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "weektodo"
+platforms = ["darwin"]
+
+[[fma]]
+name = "whatroute"
+platforms = ["darwin"]
+
+[[fma]]
+name = "whatsapp"
+platforms = ["darwin"]
+
+[[fma]]
+name = "whisky"
+platforms = ["darwin"]
+
+[[fma]]
+name = "whispering"
+platforms = ["darwin"]
+
+[[fma]]
+name = "wifiman"
+platforms = ["darwin"]
+
+[[fma]]
+name = "windirstat"
+platforms = ["windows"]
+
+[[fma]]
+name = "windowkeys"
+platforms = ["darwin"]
+
+[[fma]]
+name = "windows-app"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "windsurf"
+platforms = ["windows"]
+
+[[fma]]
+name = "winlogbeat"
+platforms = ["windows"]
+
+[[fma]]
+name = "winrar"
+platforms = ["windows"]
+
+[[fma]]
+name = "wins"
+platforms = ["darwin"]
+
+[[fma]]
+name = "winscp"
+platforms = ["windows"]
+
+[[fma]]
+name = "wireshark-app"
+platforms = ["darwin"]
+
+[[fma]]
+name = "wireshark"
+platforms = ["windows"]
+
+[[fma]]
+name = "wispr-flow"
+platforms = ["darwin"]
+
+[[fma]]
+name = "wondershare-edrawmax"
+platforms = ["darwin"]
+
+[[fma]]
+name = "wondershare-filmora"
+platforms = ["darwin"]
+
+[[fma]]
+name = "wordservice"
+platforms = ["darwin"]
+
+[[fma]]
+name = "workflowy"
+platforms = ["darwin"]
+
+[[fma]]
+name = "worksheet-crafter"
+platforms = ["darwin"]
+
+[[fma]]
+name = "workspaces"
+platforms = ["darwin"]
+
+[[fma]]
+name = "wrike"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "xca"
+platforms = ["darwin"]
+
+[[fma]]
+name = "xcreds"
+platforms = ["darwin"]
+
+[[fma]]
+name = "xld"
+platforms = ["darwin"]
+
+[[fma]]
+name = "xmenu"
+platforms = ["darwin"]
+
+[[fma]]
+name = "xmplify"
+platforms = ["darwin"]
+
+[[fma]]
+name = "xnapper"
+platforms = ["darwin"]
+
+[[fma]]
+name = "xnconvert"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "xnviewmp"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "xquartz"
+platforms = ["darwin"]
+
+[[fma]]
+name = "yaak"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "yacreader"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "yarn"
+platforms = ["windows"]
+
+[[fma]]
+name = "yattee"
+platforms = ["darwin"]
+
+[[fma]]
+name = "yippy"
+platforms = ["darwin"]
+
+[[fma]]
+name = "yt-music"
+platforms = ["darwin"]
+
+[[fma]]
+name = "yubico-authenticator"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "yubico-yubikey-manager"
+platforms = ["windows"]
+
+[[fma]]
+name = "zappy"
+platforms = ["darwin"]
+
+[[fma]]
+name = "zed"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "zen-browser"
+platforms = ["windows"]
+
+[[fma]]
+name = "zen"
+platforms = ["darwin"]
+
+[[fma]]
+name = "zeplin"
+platforms = ["darwin"]
+
+[[fma]]
+name = "zettlr"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "zight"
+platforms = ["darwin"]
+
+[[fma]]
+name = "zoom-outlook-plugin"
+platforms = ["windows"]
+
+[[fma]]
+name = "zoom-rooms"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "zoom"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "zotero"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "zulip"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "zwift"
+platforms = ["darwin"]
+
