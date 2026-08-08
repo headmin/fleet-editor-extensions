@@ -333,6 +333,65 @@ pub static FIELD_DOCS: Lazy<HashMap<&'static str, FieldDoc>> = Lazy::new(|| {
         },
     );
 
+    // Policy label scoping. Fleet validates these in
+    // `server/fleet/policies.go` verifyPolicyLabelScopes: at most ONE include
+    // form and at most ONE exclude form may carry values, an include and an
+    // exclude form MAY be combined, and no label may appear in both an
+    // include and an exclude list. Without these entries the hover fallback
+    // served the `software.packages.*` wording ("Only install on hosts…"),
+    // which is wrong for a policy.
+    m.insert(
+        "policies.labels_include_any",
+        FieldDoc {
+            name: "labels_include_any",
+            description: "Run this policy only on hosts that are members of ANY of these labels. Mutually exclusive with `labels_include_all`; may be combined with one exclude form. Requires Fleet Premium.",
+            valid_values: None,
+            example: Some("labels_include_any:\n  - Engineering\n  - Product"),
+            required: false,
+            field_type: "array of strings",
+            cli_hint: None,
+        },
+    );
+
+    m.insert(
+        "policies.labels_include_all",
+        FieldDoc {
+            name: "labels_include_all",
+            description: "Run this policy only on hosts that are members of ALL of these labels. Mutually exclusive with `labels_include_any`; may be combined with one exclude form. Requires Fleet Premium.",
+            valid_values: None,
+            example: Some("labels_include_all:\n  - macOS\n  - Managed"),
+            required: false,
+            field_type: "array of strings",
+            cli_hint: None,
+        },
+    );
+
+    m.insert(
+        "policies.labels_exclude_any",
+        FieldDoc {
+            name: "labels_exclude_any",
+            description: "Do not run this policy on hosts that are members of ANY of these labels. Mutually exclusive with `labels_exclude_all`; may be combined with one include form. Requires Fleet Premium.",
+            valid_values: None,
+            example: Some("labels_exclude_any:\n  - Contractors"),
+            required: false,
+            field_type: "array of strings",
+            cli_hint: None,
+        },
+    );
+
+    m.insert(
+        "policies.labels_exclude_all",
+        FieldDoc {
+            name: "labels_exclude_all",
+            description: "Do not run this policy on hosts that are members of ALL of these labels — a host is skipped only when it matches every listed label. Policies only: no other GitOps context defines this key. Mutually exclusive with `labels_exclude_any`; may be combined with one include form. Requires Fleet Premium.",
+            valid_values: None,
+            example: Some("labels_exclude_all:\n  - Contractors\n  - Kiosk"),
+            required: false,
+            field_type: "array of strings",
+            cli_hint: None,
+        },
+    );
+
     // =========================================================================
     // Query fields
     // =========================================================================
@@ -623,7 +682,7 @@ pub static FIELD_DOCS: Lazy<HashMap<&'static str, FieldDoc>> = Lazy::new(|| {
         "queries",
         FieldDoc {
             name: "queries",
-            description: "List of osquery queries to run on hosts for data collection.",
+            description: "List of osquery queries to run on hosts for data collection. Renamed to 'reports' in newer Fleet GitOps naming (version-gated notice via deprecated-keys).",
             valid_values: None,
             example: Some("queries:\n  - name: Running Processes\n    query: SELECT * FROM processes"),
             required: false,
@@ -664,7 +723,7 @@ pub static FIELD_DOCS: Lazy<HashMap<&'static str, FieldDoc>> = Lazy::new(|| {
             name: "controls",
             description: "MDM controls and settings for managed devices.",
             valid_values: None,
-            example: Some("controls:\n  macos_settings:\n    custom_settings:\n      - path: profiles/filevault.mobileconfig"),
+            example: Some("controls:\n  apple_settings:\n    configuration_profiles:\n      - path: profiles/filevault.mobileconfig"),
             required: false,
             field_type: "object",
             cli_hint: Some("fleetctl apply -f controls.yml        # apply MDM profiles"),
@@ -1084,10 +1143,10 @@ pub static FIELD_DOCS: Lazy<HashMap<&'static str, FieldDoc>> = Lazy::new(|| {
         "controls.macos_settings",
         FieldDoc {
             name: "macos_settings",
-            description: "MDM settings specific to macOS devices.",
+            description: "Deprecated: renamed to 'apple_settings' (and 'custom_settings' to 'configuration_profiles'). MDM settings specific to macOS devices.",
             valid_values: None,
             example: Some(
-                "macos_settings:\n  custom_settings:\n    - path: profiles/filevault.mobileconfig",
+                "apple_settings:\n  configuration_profiles:\n    - path: profiles/filevault.mobileconfig",
             ),
             required: false,
             field_type: "object",
@@ -1099,7 +1158,7 @@ pub static FIELD_DOCS: Lazy<HashMap<&'static str, FieldDoc>> = Lazy::new(|| {
         "controls.macos_settings.custom_settings",
         FieldDoc {
             name: "custom_settings",
-            description: "List of custom configuration profiles to install on macOS devices.",
+            description: "Deprecated: renamed to 'configuration_profiles'. List of custom configuration profiles to install on macOS devices.",
             valid_values: None,
             example: Some("custom_settings:\n  - path: profiles/security.mobileconfig\n    labels_include_any:\n      - Engineering"),
             required: false,
@@ -1112,7 +1171,7 @@ pub static FIELD_DOCS: Lazy<HashMap<&'static str, FieldDoc>> = Lazy::new(|| {
         "controls.macos_settings.macos_setup",
         FieldDoc {
             name: "macos_setup",
-            description: "Configuration for the macOS Setup Assistant experience.",
+            description: "Deprecated: renamed to 'setup_experience'. Configuration for the macOS Setup Assistant experience.",
             valid_values: None,
             example: Some("macos_setup:\n  bootstrap_package: bootstrap/pkg.pkg\n  enable_end_user_authentication: true"),
             required: false,
@@ -1155,7 +1214,7 @@ pub static FIELD_DOCS: Lazy<HashMap<&'static str, FieldDoc>> = Lazy::new(|| {
         "controls.windows_settings.custom_settings",
         FieldDoc {
             name: "custom_settings",
-            description: "List of custom configuration profiles to install on Windows devices.",
+            description: "Deprecated: renamed to 'configuration_profiles'. List of custom configuration profiles to install on Windows devices.",
             valid_values: None,
             example: Some("custom_settings:\n  - path: profiles/bitlocker.xml"),
             required: false,
@@ -2035,6 +2094,34 @@ pub static FIELD_DOCS: Lazy<HashMap<&'static str, FieldDoc>> = Lazy::new(|| {
         },
     );
 
+    // Current names for renamed top-level keys — these must exist so the
+    // new spelling gets first-class hover docs (children resolve via the
+    // canonicalization fallback in `get_field_doc`).
+    m.insert(
+        "reports",
+        FieldDoc {
+            name: "reports",
+            description: "List of osquery reports (formerly `queries`) to run on hosts for data collection.",
+            valid_values: None,
+            example: Some("reports:\n  - name: Collect failed login attempts\n    query: SELECT * FROM last WHERE type = 7;\n    interval: 3600"),
+            required: false,
+            field_type: "array",
+            cli_hint: None,
+        },
+    );
+    m.insert(
+        "settings",
+        FieldDoc {
+            name: "settings",
+            description: "Settings specific to this fleet (formerly `team_settings`).",
+            valid_values: None,
+            example: Some("settings:\n  secrets:\n    - secret: $ENROLL_SECRET"),
+            required: false,
+            field_type: "object",
+            cli_hint: None,
+        },
+    );
+
     m
 });
 
@@ -2049,6 +2136,32 @@ pub fn get_field_doc(path: &str) -> Option<&'static FieldDoc> {
     for prefix in &["policies", "queries", "labels"] {
         let full_path = format!("{}.{}", prefix, path);
         if let Some(doc) = FIELD_DOCS.get(full_path.as_str()) {
+            return Some(doc);
+        }
+    }
+
+    // NEW-name paths resolve to docs written under the old spelling —
+    // children keep working under `reports:`/`settings:`/`apple_settings:`
+    // without duplicating every entry. Only path SEGMENTS are rewritten;
+    // the returned doc is the child's own (its name isn't deprecated).
+    // Top-level renamed keys have their own new-name entries, so hovering
+    // `reports:` never shows a doc titled `queries`.
+    let canonical = path
+        .split('.')
+        .map(|seg| match seg {
+            "reports" => "queries",
+            "settings" => "team_settings",
+            "apple_settings" => "macos_settings",
+            "configuration_profiles" => "custom_settings",
+            "setup_experience" => "macos_setup",
+            other => other,
+        })
+        .collect::<Vec<_>>()
+        .join(".");
+    if canonical != path && !path.contains('.') {
+        // never map a bare top-level new name to an old-name doc
+    } else if canonical != path {
+        if let Some(doc) = FIELD_DOCS.get(canonical.as_str()) {
             return Some(doc);
         }
     }
@@ -2310,4 +2423,109 @@ mod tests {
             }
         }
     }
+    /// GUARD (ADR-004/ADR-010): hover docs must never advertise a
+    /// deprecated key as current. For every KeyRename in the deprecation
+    /// registry, any FIELD_DOCS entry whose key path ends in the old name
+    /// must say "Deprecated" and point at the new name — and its example
+    /// must not showcase the old spelling as the primary form (deprecated
+    /// entries excepted only when the description carries the note).
+    /// Found via a live report: `macos_settings` hover showed
+    /// "MDM settings specific to macOS devices" with an old-name example
+    /// and no deprecation note. Any future Fleet rename fails this test
+    /// until the docs surface is updated.
+    #[test]
+    fn field_docs_never_advertise_deprecated_keys() {
+        use flint_lint::deprecations::{DeprecationKind, DEPRECATION_REGISTRY};
+
+        for (key, doc) in FIELD_DOCS.iter() {
+            let (parent, last) = match key.rsplit_once('.') {
+                Some((p, l)) => (p, l),
+                None => ("", *key),
+            };
+            // Context-aware: top-level `labels:` is NOT the deprecated
+            // profile-item `labels` — the registry matcher knows which
+            // contexts each rename applies to.
+            let Some(dep) = DEPRECATION_REGISTRY.find_deprecated_key(last, parent) else {
+                continue;
+            };
+            if let DeprecationKind::KeyRename { new_key, .. } = &dep.kind {
+                let desc_lower = doc.description.to_lowercase();
+                assert!(
+                    (desc_lower.contains("deprecated") || desc_lower.contains("renamed"))
+                        && doc.description.contains(new_key),
+                    "FIELD_DOCS['{key}'] documents deprecated key '{last}' without a \
+                     'Deprecated … {new_key}' note: {}",
+                    doc.description
+                );
+            }
+        }
+
+        // EXAMPLES advertise too: a healthy entry (e.g. `controls`) can
+        // still showcase deprecated keys in its example snippet — the exact
+        // escape a user caught after the first guard landed. Context-scoped
+        // renames (labels, script) are excluded: their bare names are
+        // legitimate keys elsewhere and a line scan can't tell contexts
+        // apart.
+        for (key, doc) in FIELD_DOCS.iter() {
+            let Some(example) = doc.example else { continue };
+            let desc_lower = doc.description.to_lowercase();
+            let entry_is_deprecated =
+                desc_lower.contains("deprecated") || desc_lower.contains("renamed");
+            if entry_is_deprecated {
+                continue; // a deprecated entry may show its own old spelling
+            }
+            for dep in DEPRECATION_REGISTRY.entries() {
+                if let DeprecationKind::KeyRename { old_key, new_key, .. } = &dep.kind {
+                    if matches!(*old_key, "labels" | "script") {
+                        continue;
+                    }
+                    let as_key = format!("{}:", old_key);
+                    assert!(
+                        !example.lines().any(|l| l.trim_start().starts_with(&as_key)),
+                        "FIELD_DOCS['{key}'] example advertises deprecated key \
+                         '{old_key}' (use '{new_key}'): {example}"
+                    );
+                }
+            }
+        }
+
+        // Every rename that actually has old-name docs (context-matched
+        // above) must have docs under the NEW spelling somewhere too —
+        // otherwise the old spelling is better-documented than the
+        // current one.
+        let documented_old: Vec<&str> = FIELD_DOCS
+            .keys()
+            .filter_map(|key| {
+                let (parent, last) = key.rsplit_once('.').unwrap_or(("", key));
+                DEPRECATION_REGISTRY
+                    .find_deprecated_key(last, parent)
+                    .and_then(|d| match &d.kind {
+                        DeprecationKind::KeyRename { new_key, .. } => Some(*new_key),
+                        _ => None,
+                    })
+            })
+            .collect();
+        for new_key in documented_old {
+            assert!(
+                FIELD_DOCS
+                    .keys()
+                    .any(|k| k.rsplit('.').next() == Some(new_key)),
+                "a deprecated key has hover docs but its replacement '{new_key}' has \
+                 none anywhere — the old spelling is better-documented than the \
+                 current one"
+            );
+        }
+    }
+
+    #[test]
+    fn new_name_child_paths_resolve_via_canonicalization() {
+        // reports.* / settings.* children reuse the docs written under the
+        // old spelling without duplication.
+        assert!(get_field_doc("reports.interval").is_some());
+        assert!(get_field_doc("settings.secrets").is_some());
+        // Bare top-level new names get their OWN docs, never an old-name one.
+        assert_eq!(get_field_doc("reports").unwrap().name, "reports");
+        assert_eq!(get_field_doc("settings").unwrap().name, "settings");
+    }
+
 }

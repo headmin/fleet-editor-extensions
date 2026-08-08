@@ -5,7 +5,8 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock};
 use tower_lsp::jsonrpc::Result;
 use tower_lsp::lsp_types::{
-    CodeActionParams, CodeActionProviderCapability, CodeActionResponse, CompletionOptions,
+    CodeAction, CodeActionKind, CodeActionOrCommand, CodeActionParams,
+    CodeActionProviderCapability, CodeActionResponse, CompletionOptions,
     CompletionParams, CompletionResponse, Diagnostic, DiagnosticSeverity,
     DidChangeTextDocumentParams, DidChangeWatchedFilesParams,
     DidChangeWatchedFilesRegistrationOptions, DidCloseTextDocumentParams,
@@ -31,8 +32,8 @@ use super::hover::hover_at_with_context;
 use super::semantic_tokens::{compute_semantic_tokens, create_legend};
 use super::symbols::document_symbols;
 use super::workspace::{
-    document_links, get_path_definition, validate_fma_slugs, validate_label_references,
-    validate_path_references,
+    document_links, fix_all_moved_references, get_path_definition,
+    validate_label_references, validate_path_references,
 };
 use flint_lint::fleet_config::Label;
 use flint_lint::{FleetLintConfig, Linter};
@@ -90,7 +91,7 @@ impl FleetLspBackend {
         self.linter
             .read()
             .ok()
-            .and_then(|linter| linter.config().map(|c| c.lsp.lint_debounce_ms))
+            .map(|linter| linter.config().lsp.lint_debounce_ms)
             .unwrap_or(150)
     }
 
@@ -333,6 +334,59 @@ impl FleetLspBackend {
         }
     }
 
+    /// Save-time workspace pass (ADR-010): run the repo-wide cross-file
+    /// rules and publish the saved file's cross-file findings ON TOP of its
+    /// per-file diagnostics. Keystroke diagnostics stay per-file; the graph
+    /// pass costs a repo walk, so it runs only on explicit saves. Findings
+    /// vanish while editing (the per-file publish replaces them) and
+    /// reappear on the next save.
+    async fn workspace_lint_and_publish(&self, uri: &str) {
+        let root = {
+            self.workspace_root
+                .read()
+                .expect("workspace_root lock poisoned")
+                .clone()
+        };
+        let Some(root) = root else { return };
+        let Some(file_path) = Url::parse(uri).ok().and_then(|u| u.to_file_path().ok()) else {
+            return;
+        };
+        let content = match self.documents.get(uri) {
+            Some(entry) => entry.value().clone(),
+            None => return,
+        };
+
+        // Graph pass only — per-file diagnostics for this doc come from
+        // lint_document below; re-running every rule over every repo file
+        // on each save would be pure waste.
+        let results = {
+            let linter = self.linter.read().expect("linter lock poisoned");
+            match linter.cross_file_findings(&root) {
+                Ok(r) => r,
+                Err(_) => return,
+            }
+        };
+
+        let canon = file_path.canonicalize().unwrap_or_else(|_| file_path.clone());
+        let mut diags = self.lint_document(uri, &content);
+        for (p, report) in &results {
+            if p.canonicalize().unwrap_or_else(|_| p.clone()) != canon {
+                continue;
+            }
+            for e in report
+                .errors
+                .iter()
+                .chain(&report.warnings)
+                .chain(&report.infos)
+            {
+                diags.push(lint_error_to_diagnostic(e, &content));
+            }
+        }
+        if let Ok(url) = Url::parse(uri) {
+            self.client.publish_diagnostics(url, diags, None).await;
+        }
+    }
+
     /// Lint a document and return LSP diagnostics.
     fn lint_document(&self, uri: &str, content: &str) -> Vec<Diagnostic> {
         // Extract file path from URI for the linter
@@ -400,18 +454,23 @@ impl FleetLspBackend {
         ));
 
         // Add label reference validation (check labels_include_any/exclude_any
-        // against labels defined in the workspace)
+        // against labels defined in the workspace, via the engine's
+        // label-reference check)
         if let Some(gitops_file) = super::fleet::find_gitops_root(&file_path_buf) {
             if let Some(root) = gitops_file.parent() {
                 let known_labels = scan_workspace_label_names(root);
                 if !known_labels.is_empty() {
-                    diagnostics.extend(validate_label_references(content, &known_labels));
+                    diagnostics.extend(validate_label_references(
+                        content,
+                        &file_path_buf,
+                        &known_labels,
+                    ));
                 }
             }
         }
 
-        // Add FMA slug validation (check slug: values against the registry)
-        diagnostics.extend(validate_fma_slugs(content));
+        // FMA slug validity is covered by the engine's `fma-slug` rule in
+        // the main lint pass — no special-cased scan needed here.
 
         diagnostics
     }
@@ -587,6 +646,65 @@ impl FleetLspBackend {
         // Return current (possibly stale) data immediately
         Some(cache.clone())
     }
+
+    /// Build a "fix all references to the moved file" action for any
+    /// path-exists diagnostic in the request that carries a single suggestion.
+    /// Code-action requests target a small range, so there is normally at most
+    /// one such diagnostic; we return the first that affects 2+ references.
+    fn workspace_fix_all_action(&self, params: &CodeActionParams) -> Option<CodeAction> {
+        let root = self.workspace_root.read().ok()?.clone()?;
+        let file_path = params.text_document.uri.to_file_path().ok()?;
+
+        for diag in &params.context.diagnostics {
+            if diag.source.as_deref() != Some("fleet-lint") {
+                continue;
+            }
+            let data = match diag.data.as_ref() {
+                Some(d) => d,
+                None => continue,
+            };
+            // Only moved-file diagnostics (single suggestion) qualify; ambiguous
+            // (candidates) ones are left to per-candidate quick-fixes.
+            let new_value = match data.get("suggestion").and_then(|v| v.as_str()) {
+                Some(s) => s,
+                None => continue,
+            };
+            let old_value = match self.text_in_range(&params.text_document.uri, diag.range) {
+                Some(v) => v,
+                None => continue,
+            };
+
+            let doc_for = |p: &Path| -> Option<String> {
+                let url = Url::from_file_path(p).ok()?;
+                self.documents.get(url.as_str()).map(|d| d.value().clone())
+            };
+
+            if let Some((edit, count, basename)) =
+                fix_all_moved_references(&root, &file_path, &old_value, new_value, &doc_for)
+            {
+                return Some(CodeAction {
+                    title: format!("Fix all {count} references to '{basename}' (moved file)"),
+                    kind: Some(CodeActionKind::QUICKFIX),
+                    diagnostics: Some(vec![diag.clone()]),
+                    edit: Some(edit),
+                    command: None,
+                    is_preferred: Some(false),
+                    disabled: None,
+                    data: None,
+                });
+            }
+        }
+        None
+    }
+
+    /// Return the substring of the cached document under `range` (single line).
+    fn text_in_range(&self, uri: &Url, range: Range) -> Option<String> {
+        let content = self.documents.get(uri.as_str())?;
+        let line = content.lines().nth(range.start.line as usize)?;
+        let start = range.start.character as usize;
+        let end = (range.end.character as usize).min(line.len());
+        line.get(start..end).map(|s| s.to_string())
+    }
 }
 
 #[tower_lsp::async_trait]
@@ -624,9 +742,11 @@ impl LanguageServer for FleetLspBackend {
         // Override fleet_version from editor setting if provided (takes priority over .fleetlint.toml)
         if let Some(version) = &editor_fleet_version {
             if let Ok(mut linter) = self.linter.write() {
-                if let Some(config) = linter.config_mut() {
-                    config.deprecations.fleet_version = version.clone();
-                }
+                // Rebuild through set_config so the version-gated rules pick
+                // up the override (config_mut is gone — mutations must rebuild).
+                let mut config = linter.config().clone();
+                config.deprecations.fleet_version = version.clone();
+                linter.set_config(config);
             }
         }
 
@@ -839,7 +959,9 @@ impl LanguageServer for FleetLspBackend {
         // pending-window result.
         self.last_change_request
             .insert(uri.clone(), std::time::Instant::now());
-        self.lint_and_publish(&uri).await;
+        // The workspace pass includes and republishes the per-file
+        // diagnostics, so one publish covers both layers on save.
+        self.workspace_lint_and_publish(&uri).await;
 
         // Layer 2: run gitops validation asynchronously
         self.run_gitops_validation(&uri).await;
@@ -908,7 +1030,14 @@ impl LanguageServer for FleetLspBackend {
     }
 
     async fn code_action(&self, params: CodeActionParams) -> Result<Option<CodeActionResponse>> {
-        let actions = generate_code_actions(&params);
+        let mut actions = generate_code_actions(&params);
+
+        // Phase 4: for a moved-file diagnostic, also offer a single action that
+        // repairs every reference to that file across the workspace.
+        if let Some(action) = self.workspace_fix_all_action(&params) {
+            actions.push(CodeActionOrCommand::CodeAction(action));
+        }
+
         if actions.is_empty() {
             Ok(None)
         } else {
@@ -935,7 +1064,7 @@ impl LanguageServer for FleetLspBackend {
                 .linter
                 .read()
                 .ok()
-                .and_then(|l| l.config().map(|c| c.deprecations.future_names))
+                .map(|l| l.config().deprecations.future_names)
                 .unwrap_or(false);
             Ok(hover_at_with_context(&content, position, future_names))
         } else {
@@ -963,7 +1092,7 @@ impl LanguageServer for FleetLspBackend {
                 .linter
                 .read()
                 .ok()
-                .and_then(|l| l.config().map(|c| c.deprecations.future_names))
+                .map(|l| l.config().deprecations.future_names)
                 .unwrap_or(false);
 
             let mut items = complete_at_with_context(
@@ -1319,18 +1448,10 @@ fn inject_live_completions(
     let trimmed = line.trim();
 
     // Check if we're in a labels context
-    if trimmed.starts_with("labels_include_any:")
-        || trimmed.starts_with("labels_exclude_any:")
-        || trimmed.starts_with("labels_include_all:")
-        || trimmed.starts_with("- ")
-    {
+    if is_label_scope_key_line(trimmed) || trimmed.starts_with("- ") {
         // Check parent context for labels arrays
         let in_labels_context = is_in_labels_list_context(source, line_idx);
-        if in_labels_context
-            || trimmed.starts_with("labels_include_any:")
-            || trimmed.starts_with("labels_exclude_any:")
-            || trimmed.starts_with("labels_include_all:")
-        {
+        if in_labels_context || is_label_scope_key_line(trimmed) {
             for label in &cache.labels {
                 items.push(CompletionItem {
                     label: label.clone(),
@@ -1410,9 +1531,7 @@ fn inject_workspace_label_completions(
     let trimmed = line.trim();
 
     // Only offer in labels filter contexts
-    let in_context = trimmed.starts_with("labels_include_any:")
-        || trimmed.starts_with("labels_exclude_any:")
-        || trimmed.starts_with("labels_include_all:")
+    let in_context = is_label_scope_key_line(trimmed)
         || (trimmed.starts_with("- ") && is_in_labels_list_context(source, line_idx));
 
     if !in_context {
@@ -1651,7 +1770,27 @@ fn label_to_snippet(label: &Label) -> String {
     snippet
 }
 
-/// Check if the cursor is inside a labels list (include_any, exclude_any, include_all).
+/// Every label-scoping key Fleet accepts, in any GitOps context.
+///
+/// `labels_exclude_all` is policies-only (`server/fleet/policies.go:649`); the
+/// other three are shared. Completion offers label NAMES for whichever key the
+/// cursor sits under, so it does not need to know the context — the schema
+/// (`structure.rs` KEY_REGISTRY) is what rejects a key in the wrong place.
+const LABEL_SCOPE_KEYS: [&str; 4] = [
+    "labels_include_any",
+    "labels_include_all",
+    "labels_exclude_any",
+    "labels_exclude_all",
+];
+
+/// True when `trimmed` opens a label-scoping list (`labels_include_any:` …).
+fn is_label_scope_key_line(trimmed: &str) -> bool {
+    LABEL_SCOPE_KEYS
+        .iter()
+        .any(|k| trimmed.starts_with(&format!("{k}:")))
+}
+
+/// Check if the cursor is inside a labels list (any `LABEL_SCOPE_KEYS` entry).
 fn is_in_labels_list_context(source: &str, line_idx: usize) -> bool {
     let lines: Vec<&str> = source.lines().collect();
 
@@ -1663,10 +1802,7 @@ fn is_in_labels_list_context(source: &str, line_idx: usize) -> bool {
             continue;
         }
 
-        if trimmed.starts_with("labels_include_any:")
-            || trimmed.starts_with("labels_exclude_any:")
-            || trimmed.starts_with("labels_include_all:")
-        {
+        if is_label_scope_key_line(trimmed) {
             return true;
         }
 

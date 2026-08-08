@@ -15,7 +15,6 @@ use std::path::Path;
 // ============================================================================
 
 const COMPLETIONS_TOML: &str = include_str!("../data/completions.toml");
-const FMA_REGISTRY_TOML: &str = include_str!("../data/fma-registry.toml");
 
 // ============================================================================
 // Data types
@@ -69,27 +68,12 @@ pub struct GlobEntry {
     pub description: String,
 }
 
-#[derive(Debug, Deserialize)]
-pub struct FmaRegistry {
-    #[serde(default)]
-    pub fma: Vec<FmaEntry>,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct FmaEntry {
-    pub name: String,
-    pub platforms: Vec<String>,
-}
-
 // ============================================================================
 // Parsed statics
 // ============================================================================
 
 pub static COMPLETION_DATA: Lazy<CompletionData> =
     Lazy::new(|| toml::from_str(COMPLETIONS_TOML).expect("Failed to parse completions.toml"));
-
-pub static FMA_REGISTRY: Lazy<FmaRegistry> =
-    Lazy::new(|| toml::from_str(FMA_REGISTRY_TOML).expect("Failed to parse fma-registry.toml"));
 
 // ============================================================================
 // Query helpers
@@ -123,71 +107,6 @@ pub fn globs_for_context(context: &str) -> Vec<&'static GlobEntry> {
         .iter()
         .filter(|g| g.context == context)
         .collect()
-}
-
-/// Get all FMA slugs for a given platform (e.g., "darwin", "windows").
-///
-/// Returns full slugs like `["slack/darwin", "google-chrome/darwin"]`.
-pub fn fma_slugs_for_platform(platform: &str) -> Vec<String> {
-    FMA_REGISTRY
-        .fma
-        .iter()
-        .filter(|app| app.platforms.iter().any(|p| p == platform))
-        .map(|app| format!("{}/{}", app.name, platform))
-        .collect()
-}
-
-/// Get all FMA slugs across all platforms.
-///
-/// Returns full slugs like `["slack/darwin", "slack/windows", ...]`.
-pub fn all_fma_slugs() -> Vec<String> {
-    FMA_REGISTRY
-        .fma
-        .iter()
-        .flat_map(|app| {
-            app.platforms
-                .iter()
-                .map(move |p| format!("{}/{}", app.name, p))
-        })
-        .collect()
-}
-
-/// Check if a slug is a known Fleet Maintained App.
-pub fn is_valid_fma_slug(slug: &str) -> bool {
-    if let Some((name, platform)) = slug.rsplit_once('/') {
-        FMA_REGISTRY
-            .fma
-            .iter()
-            .any(|app| app.name == name && app.platforms.iter().any(|p| p == platform))
-    } else {
-        false
-    }
-}
-
-/// Find the closest matching FMA slug for typo suggestions.
-pub fn find_similar_fma_slug(input: &str) -> Option<String> {
-    let input_lower = input.to_lowercase();
-    let all = all_fma_slugs();
-
-    // Exact case-insensitive match
-    if let Some(s) = all.iter().find(|s| s.to_lowercase() == input_lower) {
-        return Some(s.clone());
-    }
-
-    // Prefix match (user typed "sla" → "slack/darwin")
-    if let Some(s) = all
-        .iter()
-        .find(|s| s.to_lowercase().starts_with(&input_lower))
-    {
-        return Some(s.clone());
-    }
-
-    // Contains match
-    if let Some(s) = all.iter().find(|s| s.to_lowercase().contains(&input_lower)) {
-        return Some(s.clone());
-    }
-
-    None
 }
 
 /// Resolve the `{base}` placeholder in a pattern or snippet.
@@ -267,11 +186,6 @@ mod tests {
     }
 
     #[test]
-    fn fma_registry_parses() {
-        let _ = &*FMA_REGISTRY;
-    }
-
-    #[test]
     fn categories_non_empty() {
         assert!(
             !COMPLETION_DATA.categories.values.is_empty(),
@@ -292,15 +206,6 @@ mod tests {
         assert!(
             !COMPLETION_DATA.fields.is_empty(),
             "Fields list must not be empty"
-        );
-    }
-
-    #[test]
-    fn fma_registry_has_entries() {
-        assert!(
-            FMA_REGISTRY.fma.len() > 200,
-            "FMA registry should have 200+ apps, got {}",
-            FMA_REGISTRY.fma.len()
         );
     }
 
@@ -331,35 +236,6 @@ mod tests {
         let globs = globs_for_context("scripts");
         assert!(globs.len() >= 3, "Should have macOS, Windows, Linux globs");
         assert!(globs.iter().all(|g| g.pattern.contains("{base}")));
-    }
-
-    // ── FMA queries ────────────────────────────────────────────
-
-    #[test]
-    fn fma_slugs_for_darwin() {
-        let slugs = fma_slugs_for_platform("darwin");
-        assert!(slugs.contains(&"slack/darwin".to_string()));
-        assert!(!slugs.contains(&"slack/windows".to_string()));
-    }
-
-    #[test]
-    fn fma_slug_validation() {
-        assert!(is_valid_fma_slug("slack/darwin"));
-        assert!(is_valid_fma_slug("slack/windows"));
-        assert!(!is_valid_fma_slug("slack/linux"));
-        assert!(!is_valid_fma_slug("nonexistent/darwin"));
-        assert!(!is_valid_fma_slug("invalid"));
-    }
-
-    #[test]
-    fn fma_slug_suggestion() {
-        // Prefix match
-        assert_eq!(
-            find_similar_fma_slug("sla"),
-            Some("slack/darwin".to_string())
-        );
-        // Contains match
-        assert!(find_similar_fma_slug("chrome").is_some());
     }
 
     // ── Snippet indentation validation ─────────────────────────
@@ -439,29 +315,6 @@ mod tests {
                 glob.pattern,
                 glob.context
             );
-        }
-    }
-
-    #[test]
-    fn fma_no_duplicate_names() {
-        let mut seen = std::collections::HashSet::new();
-        for app in &FMA_REGISTRY.fma {
-            assert!(seen.insert(&app.name), "Duplicate FMA entry: {}", app.name);
-        }
-    }
-
-    #[test]
-    fn fma_valid_platforms() {
-        let valid = ["darwin", "windows"];
-        for app in &FMA_REGISTRY.fma {
-            for platform in &app.platforms {
-                assert!(
-                    valid.contains(&platform.as_str()),
-                    "FMA '{}' has invalid platform '{}'",
-                    app.name,
-                    platform
-                );
-            }
         }
     }
 

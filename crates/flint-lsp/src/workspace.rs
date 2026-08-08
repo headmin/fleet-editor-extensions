@@ -4,17 +4,26 @@
 //! - Path reference validation (checking that referenced files exist)
 //! - Go-to-definition for path references
 
-use std::path::{Path, PathBuf};
+use std::collections::HashMap;
+use std::path::{Component, Path, PathBuf};
 use tower_lsp::lsp_types::{
     Diagnostic, DiagnosticSeverity, DocumentLink, GotoDefinitionResponse, Location, Position,
-    Range, Url,
+    Range, TextEdit, Url, WorkspaceEdit,
 };
 
-/// Check path references in a document and return diagnostics for invalid paths.
+/// Check path references in a document and return diagnostics for malformed
+/// path *syntax* (shell prefixes, absolute paths, deep traversal).
+///
+/// Target existence is intentionally NOT checked here — that is owned by the
+/// `path-exists` lint rule (run via `lint_content`), which resolves paths
+/// relative to the referring file (correct for `../` refs) and additionally
+/// suggests the moved location. Checking existence here too would
+/// double-report and, because this used to resolve against the workspace root,
+/// false-positive on the common `fleets/x.yml -> ../platforms/...` layout.
 pub fn validate_path_references(
     source: &str,
-    file_path: &Path,
-    workspace_root: Option<&Path>,
+    _file_path: &Path,
+    _workspace_root: Option<&Path>,
 ) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
 
@@ -40,33 +49,14 @@ pub fn validate_path_references(
                     },
                 };
 
-                // Check for malformed path syntax first
+                // Check for malformed path syntax. Existence is handled by the
+                // path-exists lint rule (see the function doc comment).
                 if let Some(msg) = check_malformed_path(&path_value) {
                     diagnostics.push(Diagnostic {
                         range,
                         severity: Some(DiagnosticSeverity::ERROR),
                         source: Some("fleet-lint".to_string()),
                         message: msg,
-                        ..Default::default()
-                    });
-                    continue;
-                }
-
-                // Determine base directory for resolution
-                let base_dir = if let Some(root) = workspace_root {
-                    root.to_path_buf()
-                } else {
-                    file_path.parent().unwrap_or(Path::new(".")).to_path_buf()
-                };
-
-                let resolved_path = base_dir.join(&path_value);
-
-                if !resolved_path.exists() {
-                    diagnostics.push(Diagnostic {
-                        range,
-                        severity: Some(DiagnosticSeverity::ERROR),
-                        source: Some("fleet-lint".to_string()),
-                        message: format!("Referenced file not found: {}", path_value),
                         ..Default::default()
                     });
                 }
@@ -378,211 +368,186 @@ pub fn extract_path_references(source: &str, file_path: &Path) -> Vec<PathRefere
     refs
 }
 
-/// Validate label references in `labels_include_any`, `labels_exclude_any`, and
-/// `labels_include_all` against a set of known label names from the workspace.
+/// Build a workspace edit that fixes *every* reference to a moved file.
 ///
-/// Produces warnings for label names that don't match any defined label,
-/// catching typos early (e.g., "Apple Silcon macOS hosts" vs "Apple Silicon macOS hosts").
-pub fn validate_label_references(source: &str, known_labels: &[String]) -> Vec<Diagnostic> {
-    let mut diagnostics = Vec::new();
-    let lines: Vec<&str> = source.lines().collect();
-    let mut in_labels_list = false;
-    let mut labels_list_indent: usize = 0;
+/// Given one broken reference (`from_file` + the old/new path values for it),
+/// scans all Fleet YAML files in the workspace for references that resolve to
+/// the same missing target, and computes each one's own corrected relative
+/// path to the moved file. This is what turns "fix this one line" into the
+/// one-shot repair a folder reorg actually needs.
+///
+/// `doc_for` supplies in-editor (possibly unsaved) content for a path; the
+/// builder falls back to reading from disk. Returns `(edit, count, basename)`
+/// only when 2+ references are affected — a lone reference is already covered
+/// by the per-line quick-fix.
+pub fn fix_all_moved_references(
+    workspace_root: &Path,
+    from_file: &Path,
+    old_value: &str,
+    new_value: &str,
+    doc_for: &dyn Fn(&Path) -> Option<String>,
+) -> Option<(WorkspaceEdit, usize, String)> {
+    let from_dir = from_file.parent()?;
+    // Absolute-normalized identity of the (missing) target everyone points at.
+    let old_abs = normalize_abs(from_dir, old_value)?;
+    // The moved file's real location (it exists, so canonicalize).
+    let new_abs = from_dir.join(new_value).canonicalize().ok()?;
+    let basename = Path::new(new_value).file_name()?.to_str()?.to_string();
 
-    for (line_idx, line) in lines.iter().enumerate() {
-        let trimmed = line.trim();
-        let indent = line.len() - line.trim_start().len();
+    let mut changes: HashMap<Url, Vec<TextEdit>> = HashMap::new();
+    let mut count = 0usize;
 
-        // Detect labels_include_any: / labels_exclude_any: / labels_include_all:
-        if trimmed.starts_with("labels_include_any:")
-            || trimmed.starts_with("labels_exclude_any:")
-            || trimmed.starts_with("labels_include_all:")
-        {
-            in_labels_list = true;
-            labels_list_indent = indent;
-            continue;
-        }
+    for file in find_fleet_files(workspace_root) {
+        let content = match doc_for(&file).or_else(|| std::fs::read_to_string(&file).ok()) {
+            Some(c) => c,
+            None => continue,
+        };
+        let file_dir = match file.parent() {
+            Some(d) => d,
+            None => continue,
+        };
+        let lines: Vec<&str> = content.lines().collect();
 
-        // Exit the labels list when indent drops back
-        if in_labels_list && !trimmed.is_empty() && indent <= labels_list_indent {
-            in_labels_list = false;
-        }
-
-        if !in_labels_list {
-            continue;
-        }
-
-        // Extract label name from list item: `- "Label Name"` or `- Label Name`
-        if trimmed.starts_with('-') {
-            let label = trimmed
-                .trim_start_matches('-')
-                .trim()
-                .trim_matches('"')
-                .trim_matches('\'')
-                .trim();
-
-            if label.is_empty() {
+        for r in extract_path_references(&content, &file) {
+            // Does this reference point at the same missing target?
+            match normalize_abs(file_dir, &r.path_value) {
+                Some(p) if p == old_abs => {}
+                _ => continue,
+            }
+            // This referrer's own corrected relative path to the moved file.
+            let new_rel = match relative_path(file_dir, &new_abs) {
+                Some(s) => s,
+                None => continue,
+            };
+            if new_rel == r.path_value {
                 continue;
             }
-
-            // Check if this label exists in the workspace
-            let label_exists = known_labels.iter().any(|l| l == label);
-
-            if !label_exists {
-                // Find closest match for suggestion
-                let suggestion = find_closest_label(label, known_labels);
-
-                let start_col = line.find(label).unwrap_or(0) as u32;
-                let end_col = start_col + label.len() as u32;
-
-                let mut diag = Diagnostic {
-                    range: Range {
-                        start: Position {
-                            line: line_idx as u32,
-                            character: start_col,
-                        },
-                        end: Position {
-                            line: line_idx as u32,
-                            character: end_col,
-                        },
+            let line = match lines.get(r.line) {
+                Some(l) => *l,
+                None => continue,
+            };
+            let start = match line.find(&r.path_value) {
+                Some(s) => s as u32,
+                None => continue,
+            };
+            let url = match Url::from_file_path(&file) {
+                Ok(u) => u,
+                Err(_) => continue,
+            };
+            changes.entry(url).or_default().push(TextEdit {
+                range: Range {
+                    start: Position {
+                        line: r.line as u32,
+                        character: start,
                     },
-                    severity: Some(DiagnosticSeverity::WARNING),
-                    source: Some("fleet-lint".to_string()),
-                    code: Some(tower_lsp::lsp_types::NumberOrString::String(
-                        "unknown-label".to_string(),
-                    )),
-                    message: format!("Label '{}' not found in workspace", label),
-                    ..Default::default()
-                };
+                    end: Position {
+                        line: r.line as u32,
+                        character: start + r.path_value.len() as u32,
+                    },
+                },
+                new_text: new_rel,
+            });
+            count += 1;
+        }
+    }
 
-                if let Some(closest) = suggestion {
-                    diag.message = format!(
-                        "Label '{}' not found in workspace. Did you mean '{}'?",
-                        label, closest
-                    );
+    if count < 2 {
+        return None;
+    }
+
+    Some((
+        WorkspaceEdit {
+            changes: Some(changes),
+            document_changes: None,
+            change_annotations: None,
+        },
+        count,
+        basename,
+    ))
+}
+
+/// Canonicalize `dir` (which exists) then join a possibly-missing relative
+/// `value` and collapse `.`/`..` — yielding a stable absolute identity for a
+/// target even when the target file does not exist.
+fn normalize_abs(dir: &Path, value: &str) -> Option<PathBuf> {
+    let base = dir.canonicalize().ok()?;
+    Some(normalize_path(&base.join(value)))
+}
+
+/// Collapse `.` and `..` components without touching the filesystem.
+fn normalize_path(path: &Path) -> PathBuf {
+    let mut parts: Vec<Component> = Vec::new();
+    for component in path.components() {
+        match component {
+            Component::CurDir => {}
+            Component::ParentDir => {
+                if let Some(Component::Normal(_)) = parts.last() {
+                    parts.pop();
+                } else {
+                    parts.push(component);
                 }
-
-                diagnostics.push(diag);
             }
+            _ => parts.push(component),
         }
     }
-
-    diagnostics
+    parts.iter().collect()
 }
 
-/// Find the closest matching label name using case-insensitive substring matching.
-fn find_closest_label<'a>(input: &str, known: &'a [String]) -> Option<&'a str> {
-    let input_lower = input.to_lowercase();
+/// POSIX-style relative path from `from_dir` to `to_file`, climbing with `..`.
+fn relative_path(from_dir: &Path, to_file: &Path) -> Option<String> {
+    let from = from_dir.canonicalize().ok()?;
+    let to = to_file.canonicalize().ok()?;
 
-    // Exact case-insensitive match
-    for label in known {
-        if label.to_lowercase() == input_lower {
-            return Some(label);
-        }
+    let from_comps: Vec<_> = from.components().collect();
+    let to_comps: Vec<_> = to.components().collect();
+
+    let mut common = 0;
+    while common < from_comps.len()
+        && common < to_comps.len()
+        && from_comps[common] == to_comps[common]
+    {
+        common += 1;
     }
 
-    // Substring match
-    for label in known {
-        if label.to_lowercase().contains(&input_lower)
-            || input_lower.contains(&label.to_lowercase())
-        {
-            return Some(label);
-        }
+    let mut result = PathBuf::new();
+    for _ in common..from_comps.len() {
+        result.push("..");
+    }
+    for comp in &to_comps[common..] {
+        result.push(comp.as_os_str());
     }
 
-    // Simple edit distance: find labels where most words match
-    let input_words: Vec<&str> = input_lower.split_whitespace().collect();
-    let mut best_match = None;
-    let mut best_score = 0;
-    for label in known {
-        let label_words: Vec<String> = label
-            .to_lowercase()
-            .split_whitespace()
-            .map(String::from)
-            .collect();
-        let matching = input_words
-            .iter()
-            .filter(|w| label_words.iter().any(|lw| lw == *w))
-            .count();
-        if matching > best_score && matching >= input_words.len() / 2 {
-            best_score = matching;
-            best_match = Some(label.as_str());
-        }
+    let s = result.to_string_lossy().replace('\\', "/");
+    if s.is_empty() {
+        None
+    } else {
+        Some(s)
     }
-
-    best_match
 }
 
-/// Validate `slug:` values against the Fleet Maintained App registry.
-///
-/// Flags unknown slugs with "Did you mean...?" suggestions.
-pub fn validate_fma_slugs(source: &str) -> Vec<Diagnostic> {
-    use super::completion_data::{find_similar_fma_slug, is_valid_fma_slug};
+/// Validate label references in `labels_include_any`, `labels_exclude_any`,
+/// and `labels_include_all` against the workspace's known label names —
+/// engine-backed: builds a [`RepoIndex`] and runs the same `label-reference`
+/// check `flint check` uses, so the LSP inherits built-in-label awareness and
+/// the engine's "did you mean" suggestions. (Replaces a hand-rolled text
+/// scanner and a third fuzzy-matcher implementation.)
+pub fn validate_label_references(
+    source: &str,
+    file_path: &std::path::Path,
+    known_labels: &[String],
+) -> Vec<Diagnostic> {
+    use flint_lint::cross_reference::{check_label_references, RepoIndex};
 
-    let mut diagnostics = Vec::new();
-
-    for (line_idx, line) in source.lines().enumerate() {
-        let trimmed = line.trim().trim_start_matches('-').trim();
-
-        if !trimmed.starts_with("slug:") {
-            continue;
-        }
-
-        // Extract slug value
-        let value = trimmed
-            .strip_prefix("slug:")
-            .unwrap()
-            .trim()
-            .trim_matches('"')
-            .trim_matches('\'')
-            .trim();
-
-        if value.is_empty() || value.starts_with('$') || value.starts_with('#') {
-            continue; // Skip empty, env vars, comments
-        }
-
-        if is_valid_fma_slug(value) {
-            continue;
-        }
-
-        let suggestion = find_similar_fma_slug(value);
-        let start_col = line.find(value).unwrap_or(0) as u32;
-        let end_col = start_col + value.len() as u32;
-
-        let message = if let Some(ref closest) = suggestion {
-            format!(
-                "Unknown Fleet Maintained App slug '{}'. Did you mean '{}'?",
-                value, closest
-            )
-        } else {
-            format!(
-                "Unknown Fleet Maintained App slug '{}'. Check available apps at fleetdm.com",
-                value
-            )
-        };
-
-        diagnostics.push(Diagnostic {
-            range: Range {
-                start: Position {
-                    line: line_idx as u32,
-                    character: start_col,
-                },
-                end: Position {
-                    line: line_idx as u32,
-                    character: end_col,
-                },
-            },
-            severity: Some(DiagnosticSeverity::WARNING),
-            source: Some("fleet-lint".to_string()),
-            code: Some(tower_lsp::lsp_types::NumberOrString::String(
-                "unknown-fma-slug".to_string(),
-            )),
-            message,
-            ..Default::default()
-        });
-    }
-
-    diagnostics
+    let Ok(yaml) = serde_yaml::from_str::<serde_yaml::Value>(source) else {
+        // Mid-edit unparseable documents produce no label diagnostics; the
+        // main lint pass reports the syntax error.
+        return Vec::new();
+    };
+    let index = RepoIndex::from_label_names(known_labels);
+    check_label_references(&index, file_path, source, &yaml)
+        .iter()
+        .map(|e| super::diagnostics::lint_error_to_diagnostic(e, source))
+        .collect()
 }
 
 #[cfg(test)]
@@ -590,6 +555,50 @@ mod tests {
     use super::*;
     use std::fs;
     use tempfile::TempDir;
+
+    #[test]
+    fn label_validation_flags_unknown_with_suggestion() {
+        let known = vec!["Apple Silicon macOS hosts".to_string()];
+        let source = "controls:\n  macos_settings:\n    custom_settings:\n      - path: ./a.mobileconfig\n        labels_include_any:\n          - Apple Silcon macOS hosts\n";
+        let diags =
+            validate_label_references(source, std::path::Path::new("fleets/t.yml"), &known);
+        assert_eq!(diags.len(), 1, "got: {diags:?}");
+        // Engine-backed: the diagnostic carries the registry code.
+        assert_eq!(
+            diags[0].code,
+            Some(tower_lsp::lsp_types::NumberOrString::String(
+                "label-reference".to_string()
+            ))
+        );
+        assert!(diags[0].message.contains("Apple Silcon macOS hosts"));
+        assert!(
+            diags[0].message.contains("Apple Silicon macOS hosts"),
+            "should suggest the close match: {}",
+            diags[0].message
+        );
+    }
+
+    #[test]
+    fn label_validation_accepts_known_and_builtin() {
+        let known = vec!["Workstations".to_string()];
+        let source = "controls:\n  macos_settings:\n    custom_settings:\n      - path: ./a.mobileconfig\n        labels_include_any:\n          - Workstations\n          - macOS\n";
+        let diags =
+            validate_label_references(source, std::path::Path::new("fleets/t.yml"), &known);
+        // "macOS" is a Fleet built-in — the old text scanner flagged it
+        // (false positive); the engine check knows better.
+        assert!(diags.is_empty(), "got: {diags:?}");
+    }
+
+    #[test]
+    fn label_validation_silent_on_unparseable_source() {
+        let known = vec!["X".to_string()];
+        let diags = validate_label_references(
+            "labels_include_any: [unclosed",
+            std::path::Path::new("t.yml"),
+            &known,
+        );
+        assert!(diags.is_empty());
+    }
 
     #[test]
     fn test_extract_path_value() {
@@ -606,27 +615,24 @@ mod tests {
     }
 
     #[test]
-    fn test_validate_path_references() {
+    fn test_validate_path_references_ignores_existence() {
+        // Existence is the `path-exists` lint rule's job now — this function
+        // only flags malformed syntax. A missing file with valid syntax must
+        // produce no diagnostic here (regression: it used to, and resolved
+        // against the workspace root, which false-positived on `../` refs).
         let temp_dir = TempDir::new().unwrap();
-
-        // Create a referenced file
-        let lib_dir = temp_dir.path().join("lib");
-        fs::create_dir(&lib_dir).unwrap();
-        fs::write(lib_dir.join("policies.yml"), "policies:\n  - name: test").unwrap();
-
         let source = r#"policies:
   - path: lib/policies.yml
   - path: lib/missing.yml
 "#;
-
         let main_file = temp_dir.path().join("default.yml");
         fs::write(&main_file, source).unwrap();
 
         let diagnostics = validate_path_references(source, &main_file, Some(temp_dir.path()));
-
-        // Should have 1 diagnostic for the missing file
-        assert_eq!(diagnostics.len(), 1);
-        assert!(diagnostics[0].message.contains("missing.yml"));
+        assert!(
+            diagnostics.is_empty(),
+            "existence is no longer checked here: {diagnostics:?}"
+        );
     }
 
     #[test]
@@ -691,5 +697,74 @@ mod tests {
         assert_eq!(refs[0].line, 1);
         assert_eq!(refs[1].path_value, "lib/more-policies.yml");
         assert_eq!(refs[1].line, 4);
+    }
+
+    #[test]
+    fn test_fix_all_moved_references() {
+        let tmp = TempDir::new().unwrap();
+        fs::create_dir_all(tmp.path().join(".git")).unwrap();
+
+        // The moved file at its new home.
+        let new_home = tmp.path().join("platforms/macos/L1/software");
+        fs::create_dir_all(&new_home).unwrap();
+        fs::write(new_home.join("swiftdialog.yml"), "name: swiftdialog\n").unwrap();
+
+        // Two fleet files still reference the old location.
+        let fleets = tmp.path().join("fleets");
+        fs::create_dir_all(&fleets).unwrap();
+        let body = "software:\n  packages:\n    - path: ../platforms/macos/software/swiftdialog.yml\n";
+        fs::write(fleets.join("a.yml"), body).unwrap();
+        fs::write(fleets.join("b.yml"), body).unwrap();
+
+        let from_file = fleets.join("a.yml");
+        let doc_for = |_: &Path| None; // force disk reads
+
+        let (edit, count, basename) = fix_all_moved_references(
+            tmp.path(),
+            &from_file,
+            "../platforms/macos/software/swiftdialog.yml",
+            "../platforms/macos/L1/software/swiftdialog.yml",
+            &doc_for,
+        )
+        .expect("should find 2+ references to the moved file");
+
+        assert_eq!(count, 2);
+        assert_eq!(basename, "swiftdialog.yml");
+        let changes = edit.changes.unwrap();
+        assert_eq!(changes.len(), 2, "both fleet files should be edited");
+        for (_url, edits) in changes {
+            assert_eq!(edits.len(), 1);
+            assert_eq!(
+                edits[0].new_text,
+                "../platforms/macos/L1/software/swiftdialog.yml"
+            );
+        }
+    }
+
+    #[test]
+    fn test_fix_all_single_reference_returns_none() {
+        // A lone reference is handled by the per-line quick-fix, so the
+        // workspace-wide action must not appear.
+        let tmp = TempDir::new().unwrap();
+        fs::create_dir_all(tmp.path().join(".git")).unwrap();
+        let new_home = tmp.path().join("platforms/macos/L1/software");
+        fs::create_dir_all(&new_home).unwrap();
+        fs::write(new_home.join("only.yml"), "x\n").unwrap();
+        let fleets = tmp.path().join("fleets");
+        fs::create_dir_all(&fleets).unwrap();
+        fs::write(
+            fleets.join("a.yml"),
+            "software:\n  packages:\n    - path: ../platforms/macos/software/only.yml\n",
+        )
+        .unwrap();
+
+        let result = fix_all_moved_references(
+            tmp.path(),
+            &fleets.join("a.yml"),
+            "../platforms/macos/software/only.yml",
+            "../platforms/macos/L1/software/only.yml",
+            &(|_: &Path| None),
+        );
+        assert!(result.is_none(), "single reference must not yield fix-all");
     }
 }

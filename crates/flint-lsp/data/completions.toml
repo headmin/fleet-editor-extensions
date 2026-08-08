@@ -554,3 +554,134 @@ description = "Linux reports"
 context = "labels"
 pattern = "./labels/*.yml"
 description = "Label definitions"
+
+# --- Label-targeting macros (starter combinations) ---
+# Fleet's rules are PER-CONTEXT, not one blanket rule, and a wrong
+# combination surfaces only when a GitOps run fails ~10 minutes later.
+# Verified in Fleet source (main @ 3c8df41762):
+#   - software items (pkg/spec/gitops.go): exactly ONE of
+#     labels_include_any / labels_include_all / labels_exclude_any.
+#   - profiles & scripts (server/fleet/mdm.go): the include forms are
+#     mutually exclusive; labels_exclude_any may accompany either.
+#   - policies (server/fleet/policies.go verifyPolicyLabelScopes): include
+#     pair exclusive, exclude pair exclusive (labels_exclude_any /
+#     labels_exclude_all — policies-only), one include + one exclude MAY be
+#     combined, and no label may appear in both an include and an exclude
+#     list (LabelOverlap).
+# These starters insert a legal combination with tab stops; the
+# label-targeting lint catches hand-rolled mixes.
+
+[[blocks]]
+context = "configuration_profiles"
+name = "Profile → hosts with ANY label"
+description = "Install on hosts carrying any listed label (only one labels_* key per item)"
+snippet = """
+- path: ${1:../profiles/example.mobileconfig}
+  labels_include_any:
+    - ${2:Label name}"""
+
+[[blocks]]
+context = "configuration_profiles"
+name = "Profile → hosts with ALL labels"
+description = "Install only on hosts carrying every listed label (only one labels_* key per item)"
+snippet = """
+- path: ${1:../profiles/example.mobileconfig}
+  labels_include_all:
+    - ${2:First label}
+    - ${3:Second label}"""
+
+[[blocks]]
+context = "configuration_profiles"
+name = "Profile → exclude labeled hosts"
+description = "Install everywhere except hosts carrying a listed label (only one labels_* key per item)"
+snippet = """
+- path: ${1:../profiles/example.mobileconfig}
+  labels_exclude_any:
+    - ${2:Label name}"""
+
+[[blocks]]
+context = "scripts"
+name = "Script → hosts with ANY label"
+description = "Run on hosts carrying any listed label (only one labels_* key per item)"
+snippet = """
+- path: ${1:../scripts/example.sh}
+  labels_include_any:
+    - ${2:Label name}"""
+
+[[blocks]]
+context = "scripts"
+name = "Script → exclude labeled hosts"
+description = "Run everywhere except hosts carrying a listed label (only one labels_* key per item)"
+snippet = """
+- path: ${1:../scripts/example.sh}
+  labels_exclude_any:
+    - ${2:Label name}"""
+
+[[blocks]]
+context = "packages"
+name = "Package → hosts with ANY label"
+description = "Install on hosts carrying any listed label (only one labels_* key per item)"
+snippet = """
+- path: ${1:../software/example.package.yml}
+  self_service: ${2:true}
+  labels_include_any:
+    - ${3:Label name}"""
+
+[[blocks]]
+context = "policies"
+name = "Policy → hosts with ANY label"
+description = "Run only on hosts carrying any listed label"
+snippet = """
+- name: ${1:Policy name}
+  query: ${2:SELECT 1}
+  platform: ${3:darwin}
+  labels_include_any:
+    - ${4:Label name}"""
+
+[[blocks]]
+context = "policies"
+name = "Policy → hosts with ALL labels"
+description = "Run only on hosts carrying every listed label"
+snippet = """
+- name: ${1:Policy name}
+  query: ${2:SELECT 1}
+  platform: ${3:darwin}
+  labels_include_all:
+    - ${4:First label}
+    - ${5:Second label}"""
+
+[[blocks]]
+context = "policies"
+name = "Policy → exclude hosts with ANY label"
+description = "Skip hosts carrying any listed label (labels_exclude_any)"
+snippet = """
+- name: ${1:Policy name}
+  query: ${2:SELECT 1}
+  platform: ${3:darwin}
+  labels_exclude_any:
+    - ${4:Label name}"""
+
+[[blocks]]
+context = "policies"
+name = "Policy → exclude hosts with ALL labels"
+description = "Skip only hosts carrying every listed label (labels_exclude_all — policies only)"
+snippet = """
+- name: ${1:Policy name}
+  query: ${2:SELECT 1}
+  platform: ${3:darwin}
+  labels_exclude_all:
+    - ${4:First label}
+    - ${5:Second label}"""
+
+[[blocks]]
+context = "policies"
+name = "Policy → include ANY, exclude ANY"
+description = "Combine one include form with one exclude form (policies allow this; labels must not repeat across them)"
+snippet = """
+- name: ${1:Policy name}
+  query: ${2:SELECT 1}
+  platform: ${3:darwin}
+  labels_include_any:
+    - ${4:Included label}
+  labels_exclude_any:
+    - ${5:Excluded label}"""

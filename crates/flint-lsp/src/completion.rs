@@ -79,7 +79,7 @@ enum CompletionContext {
     SlugValue,
     /// After paths: key, suggesting glob patterns
     GlobValue { parent_context: String },
-    /// Inside labels_include_any or labels_exclude_any list
+    /// Inside any `labels_{include,exclude}_{any,all}` list
     LabelValue,
     /// Inside categories list
     CategoryValue,
@@ -247,7 +247,10 @@ fn determine_completion_context(
     if trimmed.starts_with('-') || trimmed.is_empty() {
         if let Some(parent_key) = find_immediate_parent_key(source, line_idx, line) {
             match parent_key.as_str() {
-                "labels_include_any" | "labels_exclude_any" => {
+                "labels_include_any"
+                | "labels_include_all"
+                | "labels_exclude_any"
+                | "labels_exclude_all" => {
                     return CompletionContext::LabelValue;
                 }
                 "categories" => {
@@ -675,8 +678,20 @@ fn complete_policy_fields(line: &str, col_idx: usize) -> Vec<CompletionItem> {
             "Allow conditional-access bypass (Fleet Premium)",
             false,
         ),
+        // All four scopes are policy-valid (policies.go:646-649).
+        // `labels_exclude_all` exists on no other GitOps context.
         ("labels_include_any", "Target hosts with any of these labels", false),
+        (
+            "labels_include_all",
+            "Target hosts with all of these labels",
+            false,
+        ),
         ("labels_exclude_any", "Exclude hosts with any of these labels", false),
+        (
+            "labels_exclude_all",
+            "Exclude hosts with all of these labels (policies only)",
+            false,
+        ),
         (
             "webhooks_and_tickets_enabled",
             "Add this policy to the failing-policies webhook (GitOps convenience)",
@@ -685,10 +700,23 @@ fn complete_policy_fields(line: &str, col_idx: usize) -> Vec<CompletionItem> {
         ("team", "Fleet (team) this policy belongs to", false),
     ];
 
-    fields
+    let mut items: Vec<CompletionItem> = fields
         .iter()
         .map(|(name, desc, required)| create_field_completion(name, desc, *required))
-        .collect()
+        .collect();
+
+    // Policies are the only context with BOTH an include pair and an exclude
+    // pair, and the only one where include/exclude may be combined — the
+    // starter blocks encode legal combinations so the shapes aren't guessed.
+    for block in blocks_for_context("policies") {
+        items.push(create_block_completion(
+            &block.name,
+            &block.description,
+            &block.snippet,
+        ));
+    }
+
+    items
 }
 
 /// Complete query field names.
@@ -1212,10 +1240,7 @@ fn complete_device_settings_section() -> Vec<CompletionItem> {
 /// pre-built globs for the current section (profiles, scripts, policies, etc.).
 /// Suggest Fleet Maintained App slugs for `slug:` values (data-driven from fma-registry.toml).
 fn complete_fma_slugs() -> Vec<CompletionItem> {
-    use super::completion_data::FMA_REGISTRY;
-
-    FMA_REGISTRY
-        .fma
+    flint_lint::fma::APPS
         .iter()
         .flat_map(|app| {
             app.platforms.iter().map(move |platform| {
@@ -1417,6 +1442,17 @@ fn complete_path_ref_fields() -> Vec<CompletionItem> {
             field.required,
         ));
     }
+    // Label-targeting macros: correct starter combinations for semantics
+    // that are easy to get wrong by hand (one labels_* key per item) and
+    // expensive to discover at gitops-apply time.
+    for block in blocks_for_context("configuration_profiles") {
+        let snippet = block.snippet.strip_prefix('\n').unwrap_or(&block.snippet);
+        items.push(create_block_completion(
+            &block.name,
+            &block.description,
+            snippet,
+        ));
+    }
     items
 }
 
@@ -1428,6 +1464,14 @@ fn complete_script_fields(_line: &str, _col_idx: usize) -> Vec<CompletionItem> {
             &field.name,
             &field.description,
             field.required,
+        ));
+    }
+    for block in blocks_for_context("scripts") {
+        let snippet = block.snippet.strip_prefix('\n').unwrap_or(&block.snippet);
+        items.push(create_block_completion(
+            &block.name,
+            &block.description,
+            snippet,
         ));
     }
     items
@@ -1542,7 +1586,9 @@ fn complete_org_settings_section() -> Vec<CompletionItem> {
         (
             "org_info",
             "Organization info (block)",
-            "org_info:\n  org_name: ${1:Organization}\n  org_logo_url: ${2:https://}\n  contact_url: ${3:https://}",
+            // org_logo_url is deprecated (app.go:1368) — scaffold the
+            // mode-aware name so the snippet never seeds a rename warning.
+            "org_info:\n  org_name: ${1:Organization}\n  org_logo_url_dark_mode: ${2:https://}\n  contact_url: ${3:https://}",
         ),
         (
             "secrets",
@@ -1647,10 +1693,28 @@ fn complete_org_sso_settings_fields() -> Vec<CompletionItem> {
 fn complete_org_info_fields() -> Vec<CompletionItem> {
     let fields = [
         ("org_name", "Organization display name", false),
-        ("org_logo_url", "Organization logo URL", false),
+        // Mode-aware names only. `org_logo_url` and
+        // `org_logo_url_light_background` are deprecated in Fleet
+        // (app.go:1368-1371) and auto-migrated by NormalizeLogoFields —
+        // offering them would hand the user a key flint then warns about.
         (
-            "org_logo_url_light_background",
-            "Logo URL for light backgrounds",
+            "org_logo_url_dark_mode",
+            "Logo URL shown in dark mode",
+            false,
+        ),
+        (
+            "org_logo_url_light_mode",
+            "Logo URL shown in light mode",
+            false,
+        ),
+        (
+            "org_logo_path_dark_mode",
+            "Local logo file for dark mode (mutually exclusive with the URL form)",
+            false,
+        ),
+        (
+            "org_logo_path_light_mode",
+            "Local logo file for light mode (mutually exclusive with the URL form)",
             false,
         ),
         ("contact_url", "Support contact URL", false),
