@@ -4,7 +4,7 @@
 //! the ordered collection that the engine iterates. Rules are stateless —
 //! they receive config, file path, and source, and return diagnostics.
 
-use super::error::LintError;
+use super::error::{LintError, Span};
 use super::fleet_config::FleetConfig;
 use std::path::Path;
 
@@ -312,7 +312,7 @@ impl Rule for PlatformCompatibilityRule {
         "semantic"
     }
 
-    fn check(&self, config: &FleetConfig, file: &Path, _source: &str) -> Vec<LintError> {
+    fn check(&self, config: &FleetConfig, file: &Path, source: &str) -> Vec<LintError> {
         let mut errors = Vec::new();
 
         // Check policies
@@ -325,6 +325,7 @@ impl Rule for PlatformCompatibilityRule {
                             platform,
                             &format!("Policy '{}'", policy.name.as_deref().unwrap_or("unnamed")),
                             file,
+                            source,
                         ));
                     }
                 }
@@ -341,6 +342,7 @@ impl Rule for PlatformCompatibilityRule {
                             platform,
                             &format!("Query '{}'", query.name.as_deref().unwrap_or("unnamed")),
                             file,
+                            source,
                         ));
                     }
                 }
@@ -522,6 +524,7 @@ fn check_query_platform_compat(
     platform: &str,
     item_name: &str,
     file: &Path,
+    source: &str,
 ) -> Vec<LintError> {
     use super::osquery::OSQUERY_TABLES;
 
@@ -568,7 +571,17 @@ fn check_query_platform_compat(
                             "Table '{}' is only available on: {}",
                             table,
                             table_info.platforms.join(", ")
-                        )),
+                        ))
+                        // Point at the TABLE inside the query — the token the
+                        // message names. The invalid-platform diagnostic from
+                        // `type-validation` already points at the platform
+                        // value, so together they mark both halves of the
+                        // mismatch instead of both marking the same thing.
+                        .with_span_opt(
+                            find_table_span(source, table)
+                                .or_else(|| super::yaml_utils::find_value_span(source, "platform", platform))
+                                .or_else(|| super::yaml_utils::find_key_span(source, "query", 0)),
+                        ),
                     );
                 }
             }
@@ -576,6 +589,31 @@ fn check_query_platform_compat(
     }
 
     errors
+}
+
+/// Span of a table name where it appears after `FROM` in the source.
+///
+/// Located with the same `FROM <table>` shape the extractor matched, but
+/// case-insensitively against the ORIGINAL text — the extractor works on a
+/// lowercased copy, and lowercasing is not guaranteed to preserve byte
+/// offsets, so column arithmetic has to happen on the real line.
+fn find_table_span(source: &str, table: &str) -> Option<Span> {
+    static FROM_TABLE_CI: once_cell::sync::Lazy<regex::Regex> =
+        once_cell::sync::Lazy::new(|| regex::Regex::new(r"(?i)\bfrom\s+(\w+)").unwrap());
+
+    for (idx, line) in source.lines().enumerate() {
+        for cap in FROM_TABLE_CI.captures_iter(line) {
+            if let Some(m) = cap.get(1) {
+                if m.as_str().eq_ignore_ascii_case(table) {
+                    // Count CHARS, not bytes: a non-ASCII comment earlier on
+                    // the line would otherwise shift the caret.
+                    let col = line[..m.start()].chars().count() + 1;
+                    return Some(Span::token(idx + 1, col, m.as_str().chars().count()));
+                }
+            }
+        }
+    }
+    None
 }
 
 /// Strip SQL comments from a query string.
@@ -1100,6 +1138,61 @@ mod tests {
 
     // -- Issue #4: comma-separated platform handling --
 
+    /// The platform-compatibility errors carried NO span at all: the helper
+    /// had no `source` parameter, so it could not locate anything. In CI that
+    /// meant a `--format github` annotation with only `file=`, which GitHub
+    /// attaches to the file rather than a line — a finding that renders
+    /// nowhere near the problem.
+    ///
+    /// The span points at the TABLE, not the platform: `type-validation`
+    /// already marks a bad platform value, so pointing both at the same token
+    /// would waste one of them.
+    #[test]
+    fn platform_compat_errors_point_at_the_table() {
+        let source = "- name: p\n  platform: darwin,windows\n  query: \"SELECT 1 FROM usb_devices\"\n";
+        let errs = check_query_platform_compat(
+            "SELECT 1 FROM usb_devices",
+            "darwin,windows",
+            "Query 'q'",
+            std::path::Path::new("test.yml"),
+            source,
+        );
+        assert_eq!(errs.len(), 1, "got: {errs:?}");
+        let span = errs[0].span.expect("must carry a span");
+        assert_eq!(span.line, 3, "the query line");
+        assert_eq!(span.len, "usb_devices".len(), "caret covers the table name");
+        // And it really is under the table, not merely on the right line.
+        let line = source.lines().nth(2).unwrap();
+        assert!(
+            line[span.column - 1..].starts_with("usb_devices"),
+            "span column {} lands on {:?}",
+            span.column,
+            &line[span.column - 1..]
+        );
+    }
+
+    /// Case-insensitively, and counting chars — a non-ASCII comment earlier on
+    /// the line must not shift the caret.
+    #[test]
+    fn table_span_is_case_insensitive_and_char_counted() {
+        let source = "  # naïve check — see notes\n  query: \"select 1 FROM Usb_Devices\"\n";
+        let span = find_table_span(source, "usb_devices").expect("found");
+        assert_eq!(span.line, 2);
+        let line = source.lines().nth(1).unwrap();
+        let chars: Vec<char> = line.chars().collect();
+        let at: String = chars[span.column - 1..span.column - 1 + span.len].iter().collect();
+        assert_eq!(at, "Usb_Devices");
+    }
+
+    /// The control: a table flint does not know, or one that is absent from
+    /// the text, must yield no span rather than a confident wrong one.
+    #[test]
+    fn absent_table_yields_no_span() {
+        assert!(find_table_span("query: \"SELECT 1\"\n", "usb_devices").is_none());
+        // `from` without a table, and a bare mention that is not a FROM clause.
+        assert!(find_table_span("-- usb_devices is nice\n", "usb_devices").is_none());
+    }
+
     #[test]
     fn platform_compat_single_platform_supported() {
         // usb_devices is on darwin — should be clean.
@@ -1108,6 +1201,7 @@ mod tests {
             "darwin",
             "Query 'q'",
             std::path::Path::new("test.yml"),
+            "SELECT 1 FROM usb_devices",
         );
         assert!(errs.is_empty(), "got: {:?}", errs);
     }
@@ -1121,6 +1215,7 @@ mod tests {
             "darwin,linux",
             "Query 'q'",
             std::path::Path::new("test.yml"),
+            "SELECT 1 FROM usb_devices",
         );
         assert!(errs.is_empty(), "got: {:?}", errs);
     }
@@ -1134,6 +1229,7 @@ mod tests {
             "darwin,windows",
             "Query 'q'",
             std::path::Path::new("test.yml"),
+            "SELECT 1 FROM usb_devices",
         );
         assert_eq!(errs.len(), 1);
         assert!(
@@ -1151,6 +1247,7 @@ mod tests {
             "",
             "Query 'q'",
             std::path::Path::new("test.yml"),
+            "SELECT 1 FROM usb_devices",
         );
         assert!(errs.is_empty());
     }
@@ -1162,6 +1259,7 @@ mod tests {
             "darwin , linux",
             "Query 'q'",
             std::path::Path::new("test.yml"),
+            "SELECT 1 FROM usb_devices",
         );
         assert!(errs.is_empty(), "whitespace tolerance: got {:?}", errs);
     }
@@ -1175,6 +1273,7 @@ mod tests {
             "windows",
             "Query 'q'",
             std::path::Path::new("test.yml"),
+            "SELECT 1 FROM usb_devices",
         );
         assert!(
             errs.iter().any(|e| e.message.contains("usb_devices")),

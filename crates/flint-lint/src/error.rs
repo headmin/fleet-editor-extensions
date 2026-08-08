@@ -204,6 +204,18 @@ impl LintError {
         self
     }
 
+    /// Attach a span only if one was located.
+    ///
+    /// The common shape for rules that try several locators in order: a
+    /// missing span is honest ("we could not find this in the text") and
+    /// better than a confident span pointing at line 1.
+    pub fn with_span_opt(mut self, span: Option<Span>) -> Self {
+        if let Some(span) = span {
+            self.span = Some(span);
+        }
+        self
+    }
+
     pub fn with_context(mut self, context: impl Into<String>) -> Self {
         self.context = Some(context.into());
         self
