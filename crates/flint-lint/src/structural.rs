@@ -9,7 +9,10 @@ use super::deprecations::DEPRECATION_REGISTRY;
 use super::error::LintError;
 use super::fleet_config::FleetConfig;
 use super::rules::Rule;
-use super::structure::{schema_for_path, SchemaNode, KEY_REGISTRY};
+use super::structure::{
+    schema_for_path, SchemaNode, APP_STORE_ITEM_SCHEMA, FMA_ITEM_SCHEMA, KEY_REGISTRY,
+    PACKAGE_ITEM_SCHEMA, SOFTWARE_LIST_SCHEMA,
+};
 use std::path::Path;
 
 pub struct StructuralValidationRule;
@@ -28,9 +31,6 @@ impl Rule for StructuralValidationRule {
     fn is_fixable(&self) -> bool {
         true
     }
-    fn docs_url(&self) -> Option<&'static str> {
-        Some("https://fleetdm.com/docs/configuration/yaml-files")
-    }
 
     fn check(&self, _config: &FleetConfig, file: &Path, source: &str) -> Vec<LintError> {
         let yaml_value: serde_yaml::Value = match serde_yaml::from_str(source) {
@@ -38,12 +38,72 @@ impl Rule for StructuralValidationRule {
             Err(_) => return Vec::new(), // parse errors are reported elsewhere
         };
 
-        let schema = schema_for_path(file);
         let mut errors = Vec::new();
 
+        // Standalone software files (software/*.yml, *.package.yml) aren't
+        // fleet configs — their root is a package/app item (or a list of
+        // them), not the GitOps document. Real-repo replay of playground
+        // commit 5e6a7ec showed unknown item keys (e.g. `description:`)
+        // sailing through unchecked.
+        if matches!(
+            super::engine::detect_file_type(file),
+            super::engine::FileType::Software
+        ) {
+            validate_software_file(&yaml_value, source, file, &mut errors);
+            return errors;
+        }
+
+        let schema = schema_for_path(file);
         validate_node(&yaml_value, schema, "", source, file, &mut errors);
 
         errors
+    }
+}
+
+/// Pick the schema for one standalone software item by its discriminating
+/// key: `app_store_id` → App Store app, `slug` → Fleet-maintained app,
+/// otherwise a package. Returns the schema plus the registry path used for
+/// misplaced-key classification and error messages.
+fn software_item_schema(item: &serde_yaml::Value) -> (&'static SchemaNode, &'static str) {
+    if let serde_yaml::Value::Mapping(map) = item {
+        if map.contains_key(serde_yaml::Value::from("app_store_id")) {
+            return (&APP_STORE_ITEM_SCHEMA, "software.app_store_apps[]");
+        }
+        if map.contains_key(serde_yaml::Value::from("slug")) {
+            return (&FMA_ITEM_SCHEMA, "software.fleet_maintained_apps[]");
+        }
+    }
+    (&PACKAGE_ITEM_SCHEMA, "software.packages[]")
+}
+
+/// Validate a standalone software file. Three shapes exist in the wild:
+/// a mapping with `packages:`/`app_store_apps:`/`fleet_maintained_apps:`
+/// lists, a single item mapping, or a sequence of item mappings.
+fn validate_software_file(
+    value: &serde_yaml::Value,
+    source: &str,
+    file: &Path,
+    errors: &mut Vec<LintError>,
+) {
+    match value {
+        serde_yaml::Value::Sequence(items) => {
+            for item in items {
+                let (schema, path) = software_item_schema(item);
+                validate_node(item, schema, path, source, file, errors);
+            }
+        }
+        serde_yaml::Value::Mapping(map) => {
+            let is_list_file = ["packages", "app_store_apps", "fleet_maintained_apps"]
+                .iter()
+                .any(|k| map.contains_key(serde_yaml::Value::from(*k)));
+            if is_list_file {
+                validate_node(value, &SOFTWARE_LIST_SCHEMA, "software", source, file, errors);
+            } else {
+                let (schema, path) = software_item_schema(value);
+                validate_node(value, schema, path, source, file, errors);
+            }
+        }
+        _ => {}
     }
 }
 
@@ -165,8 +225,12 @@ fn classify_unknown_key(
         if !other_paths.is_empty() {
             // Check if the key is a grandchild (missing wrapper)
             // e.g., we're at "controls.macos_settings" and the key is "path" which belongs
-            // under "controls.macos_settings.custom_settings[]"
-            for sibling_key in current_children.keys() {
+            // under "controls.macos_settings.custom_settings[]".
+            // Sorted so the suggested wrapper is deterministic — HashMap key
+            // order made the pick flip between runs (e.g. policies/queries).
+            let mut sibling_keys: Vec<&&str> = current_children.keys().collect();
+            sibling_keys.sort();
+            for sibling_key in sibling_keys {
                 let sibling_path = if current_path.is_empty() {
                     sibling_key.to_string()
                 } else {
@@ -246,8 +310,12 @@ fn classify_unknown_key(
     if let Some(closest) = suggestion {
         err = err
             .with_help(format!("Did you mean '{}'?", closest))
-            .with_suggestion(closest.to_string())
-            .with_fix_safety(super::error::FixSafety::Safe);
+            .with_context(key.to_string())
+            .with_fix(super::error::Fix::Replace {
+                old: Some(key.to_string()),
+                new: closest.to_string(),
+                safety: super::error::FixSafety::Safe,
+            });
     } else {
         let valid_list: Vec<&str> = current_children.keys().copied().collect();
         if !valid_list.is_empty() {
@@ -291,35 +359,7 @@ fn pick_best_path(_key: &str, current_path: &str, candidates: &[&&str]) -> Strin
     (*candidates[0]).to_string()
 }
 
-// ---------------------------------------------------------------------------
-// Levenshtein distance
-// ---------------------------------------------------------------------------
-
-fn levenshtein_distance(a: &str, b: &str) -> usize {
-    let a_len = a.len();
-    let b_len = b.len();
-
-    if a_len == 0 {
-        return b_len;
-    }
-    if b_len == 0 {
-        return a_len;
-    }
-
-    let mut prev: Vec<usize> = (0..=b_len).collect();
-    let mut curr = vec![0; b_len + 1];
-
-    for (i, ca) in a.chars().enumerate() {
-        curr[0] = i + 1;
-        for (j, cb) in b.chars().enumerate() {
-            let cost = if ca == cb { 0 } else { 1 };
-            curr[j + 1] = (prev[j + 1] + 1).min(curr[j] + 1).min(prev[j] + cost);
-        }
-        std::mem::swap(&mut prev, &mut curr);
-    }
-
-    prev[b_len]
-}
+use super::util::levenshtein_distance;
 
 /// Find the closest matching key using Levenshtein distance.
 /// Returns `None` if no key is close enough (distance > max(3, key_len/2)).
@@ -407,6 +447,141 @@ mod tests {
     // Issue #13: a policy path reference may carry inline fields (Fleet's
     // Policy struct embeds BaseItem alongside the full spec), and
     // agent_options.path must not be blamed on policies[0].
+    #[test]
+    fn test_fleet_source_synced_keys_2026_08() {
+        // Keys verified against Fleet main @ 3c8df41762 (2026-08-06):
+        // pkg/spec/gitops.go, fleet/app.go, fleet/software_installer.go,
+        // docs/Configuration/yaml-files.md. Each was a live false positive
+        // before this sync.
+        let rule = StructuralValidationRule;
+        let config = FleetConfig::default();
+
+        let yaml = r#"
+custom_host_vitals:
+  - name: Asset tag
+controls:
+  windows_entra_client_ids:
+    - abc-123
+  android_enabled_and_configured: true
+  apple_account_provisioning:
+    oauth_idp_token_url: https://example.okta.com/oauth2/v1/token
+    oauth_idp_client_id: client-id
+    oauth_idp_client_secret: $FLEET_SECRET_IDP
+  apple_settings:
+    configuration_profiles:
+      - path: ../profiles/passcode.json
+        activation: ../profiles/passcode-activation.json
+  windows_settings:
+    managed_local_account_settings:
+      enabled: true
+software:
+  packages:
+    - path: ../lib/a.package.yml
+      always_download: true
+      setup_experience_platform: darwin, linux
+"#;
+        let errors = rule.check(&config, Path::new("default.yml"), yaml);
+        assert!(errors.is_empty(), "valid Fleet keys flagged: {:?}", errors);
+
+        // custom_host_vitals is default.yml-ONLY — Fleet rejects it in
+        // fleet files, so flint must too.
+        let yaml2 = "name: Workstations\ncustom_host_vitals:\n  - name: Asset tag\n";
+        let errors2 = rule.check(&config, Path::new("fleets/workstations.yml"), yaml2);
+        assert!(errors2
+            .iter()
+            .any(|e| e.message.contains("custom_host_vitals")));
+    }
+
+    #[test]
+    fn test_profile_labels_suppressed_as_unknown_key() {
+        // `labels` on a profile item is handled by the deprecation rule
+        // (warning + rename suggestion) — structural validation must NOT
+        // also report it as an unknown key. classify_unknown_key consults
+        // find_deprecated_key with the indexed walk path, which only works
+        // because the matcher canonicalizes [0] → [].
+        let rule = StructuralValidationRule;
+        let config = FleetConfig::default();
+        let yaml = r#"
+controls:
+  apple_settings:
+    configuration_profiles:
+      - path: ../profiles/wifi.mobileconfig
+        labels:
+          - Engineering
+"#;
+        let errors = rule.check(&config, Path::new("fleets/eng.yml"), yaml);
+        assert!(
+            !errors.iter().any(|e| e.message.contains("'labels'")),
+            "deprecated profile labels double-reported by structural: {:?}",
+            errors
+        );
+    }
+
+    #[test]
+    fn test_software_file_unknown_key() {
+        // Real-repo replay finding (playground 5e6a7ec): `description:` was
+        // never a valid package key but standalone software files were not
+        // structurally validated at all.
+        let rule = StructuralValidationRule;
+        let config = FleetConfig::default();
+
+        // Sequence-rooted package file (the shape in the wild)
+        let yaml = r#"
+- hash_sha256: 704b0366c7223dca64785716f73a235cacfde93a2d4a68053521e580471c4c62
+  display_name: "LUNA"
+  description: "LUNA configuration management"
+"#;
+        let errors = rule.check(&config, Path::new("platforms/macos/L1/luna/software/luna.package.yml"), yaml);
+        assert!(
+            errors.iter().any(|e| e.message.contains("description")),
+            "expected unknown-key error for 'description', got: {:?}",
+            errors
+        );
+
+        // Mapping-rooted single package file
+        let yaml2 = "url: https://example.com/luna.pkg\ndescription: nope\n";
+        let errors2 = rule.check(&config, Path::new("software/luna.package.yml"), yaml2);
+        assert!(errors2.iter().any(|e| e.message.contains("description")));
+
+        // Valid package file stays clean
+        let yaml3 = r#"
+- hash_sha256: 704b0366c7223dca64785716f73a235cacfde93a2d4a68053521e580471c4c62
+  display_name: "LUNA"
+  self_service: true
+  categories:
+    - Productivity
+"#;
+        let errors3 = rule.check(&config, Path::new("software/luna.package.yml"), yaml3);
+        assert!(errors3.is_empty(), "valid package flagged: {:?}", errors3);
+    }
+
+    #[test]
+    fn test_software_file_item_classification() {
+        let rule = StructuralValidationRule;
+        let config = FleetConfig::default();
+
+        // App Store item: app_store_id-specific keys are fine, package-only
+        // keys are flagged as misplaced.
+        let yaml = "app_store_id: \"12345\"\nauto_update_enabled: true\nurl: https://x\n";
+        let errors = rule.check(&config, Path::new("software/numbers.app.yml"), yaml);
+        assert!(errors.iter().any(|e| e.message.contains("url")));
+        assert!(!errors.iter().any(|e| e.message.contains("auto_update_enabled")));
+
+        // FMA item by slug
+        let yaml2 = "slug: firefox/darwin\nversion: \"128\"\n";
+        let errors2 = rule.check(&config, Path::new("software/firefox.yml"), yaml2);
+        assert!(errors2.is_empty(), "valid FMA item flagged: {:?}", errors2);
+
+        // List-shaped software file validates nested items
+        let yaml3 = r#"
+packages:
+  - url: https://example.com/a.pkg
+    description: nope
+"#;
+        let errors3 = rule.check(&config, Path::new("software/team-sw.yml"), yaml3);
+        assert!(errors3.iter().any(|e| e.message.contains("description")));
+    }
+
     #[test]
     fn test_policy_path_ref_with_labels_and_agent_options_path() {
         let yaml = r#"

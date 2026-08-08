@@ -22,14 +22,6 @@ impl DeprecationRule {
         Self { version_ctx }
     }
 
-    /// Create a dormant rule that will never emit diagnostics.
-    /// Used in `default_rules()` when no config is available.
-    pub fn dormant() -> Self {
-        Self {
-            version_ctx: VersionContext::dormant(),
-        }
-    }
-
     /// Compute the effective phase, promoting `Dormant` to `Warning` when
     /// `future_names` is enabled in the version context.
     fn effective_phase(&self, phase: DeprecationPhase) -> DeprecationPhase {
@@ -95,26 +87,21 @@ impl DeprecationRule {
         errors
     }
 
-    /// Recursively walk YAML mappings and check keys against deprecation registry.
-    fn walk_yaml(
+    /// Check every mapping's keys against the deprecation registry, keyed by
+    /// the mapping's dotted context path (via the shared walker).
+    fn check_mapping(
         &self,
-        value: &serde_yaml::Value,
         path: &str,
+        map: &serde_yaml::Mapping,
         source: &str,
         file: &Path,
         errors: &mut Vec<LintError>,
     ) {
-        if let serde_yaml::Value::Mapping(map) = value {
-            for (key, child) in map {
+        {
+            for (key, _child) in map {
                 let key_str = match key.as_str() {
                     Some(s) => s,
                     None => continue,
-                };
-
-                let child_path = if path.is_empty() {
-                    key_str.to_string()
-                } else {
-                    format!("{}.{}", path, key_str)
                 };
 
                 // Check if this key is deprecated at this context path
@@ -138,9 +125,12 @@ impl DeprecationRule {
                                     file,
                                 )
                                 .with_help(format!("Replace '{}' with '{}'", old_key, new_key))
-                                .with_suggestion(new_key.to_string())
                                 .with_context(old_key.to_string())
-                                .with_fix_safety(super::error::FixSafety::Safe);
+                                .with_fix(super::error::Fix::Replace {
+                                    old: Some(old_key.to_string()),
+                                    new: new_key.to_string(),
+                                    safety: super::error::FixSafety::Safe,
+                                });
 
                                 if let Some(l) = line {
                                     err = err.with_location(l, col.unwrap_or(1));
@@ -158,9 +148,12 @@ impl DeprecationRule {
                                     file,
                                 )
                                 .with_help(format!("Replace '{}' with '{}'", old_key, new_key))
-                                .with_suggestion(new_key.to_string())
                                 .with_context(old_key.to_string())
-                                .with_fix_safety(super::error::FixSafety::Safe);
+                                .with_fix(super::error::Fix::Replace {
+                                    old: Some(old_key.to_string()),
+                                    new: new_key.to_string(),
+                                    safety: super::error::FixSafety::Safe,
+                                });
 
                                 if let Some(l) = line {
                                     err = err.with_location(l, col.unwrap_or(1));
@@ -172,13 +165,6 @@ impl DeprecationRule {
                     }
                 }
 
-                // Recurse into child
-                self.walk_yaml(child, &child_path, source, file, errors);
-            }
-        } else if let serde_yaml::Value::Sequence(items) = value {
-            for (idx, item) in items.iter().enumerate() {
-                let item_path = format!("{}[{}]", path, idx);
-                self.walk_yaml(item, &item_path, source, file, errors);
             }
         }
     }
@@ -211,7 +197,9 @@ impl Rule for DeprecationRule {
             Err(_) => return errors,
         };
 
-        self.walk_yaml(&yaml_value, "", source, file, &mut errors);
+        super::yaml_utils::walk_mappings_with_path(&yaml_value, &mut |path, map| {
+            self.check_mapping(path, map, source, file, &mut errors);
+        });
 
         errors
     }
@@ -324,9 +312,96 @@ team_settings:
 
         let err = &errors[0];
         assert_eq!(
-            err.suggestion.as_deref(),
+            err.suggestion(),
             Some("settings"),
             "Suggestion should be the new key name"
+        );
+    }
+
+    #[test]
+    fn test_enable_managed_local_account_rename() {
+        // Real-repo replay finding (playground 59b6ffb): the old key under
+        // controls.macos_setup/setup_experience must warn with the new name.
+        let yaml = r#"
+controls:
+  macos_setup:
+    enable_managed_local_account: true
+"#;
+        // 4.80.1 = VersionContext::latest() — the rename already shipped in
+        // Fleet (app.go renameto), so it must warn at the DEFAULT context,
+        // not only behind future_names/4.90.
+        let errors = check_with_version(yaml, "fleets/ccs.yml", Version::new(4, 80, 1));
+        let err = errors
+            .iter()
+            .find(|e| e.message.contains("enable_managed_local_account"))
+            .expect("expected deprecation warning for enable_managed_local_account");
+        assert!(err.message.contains("enable_create_local_admin_account"));
+        assert_eq!(err.suggestion(), Some("enable_create_local_admin_account"));
+
+        // Same key under the new setup_experience spelling still matches
+        // (context 'controls' is a prefix of 'controls.setup_experience').
+        let yaml2 = r#"
+controls:
+  setup_experience:
+    enable_managed_local_account: true
+"#;
+        let errors2 = check_with_version(yaml2, "fleets/ccs.yml", Version::new(4, 80, 1));
+        assert!(errors2
+            .iter()
+            .any(|e| e.message.contains("enable_managed_local_account")));
+    }
+
+    #[test]
+    fn test_profile_labels_context_scoped() {
+        // `labels` on a profile item warns with the labels_include_all
+        // suggestion — the walker's indexed context
+        // (controls.apple_settings.configuration_profiles[0]) must match the
+        // canonical `[]` context registered for the entry.
+        let yaml = r#"
+controls:
+  apple_settings:
+    configuration_profiles:
+      - path: ../profiles/wifi.mobileconfig
+        labels:
+          - Engineering
+"#;
+        let errors = check_with_version(yaml, "fleets/eng.yml", Version::new(4, 85, 0));
+        let err = errors
+            .iter()
+            .find(|e| e.message.contains("'labels'"))
+            .expect("expected deprecation warning for profile labels");
+        assert!(err.message.contains("labels_include_all"));
+        assert_eq!(err.suggestion(), Some("labels_include_all"));
+
+        // The legitimate top-level `labels:` section must stay silent —
+        // this is why the entry is context-scoped instead of "*".
+        let yaml2 = r#"
+labels:
+  - name: Engineering
+    query: SELECT 1;
+"#;
+        let errors2 = check_with_version(yaml2, "default.yml", Version::new(4, 85, 0));
+        assert!(
+            !errors2.iter().any(|e| e.message.contains("'labels'")),
+            "top-level labels wrongly flagged: {:?}",
+            errors2
+        );
+
+        // `labels` under controls.scripts[] is NOT a profile context — the
+        // deprecation must not fire there (structural-validation owns that
+        // case as a misplaced/unknown key).
+        let yaml3 = r#"
+controls:
+  scripts:
+    - path: ../scripts/setup.sh
+      labels:
+        - Engineering
+"#;
+        let errors3 = check_with_version(yaml3, "fleets/eng.yml", Version::new(4, 85, 0));
+        assert!(
+            !errors3.iter().any(|e| e.message.contains("'labels'")),
+            "labels under scripts wrongly matched profile deprecation: {:?}",
+            errors3
         );
     }
 

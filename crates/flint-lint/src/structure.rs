@@ -22,29 +22,17 @@ pub enum SchemaNode {
     OpenMapping,
 }
 
-impl SchemaNode {
-    /// Get valid child keys if this is a Mapping node.
-    pub fn valid_keys(&self) -> Option<Vec<&'static str>> {
-        match self {
-            SchemaNode::Mapping(children) => Some(children.keys().copied().collect()),
-            _ => None,
-        }
-    }
 
+/// Test-support accessors — production code walks schema nodes through
+/// `structural.rs`'s validator, not these.
+#[cfg(test)]
+impl SchemaNode {
     /// Look up a child key in a Mapping node.
-    pub fn get_child(&self, key: &str) -> Option<&SchemaNode> {
+    pub(crate) fn get_child(&self, key: &str) -> Option<&SchemaNode> {
         match self {
             SchemaNode::Mapping(children) => children.get(key),
             _ => None,
         }
-    }
-
-    /// Check if this node allows arbitrary keys.
-    pub fn allows_unknown(&self) -> bool {
-        matches!(
-            self,
-            SchemaNode::OpenMapping | SchemaNode::Leaf | SchemaNode::BooleanLeaf
-        )
     }
 }
 
@@ -72,8 +60,9 @@ impl KeyRegistry {
         self.entries.get(key).map(|v| v.as_slice())
     }
 
-    /// Get all known key names.
-    pub fn all_keys(&self) -> Vec<&'static str> {
+    /// Get all known key names (test support — coverage assertions).
+    #[cfg(test)]
+    pub(crate) fn all_keys(&self) -> Vec<&'static str> {
         self.entries.keys().copied().collect()
     }
 }
@@ -136,6 +125,21 @@ fn controls_script_targeting() -> SchemaNode {
     ])
 }
 
+/// Configuration/declaration profile item — script targeting plus
+/// `activation`, a path to a custom DDM activation JSON, only valid
+/// alongside an Apple declaration and never with `paths` globs
+/// (fleet/mdm.go MDMProfileSpec, Fleet PR #50557).
+fn profile_item() -> SchemaNode {
+    mapping(vec![
+        ("path", leaf()),
+        ("paths", leaf()),
+        ("activation", leaf()),
+        ("labels_include_all", array(leaf())),
+        ("labels_include_any", array(leaf())),
+        ("labels_exclude_any", array(leaf())),
+    ])
+}
+
 fn macos_updates() -> SchemaNode {
     mapping(vec![
         ("deadline", leaf()),
@@ -153,15 +157,22 @@ fn windows_updates() -> SchemaNode {
 
 fn os_settings() -> SchemaNode {
     mapping(vec![
-        ("custom_settings", array(controls_script_targeting())),
-        ("configuration_profiles", array(controls_script_targeting())), // rename of custom_settings
+        ("custom_settings", array(profile_item())),
+        ("configuration_profiles", array(profile_item())), // rename of custom_settings
+        // Hidden managed local admin account for Windows Autopilot/OOBE —
+        // fleet/app.go (ManagedLocalAccountSettings), windows_settings only
+        // in Fleet; shared here because flint uses one schema per *_settings.
+        (
+            "managed_local_account_settings",
+            mapping(vec![("enabled", boolean_leaf())]),
+        ),
     ])
 }
 
 fn android_settings_schema() -> SchemaNode {
     mapping(vec![
-        ("custom_settings", array(controls_script_targeting())),
-        ("configuration_profiles", array(controls_script_targeting())), // rename of custom_settings
+        ("custom_settings", array(profile_item())),
+        ("configuration_profiles", array(profile_item())), // rename of custom_settings
         (
             "certificates",
             // Source: server/fleet/certificate_templates.go — SAN support
@@ -203,6 +214,8 @@ fn macos_setup() -> SchemaNode {
         // (apple_mdm.go:524-534). `enable_end_user_authentication` is
         // already listed above in the old-names block.
         ("enable_managed_local_account", boolean_leaf()),
+        // Current Fleet name (app.go: renameto on enable_managed_local_account).
+        ("enable_create_local_admin_account", boolean_leaf()),
         ("end_user_local_account_type", leaf()),
     ])
 }
@@ -224,9 +237,15 @@ fn software_package_item() -> SchemaNode {
         ("path", leaf()),
         ("url", leaf()),
         ("hash_sha256", leaf()),
+        // ETag-based conditional download opt-out — SoftwarePackageSpec
+        // (AlwaysDownload), docs/Configuration/yaml-files.md.
+        ("always_download", boolean_leaf()),
         ("display_name", leaf()),
         ("self_service", boolean_leaf()),
         ("setup_experience", boolean_leaf()),
+        // Platform targeting for .sh script-only packages in setup
+        // experience — SoftwarePackageSpec (SetupExperiencePlatform).
+        ("setup_experience_platform", leaf()),
         ("categories", array(leaf())),
         ("labels_include_any", array(leaf())),
         ("labels_exclude_any", array(leaf())),
@@ -290,6 +309,11 @@ fn controls_schema() -> SchemaNode {
         ("scripts", array(controls_script_targeting())),
         ("windows_enabled_and_configured", boolean_leaf()),
         ("windows_entra_tenant_ids", array(leaf())),
+        // Entra application (client) IDs — docs/Configuration/yaml-files.md,
+        // pkg/spec/gitops.go (WindowsEntraClientIDs).
+        ("windows_entra_client_ids", array(leaf())),
+        // pkg/spec/gitops.go (AndroidEnabledAndConfigured).
+        ("android_enabled_and_configured", boolean_leaf()),
         ("enable_turn_on_windows_mdm_manually", boolean_leaf()),
         ("windows_migration_enabled", boolean_leaf()),
         ("enable_disk_encryption", boolean_leaf()),
@@ -311,6 +335,16 @@ fn controls_schema() -> SchemaNode {
         ("macos_setup", macos_setup()),
         ("setup_experience", macos_setup()), // rename of macos_setup
         ("macos_migration", macos_migration()),
+        // OAuth ROPG account provisioning — fleet/app.go
+        // (AppleAccountProvisioning), default.yml only, macOS only today.
+        (
+            "apple_account_provisioning",
+            mapping(vec![
+                ("oauth_idp_token_url", leaf()),
+                ("oauth_idp_client_id", leaf()),
+                ("oauth_idp_client_secret", leaf()),
+            ]),
+        ),
     ])
 }
 
@@ -336,8 +370,14 @@ fn policy_inline_strict() -> SchemaNode {
         ("webhooks_and_tickets_enabled", boolean_leaf()),
         ("software_title_id", leaf()),
         ("script_id", leaf()),
+        // All four label scopes are valid on policies — GitOpsPolicySpec
+        // carries them (policies.go:646-649) and verifyPolicyLabelScopes
+        // (policies.go:205) validates the include pair AND the exclude pair.
+        // `labels_exclude_all` is policies-only: no other context defines it.
         ("labels_include_any", array(leaf())),
+        ("labels_include_all", array(leaf())),
         ("labels_exclude_any", array(leaf())),
+        ("labels_exclude_all", array(leaf())),
         ("run_script", mapping(vec![("path", leaf())])),
         // Patch policy fields (yaml-files.md:141-149). `type: patch` marks a
         // patch policy; `fleet_maintained_app_slug` selects which FMA to track.
@@ -557,8 +597,16 @@ fn org_settings_strict() -> SchemaNode {
             "org_info",
             mapping(vec![
                 ("org_name", leaf()),
+                // Deprecated URL keys (app.go:1368-1371 `// Deprecated:`),
+                // auto-migrated by NormalizeLogoFields — still accepted.
                 ("org_logo_url", leaf()),
                 ("org_logo_url_light_background", leaf()),
+                // Mode-aware replacements, plus the path variants
+                // (validateOrgInfoLogo, pkg/spec/gitops.go:845-846).
+                ("org_logo_url_dark_mode", leaf()),
+                ("org_logo_url_light_mode", leaf()),
+                ("org_logo_path_dark_mode", leaf()),
+                ("org_logo_path_light_mode", leaf()),
                 ("contact_url", leaf()),
             ]),
         ),
@@ -711,6 +759,10 @@ pub fn default_schema() -> SchemaNode {
         ("org_settings", org_settings_strict()),
         ("team_settings", team_settings_strict()),
         ("settings", team_settings_strict()),
+        // Custom host vitals — default.yml ONLY (deliberately absent from
+        // fleet_schema; Fleet rejects it in fleets/*.yml). fleet/
+        // api_custom_host_vitals.go, docs/Configuration/yaml-files.md.
+        ("custom_host_vitals", array(mapping(vec![("name", leaf())]))),
     ])
 }
 
@@ -767,6 +819,15 @@ pub static POLICY_SCHEMA: Lazy<SchemaNode> = Lazy::new(policy_schema);
 pub static QUERY_SCHEMA: Lazy<SchemaNode> = Lazy::new(query_schema);
 pub static LABEL_SCHEMA: Lazy<SchemaNode> = Lazy::new(label_schema);
 
+// Standalone software file shapes (software/*.yml, *.package.yml). A file is
+// either a `packages:`/`app_store_apps:`/`fleet_maintained_apps:` list file,
+// a single item mapping, or a sequence of item mappings — `structural.rs`
+// classifies each item by its discriminating key and picks the schema.
+pub static SOFTWARE_LIST_SCHEMA: Lazy<SchemaNode> = Lazy::new(software_schema);
+pub static PACKAGE_ITEM_SCHEMA: Lazy<SchemaNode> = Lazy::new(software_package_item);
+pub static APP_STORE_ITEM_SCHEMA: Lazy<SchemaNode> = Lazy::new(app_store_app_item);
+pub static FMA_ITEM_SCHEMA: Lazy<SchemaNode> = Lazy::new(fleet_maintained_app_item);
+
 pub static KEY_REGISTRY: Lazy<KeyRegistry> = Lazy::new(|| {
     let mut reg = KeyRegistry::new();
 
@@ -791,11 +852,19 @@ pub static KEY_REGISTRY: Lazy<KeyRegistry> = Lazy::new(|| {
     reg.register("team_settings", "");
     reg.register("settings", "");
     reg.register("name", "");
+    reg.register("custom_host_vitals", "");
+    reg.register("name", "custom_host_vitals[]");
 
     // controls children
     reg.register("scripts", "controls");
     reg.register("windows_enabled_and_configured", "controls");
     reg.register("windows_entra_tenant_ids", "controls");
+    reg.register("windows_entra_client_ids", "controls");
+    reg.register("android_enabled_and_configured", "controls");
+    reg.register("apple_account_provisioning", "controls");
+    reg.register("oauth_idp_token_url", "controls.apple_account_provisioning");
+    reg.register("oauth_idp_client_id", "controls.apple_account_provisioning");
+    reg.register("oauth_idp_client_secret", "controls.apple_account_provisioning");
     reg.register("enable_turn_on_windows_mdm_manually", "controls");
     reg.register("windows_migration_enabled", "controls");
     reg.register("enable_disk_encryption", "controls");
@@ -876,6 +945,8 @@ pub static KEY_REGISTRY: Lazy<KeyRegistry> = Lazy::new(|| {
         reg.register("macos_script", parent);
         // Additional MDMAppleSetupPayload fields (apple_mdm.go:524-534).
         reg.register("enable_managed_local_account", parent);
+        // Current name (app.go: renameto on enable_managed_local_account).
+        reg.register("enable_create_local_admin_account", parent);
         reg.register("end_user_local_account_type", parent);
     }
 
@@ -917,6 +988,10 @@ pub static KEY_REGISTRY: Lazy<KeyRegistry> = Lazy::new(|| {
     reg.register("org_name", "org_settings.org_info");
     reg.register("org_logo_url", "org_settings.org_info");
     reg.register("org_logo_url_light_background", "org_settings.org_info");
+    reg.register("org_logo_url_dark_mode", "org_settings.org_info");
+    reg.register("org_logo_url_light_mode", "org_settings.org_info");
+    reg.register("org_logo_path_dark_mode", "org_settings.org_info");
+    reg.register("org_logo_path_light_mode", "org_settings.org_info");
     reg.register("contact_url", "org_settings.org_info");
 
     // org_settings.server_settings children
@@ -1101,7 +1176,10 @@ pub static KEY_REGISTRY: Lazy<KeyRegistry> = Lazy::new(|| {
     reg.register("software_title_id", "policies[]");
     reg.register("script_id", "policies[]");
     reg.register("labels_include_any", "policies[]");
+    reg.register("labels_include_all", "policies[]");
     reg.register("labels_exclude_any", "policies[]");
+    // Policies-only exclude scope (policies.go:649 GitOpsPolicySpec).
+    reg.register("labels_exclude_all", "policies[]");
     reg.register("run_script", "policies[]");
     reg.register("install_software", "policies[]");
     // Patch policy fields (Fleet Premium).
@@ -1160,6 +1238,26 @@ pub static KEY_REGISTRY: Lazy<KeyRegistry> = Lazy::new(|| {
     reg.register("labels_include_any", "controls.scripts[]");
     reg.register("labels_exclude_any", "controls.scripts[]");
 
+    // Profile items: custom DDM activation path (MDMProfileSpec, PR #50557)
+    for parent in &[
+        "controls.apple_settings.configuration_profiles[]",
+        "controls.apple_settings.custom_settings[]",
+        "controls.macos_settings.configuration_profiles[]",
+        "controls.macos_settings.custom_settings[]",
+    ] {
+        reg.register("activation", parent);
+    }
+
+    // Windows managed local admin account (fleet/app.go)
+    reg.register(
+        "managed_local_account_settings",
+        "controls.windows_settings",
+    );
+    reg.register(
+        "enabled",
+        "controls.windows_settings.managed_local_account_settings",
+    );
+
     // software children
     reg.register("packages", "software");
     reg.register("app_store_apps", "software");
@@ -1169,6 +1267,8 @@ pub static KEY_REGISTRY: Lazy<KeyRegistry> = Lazy::new(|| {
     reg.register("path", "software.packages[]");
     reg.register("url", "software.packages[]");
     reg.register("hash_sha256", "software.packages[]");
+    reg.register("always_download", "software.packages[]");
+    reg.register("setup_experience_platform", "software.packages[]");
     reg.register("display_name", "software.packages[]");
     reg.register("self_service", "software.packages[]");
     reg.register("setup_experience", "software.packages[]");
@@ -1324,6 +1424,19 @@ mod tests {
     }
 
     #[test]
+    fn test_setup_experience_local_admin_account_keys() {
+        // Both the legacy and current Fleet names (app.go renameto:
+        // enable_managed_local_account → enable_create_local_admin_account) are
+        // recognized under controls.macos_setup / controls.setup_experience.
+        let reg = &*KEY_REGISTRY;
+        for key in ["enable_managed_local_account", "enable_create_local_admin_account"] {
+            let paths = reg.lookup(key).unwrap_or_else(|| panic!("'{key}' missing from KEY_REGISTRY"));
+            assert!(paths.contains(&"controls.setup_experience"), "{key} not under setup_experience");
+            assert!(paths.contains(&"controls.macos_setup"), "{key} not under macos_setup");
+        }
+    }
+
+    #[test]
     fn test_key_registry_paths_field() {
         let reg = &*KEY_REGISTRY;
         let paths = reg.lookup("paths").unwrap();
@@ -1344,6 +1457,39 @@ mod tests {
         assert!(
             total_keys >= 160,
             "KEY_REGISTRY has {total_keys} keys, expected >= 160. Did keys get removed?"
+        );
+    }
+
+    #[test]
+    fn test_policy_label_scopes_registered() {
+        // Fleet's GitOpsPolicySpec (policies.go:646-649) carries all four
+        // label scopes, and verifyPolicyLabelScopes validates both pairs.
+        let reg = &*KEY_REGISTRY;
+        for key in [
+            "labels_include_any",
+            "labels_include_all",
+            "labels_exclude_any",
+            "labels_exclude_all",
+        ] {
+            let paths = reg.lookup(key).unwrap_or_else(|| panic!("{key} missing"));
+            assert!(
+                paths.contains(&"policies[]"),
+                "{key} must be valid on policies[] (policies.go:646-649), got {paths:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_labels_exclude_all_is_policies_only() {
+        // No other Fleet context defines this key: software items use the
+        // strict 3-way set, profiles/scripts only exclude_any. The lone
+        // `LabelsExcludeAll` mention in mdm.go:803 is a stale doc comment on
+        // a field actually named LabelsExcludeAny.
+        let reg = &*KEY_REGISTRY;
+        assert_eq!(
+            reg.lookup("labels_exclude_all"),
+            Some(["policies[]"].as_slice()),
+            "labels_exclude_all is policies-only"
         );
     }
 

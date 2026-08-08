@@ -20,8 +20,13 @@ pub enum DeprecationKind {
     KeyRename {
         old_key: &'static str,
         new_key: &'static str,
-        /// Dot-separated parent path where this key appears (empty = top level).
-        context_path: &'static str,
+        /// Dot-separated parent paths where this key appears. Each entry is
+        /// `""` (top level only), `"*"` (anywhere), or a canonical path in
+        /// the KEY_REGISTRY grammar — array segments written `[]`, e.g.
+        /// `controls.apple_settings.configuration_profiles[]`. Actual walk
+        /// paths carry indices (`[3]`); `find_deprecated_key` canonicalizes
+        /// them before matching.
+        context_paths: &'static [&'static str],
     },
     /// A directory was renamed.
     DirectoryRename {
@@ -96,32 +101,36 @@ impl DeprecationRegistry {
     /// Find a deprecated key by name and context path.
     ///
     /// `context_path` is the dot-separated path to the parent mapping
-    /// (empty string for top-level keys).
+    /// (empty string for top-level keys). Array indices are canonicalized
+    /// to `[]` before matching, so walk paths like
+    /// `controls.apple_settings.configuration_profiles[3]` match registered
+    /// contexts written in the KEY_REGISTRY grammar.
     pub fn find_deprecated_key(&self, key: &str, context_path: &str) -> Option<&Deprecation> {
+        let canonical = canonicalize_context(context_path);
         self.entries.iter().find(|d| match &d.kind {
             DeprecationKind::KeyRename {
                 old_key,
-                context_path: cp,
+                context_paths,
                 ..
             } => {
                 if *old_key != key {
                     return false;
                 }
-                // Context matching:
-                // - Empty registry context → match only top-level (empty actual path)
-                // - Non-empty registry context → match exact or as suffix
-                //   (e.g., registry "controls" matches actual "controls" or
-                //   "something.controls", and also "controls.macos_settings")
-                if *cp == "*" {
-                    // Wildcard: match in any context
-                    true
-                } else if cp.is_empty() {
-                    // Empty: match only at top level
-                    context_path.is_empty()
-                } else {
-                    // Specific context: match exact or as parent prefix
-                    *cp == context_path || context_path.starts_with(&format!("{}.", cp))
-                }
+                context_paths.iter().any(|cp| {
+                    if *cp == "*" {
+                        // Wildcard: match in any context
+                        true
+                    } else if cp.is_empty() {
+                        // Empty: match only at top level
+                        canonical.is_empty()
+                    } else {
+                        // Specific context: match exact or as parent prefix
+                        // (registry "controls" matches "controls" itself and
+                        // "controls.macos_settings", incl. array items after
+                        // canonicalization).
+                        *cp == canonical || canonical.starts_with(&format!("{}.", cp))
+                    }
+                })
             }
             _ => false,
         })
@@ -190,6 +199,23 @@ fn controls_rename_version() -> Version {
     Version::new(4, 90, 0)
 }
 
+/// Rewrite array indices to the canonical `[]` form used by registered
+/// contexts (`controls.apple_settings.configuration_profiles[3]` →
+/// `…configuration_profiles[]`), matching the KEY_REGISTRY path grammar.
+fn canonicalize_context(path: &str) -> String {
+    let mut out = String::with_capacity(path.len());
+    let mut chars = path.chars().peekable();
+    while let Some(c) = chars.next() {
+        out.push(c);
+        if c == '[' {
+            while matches!(chars.peek(), Some(d) if d.is_ascii_digit()) {
+                chars.next();
+            }
+        }
+    }
+    out
+}
+
 /// Global deprecation registry.
 pub static DEPRECATION_REGISTRY: Lazy<DeprecationRegistry> = Lazy::new(|| {
     DeprecationRegistry {
@@ -213,7 +239,7 @@ pub static DEPRECATION_REGISTRY: Lazy<DeprecationRegistry> = Lazy::new(|| {
                 kind: DeprecationKind::KeyRename {
                     old_key: "team_settings",
                     new_key: "settings",
-                    context_path: "",
+                    context_paths: &[""],
                 },
                 deprecated_in: deprecated_version(),
                 error_in: Some(mandatory_version()),
@@ -227,7 +253,7 @@ pub static DEPRECATION_REGISTRY: Lazy<DeprecationRegistry> = Lazy::new(|| {
                 kind: DeprecationKind::KeyRename {
                     old_key: "queries",
                     new_key: "reports",
-                    context_path: "",
+                    context_paths: &[""],
                 },
                 deprecated_in: deprecated_version(),
                 error_in: Some(mandatory_version()),
@@ -255,7 +281,7 @@ pub static DEPRECATION_REGISTRY: Lazy<DeprecationRegistry> = Lazy::new(|| {
                 kind: DeprecationKind::KeyRename {
                     old_key: "macos_settings",
                     new_key: "apple_settings",
-                    context_path: "controls",
+                    context_paths: &["controls"],
                 },
                 deprecated_in: controls_rename_version(),
                 error_in: None,
@@ -269,7 +295,7 @@ pub static DEPRECATION_REGISTRY: Lazy<DeprecationRegistry> = Lazy::new(|| {
                 kind: DeprecationKind::KeyRename {
                     old_key: "custom_settings",
                     new_key: "configuration_profiles",
-                    context_path: "*",
+                    context_paths: &["*"],
                 },
                 deprecated_in: controls_rename_version(),
                 error_in: None,
@@ -283,12 +309,32 @@ pub static DEPRECATION_REGISTRY: Lazy<DeprecationRegistry> = Lazy::new(|| {
                 kind: DeprecationKind::KeyRename {
                     old_key: "macos_setup",
                     new_key: "setup_experience",
-                    context_path: "controls",
+                    context_paths: &["controls"],
                 },
                 deprecated_in: controls_rename_version(),
                 error_in: None,
                 removed_in: None,
                 description: "The 'macos_setup' key is being renamed to 'setup_experience'",
+                file_patterns: &[],
+            },
+            // enable_managed_local_account -> enable_create_local_admin_account
+            // (app.go: renameto — the rename has ALREADY happened in Fleet, so
+            // this sits in the shipped 4.80.1 family, not the projected 4.90
+            // controls renames. Fleet still accepts the old name silently and
+            // the KEY_REGISTRY deliberately lists both; this entry adds the
+            // migration warning. Found via real-repo replay of playground
+            // commit 59b6ffb.)
+            Deprecation {
+                id: "enable-managed-local-account-rename",
+                kind: DeprecationKind::KeyRename {
+                    old_key: "enable_managed_local_account",
+                    new_key: "enable_create_local_admin_account",
+                    context_paths: &["controls"],
+                },
+                deprecated_in: deprecated_version(),
+                error_in: None,
+                removed_in: None,
+                description: "The 'enable_managed_local_account' key is being renamed to 'enable_create_local_admin_account'",
                 file_patterns: &[],
             },
             // enable_release_device_manually -> apple_enable_release_device_manually
@@ -297,7 +343,7 @@ pub static DEPRECATION_REGISTRY: Lazy<DeprecationRegistry> = Lazy::new(|| {
                 kind: DeprecationKind::KeyRename {
                     old_key: "enable_release_device_manually",
                     new_key: "apple_enable_release_device_manually",
-                    context_path: "*",
+                    context_paths: &["*"],
                 },
                 deprecated_in: controls_rename_version(),
                 error_in: None,
@@ -311,7 +357,7 @@ pub static DEPRECATION_REGISTRY: Lazy<DeprecationRegistry> = Lazy::new(|| {
                 kind: DeprecationKind::KeyRename {
                     old_key: "macos_setup_assistant",
                     new_key: "apple_setup_assistant",
-                    context_path: "*",
+                    context_paths: &["*"],
                 },
                 deprecated_in: controls_rename_version(),
                 error_in: None,
@@ -325,7 +371,7 @@ pub static DEPRECATION_REGISTRY: Lazy<DeprecationRegistry> = Lazy::new(|| {
                 kind: DeprecationKind::KeyRename {
                     old_key: "script",
                     new_key: "macos_script",
-                    context_path: "controls",
+                    context_paths: &["controls"],
                 },
                 deprecated_in: controls_rename_version(),
                 error_in: None,
@@ -339,12 +385,75 @@ pub static DEPRECATION_REGISTRY: Lazy<DeprecationRegistry> = Lazy::new(|| {
                 kind: DeprecationKind::KeyRename {
                     old_key: "manual_agent_install",
                     new_key: "macos_manual_agent_install",
-                    context_path: "*",
+                    context_paths: &["*"],
                 },
                 deprecated_in: controls_rename_version(),
                 error_in: None,
                 removed_in: None,
                 description: "The 'manual_agent_install' key is being renamed to 'macos_manual_agent_install'",
+                file_patterns: &[],
+            },
+            // labels -> labels_include_all on configuration/declaration
+            // profile items (fleet/mdm.go MDMProfileSpec: "Deprecated: the
+            // Labels field … is superseded by LabelsIncludeAll"; Fleet
+            // transfers old values, so no error phase). Context-scoped to
+            // profile item arrays only — a "*" context would misfire on the
+            // legitimate top-level `labels:` section. MDMProfileSpec is
+            // shared across all *_settings, hence all four OS variants.
+            Deprecation {
+                id: "profile-labels-to-labels-include-all",
+                kind: DeprecationKind::KeyRename {
+                    old_key: "labels",
+                    new_key: "labels_include_all",
+                    context_paths: &[
+                        "controls.apple_settings.configuration_profiles[]",
+                        "controls.apple_settings.custom_settings[]",
+                        "controls.macos_settings.configuration_profiles[]",
+                        "controls.macos_settings.custom_settings[]",
+                        "controls.windows_settings.configuration_profiles[]",
+                        "controls.windows_settings.custom_settings[]",
+                        "controls.android_settings.configuration_profiles[]",
+                        "controls.android_settings.custom_settings[]",
+                    ],
+                },
+                deprecated_in: deprecated_version(),
+                error_in: None,
+                removed_in: None,
+                description: "The 'labels' key on profiles is deprecated. Use 'labels_include_all' instead",
+                file_patterns: &[],
+            },
+            // ── org logo mode-aware renames ─────────────────────────────
+            // app.go:1368-1373 marks both old fields `// Deprecated:` and
+            // NormalizeLogoFields (app.go:1381) migrates them, so the rename
+            // has ALREADY happened in Fleet — same family as
+            // enable_managed_local_account, not the projected 4.90 renames.
+            // Surfaced by running the real `fleetctl gitops --dry-run`, which
+            // printed both warnings on a config flint reported clean.
+            Deprecation {
+                id: "org-logo-url-to-dark-mode",
+                kind: DeprecationKind::KeyRename {
+                    old_key: "org_logo_url",
+                    new_key: "org_logo_url_dark_mode",
+                    context_paths: &["org_settings.org_info"],
+                },
+                deprecated_in: deprecated_version(),
+                error_in: None,
+                removed_in: None,
+                description: "The 'org_logo_url' key is being renamed to 'org_logo_url_dark_mode'",
+                file_patterns: &[],
+            },
+            Deprecation {
+                id: "org-logo-url-light-background-to-light-mode",
+                kind: DeprecationKind::KeyRename {
+                    old_key: "org_logo_url_light_background",
+                    new_key: "org_logo_url_light_mode",
+                    context_paths: &["org_settings.org_info"],
+                },
+                deprecated_in: deprecated_version(),
+                error_in: None,
+                removed_in: None,
+                description:
+                    "The 'org_logo_url_light_background' key is being renamed to 'org_logo_url_light_mode'",
                 file_patterns: &[],
             },
         ],
@@ -366,7 +475,7 @@ mod tests {
             kind: DeprecationKind::KeyRename {
                 old_key: "old",
                 new_key: "new",
-                context_path: "",
+                context_paths: &[""],
             },
             deprecated_in: Version::new(5, 0, 0),
             error_in: Some(Version::new(6, 0, 0)),
@@ -392,7 +501,7 @@ mod tests {
             kind: DeprecationKind::KeyRename {
                 old_key: "old",
                 new_key: "new",
-                context_path: "",
+                context_paths: &[""],
             },
             deprecated_in: Version::new(5, 0, 0),
             error_in: Some(Version::new(6, 0, 0)),
@@ -418,7 +527,7 @@ mod tests {
             kind: DeprecationKind::KeyRename {
                 old_key: "old",
                 new_key: "new",
-                context_path: "",
+                context_paths: &[""],
             },
             deprecated_in: Version::new(5, 0, 0),
             error_in: Some(Version::new(6, 0, 0)),
@@ -444,7 +553,7 @@ mod tests {
             kind: DeprecationKind::KeyRename {
                 old_key: "old",
                 new_key: "new",
-                context_path: "",
+                context_paths: &[""],
             },
             deprecated_in: Version::new(5, 0, 0),
             error_in: Some(Version::new(6, 0, 0)),
@@ -470,7 +579,7 @@ mod tests {
             kind: DeprecationKind::KeyRename {
                 old_key: "old",
                 new_key: "new",
-                context_path: "",
+                context_paths: &[""],
             },
             deprecated_in: Version::new(5, 0, 0),
             error_in: None,
@@ -541,9 +650,11 @@ mod tests {
     fn test_active_deprecations_warning() {
         let registry = &*DEPRECATION_REGISTRY;
 
-        // At v4.85.0 (between deprecated_in=4.80.1 and error_in=4.88.0), all should be active as warnings
+        // At v4.85.0 (between deprecated_in=4.80.1 and error_in=4.88.0), all
+        // 4.80.1-family entries (4 renames + enable_managed_local_account +
+        // profile labels + the 2 org logo renames) are active as warnings
         let active = registry.active_deprecations(&Version::new(4, 85, 0));
-        assert_eq!(active.len(), 4);
+        assert_eq!(active.len(), 8);
         for dep in &active {
             assert_eq!(
                 dep.phase_for_version(&Version::new(4, 85, 0)),
@@ -556,14 +667,25 @@ mod tests {
     fn test_active_deprecations_error() {
         let registry = &*DEPRECATION_REGISTRY;
 
-        // At v4.88.0 (error_in version), all should be active as errors
+        // At v4.88.0 (error_in version), the four mandatory renames escalate
+        // to errors; the rest stay warnings forever (error_in: None — Fleet
+        // still accepts those old names and migrates them itself).
         let active = registry.active_deprecations(&Version::new(4, 88, 0));
-        assert_eq!(active.len(), 4);
+        assert_eq!(active.len(), 8);
+        let warn_forever = [
+            "enable-managed-local-account-rename",
+            "profile-labels-to-labels-include-all",
+            // NormalizeLogoFields (app.go:1381) migrates these server-side.
+            "org-logo-url-to-dark-mode",
+            "org-logo-url-light-background-to-light-mode",
+        ];
         for dep in &active {
-            assert_eq!(
-                dep.phase_for_version(&Version::new(4, 88, 0)),
+            let expected = if warn_forever.contains(&dep.id) {
+                DeprecationPhase::Warning
+            } else {
                 DeprecationPhase::Error
-            );
+            };
+            assert_eq!(dep.phase_for_version(&Version::new(4, 88, 0)), expected);
         }
     }
 }
