@@ -3,10 +3,12 @@
 //! Detects `path:` references that resolve back to the file itself,
 //! which would create infinite loops during Fleet GitOps processing.
 
-use super::error::{LintError, Severity};
+use super::error::LintError;
 use super::fleet_config::FleetConfig;
 use super::rules::Rule;
-use std::path::{Component, Path, PathBuf};
+use super::util::normalize_path;
+use super::yaml_utils::{find_path_value_line, walk_mappings};
+use std::path::Path;
 
 /// Detects `path:` values that resolve back to the file itself, which causes
 /// Fleet GitOps to loop or fail silently.
@@ -23,9 +25,6 @@ impl Rule for SelfReferenceRule {
     fn category(&self) -> &'static str {
         "structural"
     }
-    fn default_severity(&self) -> Severity {
-        Severity::Warning
-    }
 
     fn check(&self, _config: &FleetConfig, file: &Path, source: &str) -> Vec<LintError> {
         let yaml: serde_yaml::Value = match serde_yaml::from_str(source) {
@@ -34,21 +33,11 @@ impl Rule for SelfReferenceRule {
         };
 
         let mut errors = Vec::new();
-        walk_yaml(&yaml, file, source, &mut errors);
-        errors
-    }
-}
-
-/// Recursively walk a YAML value tree, checking every mapping that contains a
-/// `path` key with a string value.
-fn walk_yaml(value: &serde_yaml::Value, file: &Path, source: &str, errors: &mut Vec<LintError>) {
-    match value {
-        serde_yaml::Value::Mapping(map) => {
+        walk_mappings(&yaml, &mut |map| {
             if let Some(serde_yaml::Value::String(path_val)) =
                 map.get(serde_yaml::Value::String("path".to_string()))
             {
                 if is_self_reference(file, path_val) {
-                    let (line, col) = find_path_value_line(source, path_val);
                     let mut err = LintError::warning(
                         "path references the file itself, creating a loop",
                         file,
@@ -57,22 +46,14 @@ fn walk_yaml(value: &serde_yaml::Value, file: &Path, source: &str, errors: &mut 
                     .with_help(
                         "This path resolves to the current file. Change it to reference a different file.",
                     );
-                    if let (Some(l), Some(c)) = (line, col) {
-                        err = err.with_location(l, c);
+                    if let Some(span) = find_path_value_line(source, path_val) {
+                        err = err.with_span(span);
                     }
                     errors.push(err);
                 }
             }
-            for (_, v) in map {
-                walk_yaml(v, file, source, errors);
-            }
-        }
-        serde_yaml::Value::Sequence(seq) => {
-            for item in seq {
-                walk_yaml(item, file, source, errors);
-            }
-        }
-        _ => {}
+        });
+        errors
     }
 }
 
@@ -92,60 +73,6 @@ fn is_self_reference(file: &Path, path_value: &str) -> bool {
 
     // Fall back to manual normalization for non-existent paths.
     normalize_path(file) == normalize_path(&resolved)
-}
-
-/// Collapse `.` and `..` components without touching the filesystem.
-fn normalize_path(path: &Path) -> PathBuf {
-    let mut parts: Vec<Component> = Vec::new();
-    for component in path.components() {
-        match component {
-            Component::CurDir => {} // skip `.`
-            Component::ParentDir => {
-                // Pop the last normal component if possible.
-                if let Some(Component::Normal(_)) = parts.last() {
-                    parts.pop();
-                } else {
-                    parts.push(component);
-                }
-            }
-            _ => parts.push(component),
-        }
-    }
-    parts.iter().collect()
-}
-
-/// Locate the line & column of a specific `path:` value in the source text.
-/// Returns 1-based `(line, column)`.
-fn find_path_value_line(source: &str, path_value: &str) -> (Option<usize>, Option<usize>) {
-    for (line_idx, line) in source.lines().enumerate() {
-        let trimmed = line.trim_start();
-        // Match `path: <value>` or `- path: <value>` patterns
-        let after_path = trimmed
-            .strip_prefix("path:")
-            .or_else(|| trimmed.strip_prefix("- path:"));
-
-        if let Some(rest) = after_path {
-            let rest = rest.trim();
-            // Strip optional quotes
-            let unquoted = rest
-                .trim_start_matches('"')
-                .trim_end_matches('"')
-                .trim_start_matches('\'')
-                .trim_end_matches('\'');
-            if unquoted == path_value {
-                // Point to the start of the value
-                if let Some(val_offset) = line.find(path_value) {
-                    return (Some(line_idx + 1), Some(val_offset + 1));
-                }
-                // Fall back to after the colon
-                if let Some(colon_pos) = line.find(':') {
-                    return (Some(line_idx + 1), Some(colon_pos + 3));
-                }
-                return (Some(line_idx + 1), Some(1));
-            }
-        }
-    }
-    (None, None)
 }
 
 // ---------------------------------------------------------------------------
@@ -236,6 +163,7 @@ controls:
 
     #[test]
     fn test_normalize_path() {
+        use std::path::PathBuf;
         let p = PathBuf::from("teams/../teams/../teams/b.yml");
         assert_eq!(normalize_path(&p), PathBuf::from("teams/b.yml"));
 
