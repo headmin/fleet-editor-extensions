@@ -17,6 +17,31 @@ edition = "2021"
 # Single source of truth for dependency versions. Member crates reference
 # these with `dep = { workspace = true }` (adding crate-local features where
 # needed), so versions can't silently drift apart between crates.
+[workspace.lints.rust]
+# There is no `unsafe` in this workspace and no reason for any: the engine is
+# pure parsing and comparison. Making that a lint means adding some has to be
+# a deliberate, visible decision rather than a quiet one.
+unsafe_code = "warn"
+# NOT enabled yet: `unreachable_pub` flags ~75 rule structs that are `pub`
+# inside private modules. Mechanical to fix (`pub` -> `pub(crate)`) but a
+# separate pass — turning it on half-done would just train people to ignore
+# the warning list.
+# unreachable_pub = "warn"
+
+[workspace.lints.clippy]
+# A library that prints can only be driven by a terminal. Rendering belongs to
+# the caller, so the lint crates return strings (see `LintReport::render`) and
+# the CLI does the printing — it opts back in at its crate root.
+#
+# This is enforcement, not preference: `flint init` used to own its whole
+# terminal UX from inside `flint-lint`, and nothing caught it.
+print_stdout = "warn"
+print_stderr = "warn"
+dbg_macro = "warn"
+# A `todo!()` reached at runtime is a panic in a linter someone is running in
+# CI; `unimplemented!()` says the same thing more honestly at review time.
+todo = "warn"
+
 [workspace.dependencies]
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"

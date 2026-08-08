@@ -7,6 +7,16 @@
 //! under [`commands`], report rendering under [`output`], CI posting under
 //! [`ci`], and the interactive wiring flows under [`interactive`].
 
+// The CLI is the terminal frontend — printing is its whole job. The lint is
+// enabled workspace-wide so the LIBRARY crates stay renderable-but-silent
+// (`LintReport::render` returns a String); this is the one crate that opts
+// back in.
+#![expect(
+    clippy::print_stdout,
+    clippy::print_stderr,
+    reason = "this crate is the terminal frontend; the library crates stay silent"
+)]
+
 mod args;
 mod ci;
 mod commands;

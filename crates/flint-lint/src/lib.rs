@@ -56,8 +56,10 @@ pub use engine::Linter;
 pub use error::{Fix, FixSafety, LintError, LintReport, LintResult, Severity, Span};
 pub use fix::ApplyMode;
 pub use fleet_config::FleetConfig;
-pub use init::init as init_config;
-pub use init::{discover_gitops_root, parse_strictness, DetectedConfig, InitPrompts, StrictnessLevel};
+pub use init::{
+    config_path_for, detect_workspace, discover_gitops_root, generate_config_toml,
+    parse_strictness, write_config, DetectedConfig, StrictnessLevel, UserAnswers,
+};
 pub use overlay::{merge_yaml, OverlayError};
 pub use rules::{Rule, RuleOptions, RuleSet};
 pub use version::Version;

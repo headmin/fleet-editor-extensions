@@ -933,7 +933,6 @@ org_settings:
     org_name: CNG Fleet
 "#;
         let errors = check(yaml, "default.yml");
-        eprintln!("Errors: {:#?}", errors);
         assert!(
             errors.iter().any(|e| e.message.contains("org_info")),
             "Should flag 'org_info' as misplaced under server_settings: {:?}",

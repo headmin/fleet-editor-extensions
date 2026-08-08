@@ -536,6 +536,10 @@ impl FleetConnectionConfig {
 ///
 /// If the value starts with `op://`, runs `op read <ref>` to fetch the secret.
 /// Otherwise returns the value as-is.
+#[expect(
+    clippy::print_stderr,
+    reason = "reports a failed `op read` to the operator; should surface as an error the caller renders"
+)]
 fn resolve_secret(value: &str) -> String {
     if value.starts_with("op://") {
         match std::process::Command::new("op")

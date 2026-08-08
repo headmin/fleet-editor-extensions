@@ -22,6 +22,10 @@ pub struct InstallerInfo {
 /// Inspect any supported installer (.pkg/.deb/.ipa/.msi/.rpm/.exe/.tar.gz).
 /// Identifier/version are read where the format and available tools allow;
 /// otherwise placeholders are used (the hash is always computed).
+#[expect(
+    clippy::print_stderr,
+    reason = "advisory notes about missing external tools; should become InstallerInfo.notes for the caller to render"
+)]
 pub fn inspect(path: &Path) -> anyhow::Result<InstallerInfo> {
     if !path.exists() {
         anyhow::bail!("file not found: {}", path.display());
@@ -67,6 +71,10 @@ pub fn inspect(path: &Path) -> anyhow::Result<InstallerInfo> {
 }
 
 /// Inspect one `.pkg` via `shasum`/`xar` (macOS product or component archive).
+#[expect(
+    clippy::print_stderr,
+    reason = "advisory notes about missing external tools; should become InstallerInfo.notes for the caller to render"
+)]
 pub fn inspect_pkg(path: &Path) -> anyhow::Result<InstallerInfo> {
     use crate::pkg::parse_pkg_metadata;
     use std::process::Command;
@@ -158,6 +166,10 @@ fn run_ok(cmd: &str, args: &[&str]) -> Option<String> {
 }
 
 /// `.deb`: read Package/Version from the control archive via `ar` + `tar`.
+#[expect(
+    clippy::print_stderr,
+    reason = "advisory notes about missing external tools; should become InstallerInfo.notes for the caller to render"
+)]
 pub(crate) fn deb_info(path: &Path) -> PkgInfo {
     let abs = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
     let mut info = PkgInfo::default();
@@ -250,6 +262,10 @@ pub(crate) fn ipa_info(path: &Path) -> PkgInfo {
 
 /// `.msi`: read ProductName/ProductVersion via `msiinfo` (from msitools) if
 /// installed; otherwise placeholders.
+#[expect(
+    clippy::print_stderr,
+    reason = "advisory notes about missing external tools; should become InstallerInfo.notes for the caller to render"
+)]
 pub(crate) fn msi_info(path: &Path) -> PkgInfo {
     let mut info = PkgInfo::default();
     match run_ok("msiinfo", &["export", &path.to_string_lossy(), "Property"]) {
@@ -269,6 +285,10 @@ pub(crate) fn msi_info(path: &Path) -> PkgInfo {
 }
 
 /// `.rpm`: read NAME/VERSION via `rpm` if installed; otherwise placeholders.
+#[expect(
+    clippy::print_stderr,
+    reason = "advisory notes about missing external tools; should become InstallerInfo.notes for the caller to render"
+)]
 pub(crate) fn rpm_info(path: &Path) -> PkgInfo {
     let mut info = PkgInfo::default();
     match run_ok(

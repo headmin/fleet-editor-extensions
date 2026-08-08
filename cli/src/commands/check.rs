@@ -203,7 +203,7 @@ pub(crate) fn run(args: CheckArgs) -> anyhow::Result<()> {
         let (file_path, report) = &results[0];
         println!("{} Linting {}...\n", "🔍".blue(), file_path.display());
         let source = std::fs::read_to_string(file_path).ok();
-        report.print(source.as_deref());
+        print!("{}", report.render(source.as_deref()));
     } else {
         println!("{} Linting {} path(s)...\n", "🔍".blue(), lint_paths.len());
 
@@ -212,9 +212,9 @@ pub(crate) fn run(args: CheckArgs) -> anyhow::Result<()> {
                 println!("\n{} {}", "File:".bold(), file_path.display());
 
                 if let Ok(source) = std::fs::read_to_string(file_path) {
-                    report.print(Some(&source));
+                    print!("{}", report.render(Some(&source)));
                 } else {
-                    report.print(None);
+                    print!("{}", report.render(None));
                 }
             }
         }

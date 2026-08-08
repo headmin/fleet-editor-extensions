@@ -22,3 +22,6 @@ regex = { workspace = true }
 # Runtime dep: FleetConnection writes a temp fleetctl config (fleet.rs).
 tempfile = { workspace = true }
 pathdiff = { workspace = true }
+
+[lints]
+workspace = true

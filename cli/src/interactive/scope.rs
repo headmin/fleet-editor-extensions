@@ -8,77 +8,76 @@
 use super::ask;
 use colored::Colorize;
 use flint_lint::scope::{self, ScopePreview, ScopeScan, ScopeSelection, ScopeUnit};
-use flint_lint::{DetectedConfig, InitPrompts, StrictnessLevel};
+use flint_lint::StrictnessLevel;
 
-/// Drives `flint init`'s questions over stdin.
-pub(crate) struct TerminalPrompts;
+/// Ask which strictness preset to write.
+pub(crate) fn ask_strictness() -> anyhow::Result<StrictnessLevel> {
+    let stdin = std::io::stdin();
+    println!("\n{}", "? What strictness level would you like?".bold());
+    println!(
+        "  {} - Enforce best practices (require platform, warn on SELECT *)",
+        "1. Strict".cyan()
+    );
+    println!(
+        "  {} - Balanced defaults (recommended)",
+        "2. Moderate".green()
+    );
+    println!("  {} - Minimal warnings", "3. Relaxed".yellow());
+    let answer = ask(&stdin, "\n  Enter choice [2]: ")?.unwrap_or_default();
+    Ok(flint_lint::parse_strictness(&answer))
+}
 
-impl InitPrompts for TerminalPrompts {
-    fn strictness(&self, _detected: &DetectedConfig) -> anyhow::Result<StrictnessLevel> {
-        let stdin = std::io::stdin();
-        println!("\n{}", "? What strictness level would you like?".bold());
-        println!(
-            "  {} - Enforce best practices (require platform, warn on SELECT *)",
-            "1. Strict".cyan()
-        );
-        println!(
-            "  {} - Balanced defaults (recommended)",
-            "2. Moderate".green()
-        );
-        println!("  {} - Minimal warnings", "3. Relaxed".yellow());
-        let answer = ask(&stdin, "\n  Enter choice [2]: ")?.unwrap_or_default();
-        Ok(flint_lint::parse_strictness(&answer))
+/// Walk the scope tree and collect one in/out answer per directory, showing
+/// the measured delta before returning. A selection that narrows nothing is
+/// always a safe answer.
+pub(crate) fn ask_scope(scan: &ScopeScan) -> anyhow::Result<ScopeSelection> {
+    let stdin = std::io::stdin();
+
+    if scan.top_level().is_empty() {
+        return Ok(ScopeSelection::default());
     }
 
-    fn scope(&self, scan: &ScopeScan) -> anyhow::Result<ScopeSelection> {
-        let stdin = std::io::stdin();
+    println!("\n{}", "? Which directories should flint lint?".bold());
+    println!(
+        "  {}",
+        "Answers become DIRECTORY globs. A narrowed scope also scopes the"
+            .dimmed()
+    );
+    println!(
+        "  {}",
+        "cross-file rules (orphaned-file, duplicate-content, case-collision,".dimmed()
+    );
+    println!(
+        "  {}",
+        "unregistered-script), which report on scripts and profiles too.".dimmed()
+    );
 
-        if scan.top_level().is_empty() {
-            return Ok(ScopeSelection::default());
+    // The loop exists so "no, let me redo that" costs one keystroke
+    // rather than a re-run of the whole command.
+    loop {
+        let mut selection = ScopeSelection::default();
+        println!();
+        for unit in scan.top_level() {
+            if !walk_unit(&stdin, scan, unit, &mut selection)? {
+                // EOF or quit — keep whatever was answered so far.
+                break;
+            }
         }
 
-        println!("\n{}", "? Which directories should flint lint?".bold());
-        println!(
-            "  {}",
-            "Answers become DIRECTORY globs. A narrowed scope also scopes the"
-                .dimmed()
-        );
-        println!(
-            "  {}",
-            "cross-file rules (orphaned-file, duplicate-content, case-collision,".dimmed()
-        );
-        println!(
-            "  {}",
-            "unregistered-script), which report on scripts and profiles too.".dimmed()
-        );
+        let preview = scope::preview(scan, &selection);
+        print_preview(&preview);
 
-        // The loop exists so "no, let me redo that" costs one keystroke
-        // rather than a re-run of the whole command.
-        loop {
-            let mut selection = ScopeSelection::default();
-            println!();
-            for unit in scan.top_level() {
-                if !walk_unit(&stdin, scan, unit, &mut selection)? {
-                    // EOF or quit — keep whatever was answered so far.
-                    break;
-                }
-            }
-
-            let preview = scope::preview(scan, &selection);
-            print_preview(&preview);
-
-            match ask(
-                &stdin,
-                "\n  Write this scope?  [y]es / [e]dit again / [s]kip (leave scope unset): ",
-            )?
-            .unwrap_or_default()
-            .to_lowercase()
-            .as_str()
-            {
-                "e" | "edit" => continue,
-                "s" | "skip" | "n" | "no" => return Ok(ScopeSelection::default()),
-                _ => return Ok(selection),
-            }
+        match ask(
+            &stdin,
+            "\n  Write this scope?  [y]es / [e]dit again / [s]kip (leave scope unset): ",
+        )?
+        .unwrap_or_default()
+        .to_lowercase()
+        .as_str()
+        {
+            "e" | "edit" => continue,
+            "s" | "skip" | "n" | "no" => return Ok(ScopeSelection::default()),
+            _ => return Ok(selection),
         }
     }
 }

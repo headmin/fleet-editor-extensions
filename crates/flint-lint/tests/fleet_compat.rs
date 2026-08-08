@@ -7,6 +7,8 @@
 //!
 //! Run with: cargo test -p flint-lint --test fleet_compat -- --ignored
 
+#![expect(clippy::print_stderr, reason = "a test explaining why it skipped is worth more than a silent pass")]
+
 use flint_lint::Linter;
 use std::path::PathBuf;
 

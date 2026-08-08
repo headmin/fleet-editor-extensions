@@ -1,13 +1,13 @@
-//! Configuration initialization for Fleet linter.
+//! Workspace detection and config generation for `flint init`.
 //!
-//! Provides workspace detection and interactive configuration generation
-//! for creating `fleetlint.toml` files. The prompting itself is the CLI's
-//! ([`InitPrompts`]); the scope analysis the questions are asked over lives
-//! in [`super::scope`].
+//! Everything here is pure: detect, generate, write. The prompting AND the
+//! terminal output both live in the CLI (`cli/src/commands/init.rs`), so this
+//! module contains no `println!` — a library that prints cannot be driven by
+//! anything except a terminal. The scope analysis the questions are asked
+//! over lives in [`super::scope`].
 
 use super::config::CONFIG_FILE_NAME;
-use super::scope::{self, ScopePreview, ScopeScan, ScopeSelection};
-use colored::Colorize;
+use super::scope::{self, ScopePreview};
 use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -44,25 +44,6 @@ pub struct UserAnswers {
     /// What the scope questions produced, already measured against the repo.
     /// The default narrows nothing — see [`ScopePreview::default`].
     pub scope: ScopePreview,
-}
-
-/// The interactive half of `flint init`.
-///
-/// The prompting lives in the CLI (`cli/src/interactive/scope.rs`), on top of
-/// the same `ask`/`ask_yes` scaffolding the unwired-file walk uses; this
-/// crate keeps the detection, the measurement and the file writing. Passing
-/// `None` to [`init`] is the non-interactive path: defaults, no narrowing.
-pub trait InitPrompts {
-    /// Which strictness preset to write.
-    fn strictness(&self, detected: &DetectedConfig) -> anyhow::Result<StrictnessLevel>;
-
-    /// Walk the scope tree and collect one in/out answer per directory.
-    ///
-    /// Implementations are expected to show the caller
-    /// [`scope::preview`]'s delta and let them back out; returning a
-    /// selection that narrows nothing leaves `include` unset, which is
-    /// always a safe answer.
-    fn scope(&self, scan: &ScopeScan) -> anyhow::Result<ScopeSelection>;
 }
 
 /// Strictness level for linting.
@@ -373,143 +354,31 @@ pub fn generate_config_toml(detected: &DetectedConfig, answers: &UserAnswers) ->
     output
 }
 
-/// Initialize Fleet linter configuration in the given directory.
+/// Where `flint init` will write, given an optional explicit `--output`.
 ///
-/// Writes the VISIBLE `fleetlint.toml` ([`CONFIG_FILE_NAME`]) unless
-/// `output` says otherwise; the hidden `.fleetlint.toml` spelling is still
-/// read by the loader, so an existing repo keeps working untouched.
-///
-/// `prompts` is the interactive half. `None` takes the defaults and narrows
-/// nothing.
-pub fn init(
-    root: &Path,
-    output: Option<PathBuf>,
-    prompts: Option<&dyn InitPrompts>,
-    force: bool,
-) -> anyhow::Result<()> {
-    let config_path = output.unwrap_or_else(|| root.join(CONFIG_FILE_NAME));
+/// Defaults to the VISIBLE [`CONFIG_FILE_NAME`]; the hidden `.fleetlint.toml`
+/// spelling is still read by the loader, so an existing repo keeps working
+/// untouched.
+pub fn config_path_for(root: &Path, output: Option<PathBuf>) -> PathBuf {
+    output.unwrap_or_else(|| root.join(CONFIG_FILE_NAME))
+}
 
-    // Check if config already exists
-    if config_path.exists() && !force {
+/// Write a generated config, refusing to clobber an existing file unless
+/// `force`.
+///
+/// Deliberately silent: this crate is a library, so rendering progress and
+/// next steps belongs to the caller. `flint init`'s terminal output lives in
+/// the CLI (`cli/src/commands/init.rs`), which is also where the prompting
+/// is — keeping both on one side of the boundary is what lets the library
+/// stay free of `println!`.
+pub fn write_config(path: &Path, content: &str, force: bool) -> anyhow::Result<()> {
+    if path.exists() && !force {
         anyhow::bail!(
             "Configuration file already exists: {}\nUse --force to overwrite.",
-            config_path.display()
+            path.display()
         );
     }
-
-    // Detect workspace structure
-    println!("{} Detecting Fleet GitOps structure...\n", "🔍".cyan());
-
-    let detected = detect_workspace(root);
-
-    // Print detection summary
-    println!("{}:", "Found".bold());
-    println!(
-        "  • {} YAML file(s)",
-        detected.yaml_file_count.to_string().cyan()
-    );
-
-    if detected.has_fleets_dir {
-        if detected.has_legacy_teams_dir {
-            println!(
-                "  • {} directory with {} fleet(s)",
-                "teams/".yellow(),
-                detected.fleet_count
-            );
-        } else {
-            println!(
-                "  • {} directory with {} fleet(s)",
-                "fleets/".green(),
-                detected.fleet_count
-            );
-        }
-    }
-    if detected.has_lib_dir {
-        println!(
-            "  • {} directory {}",
-            "lib/".yellow(),
-            "(deprecated legacy layout — migrate to platforms/)".dimmed()
-        );
-    }
-    if !detected.root_yaml_files.is_empty() {
-        println!(
-            "  • Root files: {}",
-            detected.root_yaml_files.join(", ").dimmed()
-        );
-    }
-    if !detected.detected_platforms.is_empty() {
-        println!(
-            "  • Platforms: {}",
-            detected.detected_platforms.join(", ").yellow()
-        );
-    }
-    if detected.has_path_references {
-        println!("  • Path references detected (cross-file includes)");
-    }
-
-    // Print legacy rename suggestions
-    if detected.has_legacy_teams_dir {
-        println!(
-            "\n{}",
-            "⚠ Found 'teams/' directory — Fleet is renaming this to 'fleets/'.".yellow()
-        );
-        println!("  Consider renaming: {}", "mv teams/ fleets/".cyan());
-    }
-    if detected.has_legacy_queries {
-        println!(
-            "\n{}",
-            "⚠ Found 'queries:' key — Fleet is renaming this to 'reports:'.".yellow()
-        );
-        println!(
-            "  Consider updating your YAML files to use {} instead.",
-            "reports:".cyan()
-        );
-    }
-
-    // Get user answers (interactive or defaults).
-    //
-    // The scope walk is the expensive part (it reads every YAML file to
-    // resolve `path:`/`paths:` references), so it only runs when someone is
-    // there to answer it.
-    let answers = match prompts {
-        Some(p) => {
-            let strictness = p.strictness(&detected)?;
-            let scan = scope::scan(root);
-            let selection = p.scope(&scan)?;
-            UserAnswers {
-                strictness,
-                scope: scope::preview(&scan, &selection),
-            }
-        }
-        None => UserAnswers::default(),
-    };
-
-    // Generate config
-    let config_content = generate_config_toml(&detected, &answers);
-
-    // Write config file
-    fs::write(&config_path, &config_content)?;
-
-    println!(
-        "\n{} Created {}",
-        "✓".green().bold(),
-        config_path.display().to_string().bold()
-    );
-    if !answers.scope.include.is_empty() {
-        println!(
-            "  {} {} of {} file(s) in scope",
-            "•".dimmed(),
-            answers.scope.in_scope.to_string().cyan(),
-            answers.scope.total
-        );
-    }
-    println!("\n{}:", "Next steps".bold());
-    println!("  • Run {} to validate your configs", "flint check .".cyan());
-    println!(
-        "  • Edit {} to customize rules",
-        config_path.display().to_string().cyan()
-    );
-
+    fs::write(path, content)?;
     Ok(())
 }
 
@@ -547,6 +416,7 @@ pub fn discover_gitops_root(start: &Path) -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::scope::ScopeSelection;
     use tempfile::TempDir;
 
     #[test]
@@ -814,24 +684,14 @@ mod tests {
         assert!(parsed.is_out_of_scope_file(Path::new("tools/build.sh")));
     }
 
-    /// End to end through the [`InitPrompts`] seam: `init` must write the
-    /// VISIBLE `fleetlint.toml` and it must carry the answers.
+    /// End to end through the pieces the CLI orchestrates: `flint init` must
+    /// write the VISIBLE `fleetlint.toml` and it must carry the answers.
+    ///
+    /// There is no trait to script any more — the library stopped driving the
+    /// flow when the printing moved to the CLI, so a test just calls the same
+    /// three functions `cli/src/commands/init.rs` calls, in the same order.
     #[test]
-    fn init_writes_the_visible_config_with_the_chosen_scope() {
-        struct Scripted;
-        impl InitPrompts for Scripted {
-            fn strictness(&self, _: &DetectedConfig) -> anyhow::Result<StrictnessLevel> {
-                Ok(StrictnessLevel::Strict)
-            }
-            fn scope(&self, scan: &ScopeScan) -> anyhow::Result<ScopeSelection> {
-                let mut sel = ScopeSelection::default();
-                for unit in scan.top_level() {
-                    sel.decide(unit, unit.rel != "tools");
-                }
-                Ok(sel)
-            }
-        }
-
+    fn writes_the_visible_config_with_the_chosen_scope() {
         let tmp = TempDir::new().unwrap();
         fs::create_dir_all(tmp.path().join("fleets")).unwrap();
         fs::create_dir_all(tmp.path().join("tools")).unwrap();
@@ -839,35 +699,64 @@ mod tests {
         fs::write(tmp.path().join("fleets/a.yml"), "name: A\n").unwrap();
         fs::write(tmp.path().join("tools/build.sh"), "#!/bin/sh\n").unwrap();
 
-        init(tmp.path(), None, Some(&Scripted), false).unwrap();
+        let scan = scope::scan(tmp.path());
+        let mut selection = ScopeSelection::default();
+        for unit in scan.top_level() {
+            selection.decide(unit, unit.rel != "tools");
+        }
+        let answers = UserAnswers {
+            strictness: StrictnessLevel::Strict,
+            scope: scope::preview(&scan, &selection),
+        };
 
-        let visible = tmp.path().join(CONFIG_FILE_NAME);
+        let path = config_path_for(tmp.path(), None);
+        write_config(&path, &generate_config_toml(&detect_workspace(tmp.path()), &answers), false)
+            .unwrap();
+
         assert_eq!(CONFIG_FILE_NAME, "fleetlint.toml");
-        assert!(visible.exists(), "init must write the visible spelling");
+        assert!(path.exists(), "init must write the visible spelling");
         assert!(
             !tmp.path().join(".fleetlint.toml").exists(),
             "init must not write the hidden spelling"
         );
 
-        let written = fs::read_to_string(&visible).unwrap();
+        let written = fs::read_to_string(&path).unwrap();
         let parsed: super::super::config::FleetLintConfig = toml::from_str(&written).unwrap();
         assert_eq!(parsed.files.include, vec!["default.yml", "fleets/**"]);
         assert!(parsed.files.exclude.contains(&"tools/**".to_string()));
         assert!(parsed.schema.require_platform, "strict answer must survive");
     }
 
-    /// The non-interactive path stays exactly as it was: no scope questions,
-    /// no `include`, cross-file rules armed everywhere.
+    /// The non-interactive path: no scope questions, no `include`, cross-file
+    /// rules armed everywhere.
     #[test]
     fn non_interactive_init_narrows_nothing() {
         let tmp = TempDir::new().unwrap();
         fs::write(tmp.path().join("default.yml"), "org_settings: {}\n").unwrap();
 
-        init(tmp.path(), None, None, false).unwrap();
+        let path = config_path_for(tmp.path(), None);
+        let content =
+            generate_config_toml(&detect_workspace(tmp.path()), &UserAnswers::default());
+        write_config(&path, &content, false).unwrap();
 
-        let written = fs::read_to_string(tmp.path().join(CONFIG_FILE_NAME)).unwrap();
-        let parsed: super::super::config::FleetLintConfig = toml::from_str(&written).unwrap();
+        let parsed: super::super::config::FleetLintConfig =
+            toml::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
         assert!(parsed.files.include.is_empty());
         assert!(!parsed.is_out_of_scope_file(Path::new("anything/at/all.sh")));
+    }
+
+    /// `write_config` must refuse to clobber without `force` — the guard the
+    /// CLI relies on when a repo already has a config.
+    #[test]
+    fn write_config_refuses_to_clobber_without_force() {
+        let tmp = TempDir::new().unwrap();
+        let path = config_path_for(tmp.path(), None);
+        write_config(&path, "# first\n", false).unwrap();
+
+        assert!(write_config(&path, "# second\n", false).is_err());
+        assert_eq!(fs::read_to_string(&path).unwrap(), "# first\n");
+
+        write_config(&path, "# second\n", true).unwrap();
+        assert_eq!(fs::read_to_string(&path).unwrap(), "# second\n");
     }
 }

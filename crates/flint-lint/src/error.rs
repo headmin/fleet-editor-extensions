@@ -376,39 +376,43 @@ impl LintReport {
         self.errors.len() + self.warnings.len() + self.infos.len()
     }
 
-    pub fn print(&self, source: Option<&str>) {
-        // Print all issues
-        for error in &self.errors {
-            println!("{}", error.format(source));
-        }
-        for warning in &self.warnings {
-            println!("{}", warning.format(source));
-        }
-        for info in &self.infos {
-            println!("{}", info.format(source));
+    /// Render every finding plus the summary line, as the CLI prints it.
+    ///
+    /// Returns the text rather than writing it: a library that prints can
+    /// only be driven by a terminal, and the same rendering is wanted by the
+    /// CLI, by tests that assert on output, and by anything embedding the
+    /// engine. The trailing newline is included so callers can `print!` it
+    /// directly.
+    pub fn render(&self, source: Option<&str>) -> String {
+        use std::fmt::Write as _;
+        let mut out = String::new();
+
+        for finding in self.errors.iter().chain(&self.warnings).chain(&self.infos) {
+            let _ = writeln!(out, "{}", finding.format(source));
         }
 
-        // Summary
-        println!();
-        if self.has_errors() {
-            println!(
+        out.push('\n');
+        let summary = if self.has_errors() {
+            format!(
                 "{} {} error(s), {} warning(s), {} info",
                 "✗".red().bold(),
                 self.errors.len(),
                 self.warnings.len(),
                 self.infos.len()
-            );
+            )
         } else if !self.warnings.is_empty() {
-            println!(
+            format!(
                 "{} {} warning(s), {} info",
                 "⚠".yellow().bold(),
                 self.warnings.len(),
                 self.infos.len()
-            );
+            )
         } else if !self.infos.is_empty() {
-            println!("{} {} info", "ℹ".blue().bold(), self.infos.len());
+            format!("{} {} info", "ℹ".blue().bold(), self.infos.len())
         } else {
-            println!("{} No issues found!", "✓".green().bold());
-        }
+            format!("{} No issues found!", "✓".green().bold())
+        };
+        let _ = writeln!(out, "{summary}");
+        out
     }
 }

@@ -2,6 +2,8 @@
 //! canonical `gen` replacement must produce byte-identical stdout; the legacy
 //! form warns on stderr, the canonical form does not.
 
+#![expect(clippy::print_stderr, reason = "a test explaining why it skipped is worth more than a silent pass")]
+
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
