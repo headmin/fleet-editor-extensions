@@ -15,7 +15,7 @@ use super::structure::{
 };
 use std::path::Path;
 
-pub struct StructuralValidationRule;
+pub(crate) struct StructuralValidationRule;
 
 impl Rule for StructuralValidationRule {
     fn name(&self) -> &'static str {

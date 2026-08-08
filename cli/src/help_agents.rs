@@ -18,7 +18,7 @@ const SKIP_SUBCOMMANDS: &[&str] = &["help"];
 // ── Index mode (default) ─────────────────────────────────────────────
 
 /// Generate the agent guide and command index.
-pub fn generate_index(cmd: &clap::Command, writer: &mut impl Write) -> Result<()> {
+pub(crate) fn generate_index(cmd: &clap::Command, writer: &mut impl Write) -> Result<()> {
     let mut buf = String::with_capacity(4 * 1024);
     let name = cmd.get_name();
 
@@ -199,7 +199,7 @@ pub fn generate_index(cmd: &clap::Command, writer: &mut impl Write) -> Result<()
 // ── Command detail mode ──────────────────────────────────────────────
 
 /// Generate full detail for a single command by dotted path.
-pub fn generate_command(
+pub(crate) fn generate_command(
     cmd: &clap::Command,
     dotted_path: &str,
     writer: &mut impl Write,
@@ -329,7 +329,7 @@ fn write_arg_detail(buf: &mut String, arg: &clap::Arg) -> Result<()> {
 // ── Full mode ────────────────────────────────────────────────────────
 
 /// Generate the complete CLI reference.
-pub fn generate_full(cmd: &clap::Command, writer: &mut impl Write) -> Result<()> {
+pub(crate) fn generate_full(cmd: &clap::Command, writer: &mut impl Write) -> Result<()> {
     let mut buf = String::with_capacity(8 * 1024);
     let name = cmd.get_name();
 
@@ -390,7 +390,7 @@ fn write_command_full(buf: &mut String, cmd: &clap::Command, parent: &str) -> Re
 /// numbered phases, ASSERTs, IF/CASE branches, and explicit RETURN points.
 /// The intent is that an AI agent can execute the steps directly without
 /// needing to reverse-engineer the workflow from prose.
-pub fn generate_sop(tool: &str, writer: &mut impl Write) -> Result<()> {
+pub(crate) fn generate_sop(tool: &str, writer: &mut impl Write) -> Result<()> {
     let sop = match tool.to_lowercase().as_str() {
         "lint" | "check" => SOP_LINT,
         "migrate" | "migration" => SOP_MIGRATE,
@@ -915,7 +915,7 @@ PROCEDURE scaffold_new(kind):
 
 /// Generate JSON schema of the CLI.
 /// If `path` is provided, scopes to that subtree with global flags stripped.
-pub fn generate_json(
+pub(crate) fn generate_json(
     cmd: &clap::Command,
     path: Option<&str>,
     writer: &mut impl Write,
@@ -1068,7 +1068,7 @@ const SKILL_FLEET_MIGRATE: &str = include_str!("../skills/fleet-migrate.md");
 ///
 /// Creates `.claude/skills/flint.md` and `.claude/skills/fleet-migrate.md`,
 /// then ensures `CLAUDE.md` has a bootstrap hint.
-pub fn install_skill(version: &str) -> Result<()> {
+pub(crate) fn install_skill(version: &str) -> Result<()> {
     use std::fs;
     use std::path::Path;
 

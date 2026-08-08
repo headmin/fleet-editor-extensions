@@ -39,15 +39,15 @@ pub fn create_legend() -> SemanticTokensLegend {
 
 /// Token type indices for easier reference.
 mod token_type {
-    pub const NAMESPACE: u32 = 0;
-    pub const PROPERTY: u32 = 1;
-    pub const STRING: u32 = 2;
-    pub const NUMBER: u32 = 3;
-    pub const KEYWORD: u32 = 4;
-    pub const ENUM_MEMBER: u32 = 5;
-    pub const FUNCTION: u32 = 6;
-    pub const VARIABLE: u32 = 7;
-    pub const COMMENT: u32 = 8;
+    pub(super) const NAMESPACE: u32 = 0;
+    pub(super) const PROPERTY: u32 = 1;
+    pub(super) const STRING: u32 = 2;
+    pub(super) const NUMBER: u32 = 3;
+    pub(super) const KEYWORD: u32 = 4;
+    pub(super) const ENUM_MEMBER: u32 = 5;
+    pub(super) const FUNCTION: u32 = 6;
+    pub(super) const VARIABLE: u32 = 7;
+    pub(super) const COMMENT: u32 = 8;
 }
 
 /// Generate semantic tokens for a Fleet YAML document.

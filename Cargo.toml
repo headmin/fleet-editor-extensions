@@ -22,11 +22,12 @@ edition = "2021"
 # pure parsing and comparison. Making that a lint means adding some has to be
 # a deliberate, visible decision rather than a quiet one.
 unsafe_code = "warn"
-# NOT enabled yet: `unreachable_pub` flags ~75 rule structs that are `pub`
-# inside private modules. Mechanical to fix (`pub` -> `pub(crate)`) but a
-# separate pass — turning it on half-done would just train people to ignore
-# the warning list.
-# unreachable_pub = "warn"
+# A `pub` item inside a PRIVATE module is unreachable from outside the crate:
+# it reads as public API but is not, which quietly defeats the curated surface
+# in `flint-lint/src/lib.rs` (public modules plus root re-exports). The lint
+# separates the two things that look identical in source — "internal, and
+# mislabelled `pub`" from "meant to be public, never re-exported".
+unreachable_pub = "warn"
 
 [workspace.lints.clippy]
 # A library that prints can only be driven by a terminal. Rendering belongs to

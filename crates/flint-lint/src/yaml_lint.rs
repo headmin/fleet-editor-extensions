@@ -25,7 +25,7 @@ use super::rules::Rule;
 ///
 /// Skips blank lines, comment-only lines, and lines inside multi-line scalars
 /// (block `|` / `>` indicators).
-pub struct YamlIndentationRule;
+pub(crate) struct YamlIndentationRule;
 
 impl Rule for YamlIndentationRule {
     fn name(&self) -> &'static str {
@@ -153,7 +153,7 @@ impl Rule for YamlIndentationRule {
 ///
 /// serde_yaml treats `key_name` (no colon) as a plain string value, not a
 /// key-value pair. This catches typos where the user forgot the `:`.
-pub struct YamlColonsRule;
+pub(crate) struct YamlColonsRule;
 
 impl Rule for YamlColonsRule {
     fn name(&self) -> &'static str {
@@ -250,7 +250,7 @@ impl Rule for YamlColonsRule {
 /// Fleet collection keys (`configuration_profiles:`, `certificates:`, `scripts:`,
 /// `packages:`, `custom_settings:`, `labels_include_any:`, etc.) are commonly
 /// and intentionally left empty to mean "no items" — those are skipped.
-pub struct YamlEmptyValuesRule;
+pub(crate) struct YamlEmptyValuesRule;
 
 /// Keys where an empty value is idiomatic Fleet GitOps (collection = no items).
 /// Matched by name only; empty values on these keys are never flagged.

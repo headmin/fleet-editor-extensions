@@ -9,7 +9,7 @@ use std::collections::HashMap;
 
 /// Describes the valid structure at a single level of the YAML tree.
 #[derive(Debug, Clone)]
-pub enum SchemaNode {
+pub(crate) enum SchemaNode {
     /// A mapping with known child keys.
     Mapping(HashMap<&'static str, SchemaNode>),
     /// An array whose items follow a given schema.
@@ -39,7 +39,7 @@ impl SchemaNode {
 /// Global registry mapping every known key name to the path(s) where it's valid.
 /// Used for misplaced-key detection.
 #[derive(Debug)]
-pub struct KeyRegistry {
+pub(crate) struct KeyRegistry {
     /// key_name -> list of dot-separated paths where it's valid
     entries: HashMap<&'static str, Vec<&'static str>>,
 }
@@ -56,7 +56,7 @@ impl KeyRegistry {
     }
 
     /// Look up the valid paths for a key name.
-    pub fn lookup(&self, key: &str) -> Option<&[&'static str]> {
+    pub(crate) fn lookup(&self, key: &str) -> Option<&[&'static str]> {
         self.entries.get(key).map(|v| v.as_slice())
     }
 
@@ -735,7 +735,7 @@ fn agent_options_inline() -> SchemaNode {
 // ---------------------------------------------------------------------------
 
 /// Schema for `default.yml` files.
-pub fn default_schema() -> SchemaNode {
+pub(crate) fn default_schema() -> SchemaNode {
     mapping(vec![
         (
             "labels",
@@ -767,7 +767,7 @@ pub fn default_schema() -> SchemaNode {
 }
 
 /// Schema for `fleets/*.yml` (and legacy `teams/*.yml`) files. Same structure as default.
-pub fn fleet_schema() -> SchemaNode {
+pub(crate) fn fleet_schema() -> SchemaNode {
     mapping(vec![
         ("name", leaf()),
         (
@@ -795,17 +795,17 @@ pub fn fleet_schema() -> SchemaNode {
 }
 
 /// Schema for `lib/policies/*.yml` files (array of policies).
-pub fn policy_schema() -> SchemaNode {
+pub(crate) fn policy_schema() -> SchemaNode {
     array(with_base_item(policy_inline_strict()))
 }
 
 /// Schema for `lib/queries/*.yml` files (array of queries).
-pub fn query_schema() -> SchemaNode {
+pub(crate) fn query_schema() -> SchemaNode {
     array(with_base_item(query_inline_strict()))
 }
 
 /// Schema for `lib/labels/*.yml` files (array of labels).
-pub fn label_schema() -> SchemaNode {
+pub(crate) fn label_schema() -> SchemaNode {
     array(with_base_item(label_inline_strict()))
 }
 
@@ -813,22 +813,22 @@ pub fn label_schema() -> SchemaNode {
 // Static instances
 // ---------------------------------------------------------------------------
 
-pub static DEFAULT_SCHEMA: Lazy<SchemaNode> = Lazy::new(default_schema);
-pub static FLEET_SCHEMA: Lazy<SchemaNode> = Lazy::new(fleet_schema);
-pub static POLICY_SCHEMA: Lazy<SchemaNode> = Lazy::new(policy_schema);
-pub static QUERY_SCHEMA: Lazy<SchemaNode> = Lazy::new(query_schema);
-pub static LABEL_SCHEMA: Lazy<SchemaNode> = Lazy::new(label_schema);
+pub(crate) static DEFAULT_SCHEMA: Lazy<SchemaNode> = Lazy::new(default_schema);
+pub(crate) static FLEET_SCHEMA: Lazy<SchemaNode> = Lazy::new(fleet_schema);
+pub(crate) static POLICY_SCHEMA: Lazy<SchemaNode> = Lazy::new(policy_schema);
+pub(crate) static QUERY_SCHEMA: Lazy<SchemaNode> = Lazy::new(query_schema);
+pub(crate) static LABEL_SCHEMA: Lazy<SchemaNode> = Lazy::new(label_schema);
 
 // Standalone software file shapes (software/*.yml, *.package.yml). A file is
 // either a `packages:`/`app_store_apps:`/`fleet_maintained_apps:` list file,
 // a single item mapping, or a sequence of item mappings — `structural.rs`
 // classifies each item by its discriminating key and picks the schema.
-pub static SOFTWARE_LIST_SCHEMA: Lazy<SchemaNode> = Lazy::new(software_schema);
-pub static PACKAGE_ITEM_SCHEMA: Lazy<SchemaNode> = Lazy::new(software_package_item);
-pub static APP_STORE_ITEM_SCHEMA: Lazy<SchemaNode> = Lazy::new(app_store_app_item);
-pub static FMA_ITEM_SCHEMA: Lazy<SchemaNode> = Lazy::new(fleet_maintained_app_item);
+pub(crate) static SOFTWARE_LIST_SCHEMA: Lazy<SchemaNode> = Lazy::new(software_schema);
+pub(crate) static PACKAGE_ITEM_SCHEMA: Lazy<SchemaNode> = Lazy::new(software_package_item);
+pub(crate) static APP_STORE_ITEM_SCHEMA: Lazy<SchemaNode> = Lazy::new(app_store_app_item);
+pub(crate) static FMA_ITEM_SCHEMA: Lazy<SchemaNode> = Lazy::new(fleet_maintained_app_item);
 
-pub static KEY_REGISTRY: Lazy<KeyRegistry> = Lazy::new(|| {
+pub(crate) static KEY_REGISTRY: Lazy<KeyRegistry> = Lazy::new(|| {
     let mut reg = KeyRegistry::new();
 
     // Top-level keys (default.yml)
@@ -1322,7 +1322,7 @@ pub static KEY_REGISTRY: Lazy<KeyRegistry> = Lazy::new(|| {
 // ---------------------------------------------------------------------------
 
 /// Determine which schema to use based on a file path.
-pub fn schema_for_path(path: &std::path::Path) -> &'static SchemaNode {
+pub(crate) fn schema_for_path(path: &std::path::Path) -> &'static SchemaNode {
     let path_str = path.to_string_lossy();
 
     // fleets/*.yml or legacy teams/*.yml

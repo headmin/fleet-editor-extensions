@@ -23,7 +23,7 @@ use super::util::normalize_path;
 use super::workspace::Workspace;
 
 /// Run every configured pattern against the workspace.
-pub fn check_patterns(
+pub(crate) fn check_patterns(
     patterns: &[PatternConfig],
     root: &Path,
     ws: &Workspace,

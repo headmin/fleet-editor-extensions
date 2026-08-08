@@ -36,7 +36,7 @@ use super::yaml_utils::*;
 /// `len(slice) > 0` (policies.go:207, gitops.go:2334), and policies.go:203
 /// spells it out — `{labels_include_any: [], labels_include_all: [A]}` is
 /// valid. Keying off mere presence would flag that legal shape.
-pub struct LabelTargetingRule;
+pub(crate) struct LabelTargetingRule;
 
 impl Rule for LabelTargetingRule {
     fn name(&self) -> &'static str {
@@ -219,7 +219,7 @@ impl Rule for LabelTargetingRule {
 /// - `dynamic`: requires `query`, forbids `hosts`/`criteria`
 /// - `manual`: requires `hosts`, forbids `query`/`criteria`
 /// - `host_vitals`: requires `criteria`, forbids `query`/`hosts`
-pub struct LabelMembershipRule;
+pub(crate) struct LabelMembershipRule;
 
 impl Rule for LabelMembershipRule {
     fn name(&self) -> &'static str {
@@ -508,7 +508,7 @@ fn validate_criteria(
 // ============================================================================
 
 /// Validates that `deadline` fields match YYYY-MM-DD format.
-pub struct DateFormatRule;
+pub(crate) struct DateFormatRule;
 
 impl Rule for DateFormatRule {
     fn name(&self) -> &'static str {
@@ -633,7 +633,7 @@ fn is_valid_date(s: &str) -> bool {
 /// - `install_software: true` is only meaningful on a patch policy; on a
 ///   regular policy `install_software` must be a mapping (`package_path`
 ///   or `hash_sha256`).
-pub struct PatchPolicyRule;
+pub(crate) struct PatchPolicyRule;
 
 impl Rule for PatchPolicyRule {
     fn name(&self) -> &'static str {
@@ -745,7 +745,7 @@ impl Rule for PatchPolicyRule {
 ///
 /// Policies in `default.yml` are global and don't belong to a fleet, so these
 /// fields are a silent misconfiguration — Fleet server will ignore them.
-pub struct PolicyAutomationLocationRule;
+pub(crate) struct PolicyAutomationLocationRule;
 
 impl Rule for PolicyAutomationLocationRule {
     fn name(&self) -> &'static str {
@@ -815,7 +815,7 @@ impl Rule for PolicyAutomationLocationRule {
 // ============================================================================
 
 /// Validates that `hash_sha256` values are 64 lowercase hex characters.
-pub struct HashFormatRule;
+pub(crate) struct HashFormatRule;
 
 impl Rule for HashFormatRule {
     fn name(&self) -> &'static str {
@@ -927,7 +927,7 @@ const VALID_CATEGORIES: &[&str] = &[
 /// set produced 487 false positives on a real repo using emoji-prefixed
 /// custom categories. What still warns: empty names, >255 chars, and
 /// case-variants of a default name (likely an unintended near-duplicate).
-pub struct CategoriesRule;
+pub(crate) struct CategoriesRule;
 
 impl Rule for CategoriesRule {
     fn name(&self) -> &'static str {
@@ -1016,7 +1016,7 @@ impl Rule for CategoriesRule {
 // ============================================================================
 
 /// Validates that profile/script paths have correct file extensions.
-pub struct FileExtensionRule;
+pub(crate) struct FileExtensionRule;
 
 impl Rule for FileExtensionRule {
     fn name(&self) -> &'static str {
@@ -1089,7 +1089,7 @@ impl Rule for FileExtensionRule {
 // ============================================================================
 
 /// Checks that integration credential fields use environment variable references.
-pub struct SecretHygieneRule;
+pub(crate) struct SecretHygieneRule;
 
 impl Rule for SecretHygieneRule {
     fn name(&self) -> &'static str {
@@ -1174,7 +1174,7 @@ impl Rule for SecretHygieneRule {
 /// - `paths` MUST contain glob characters
 /// - Cannot have both `path` and `paths` on the same entry
 /// - Scripts require `path` or `paths` (no inline allowed)
-pub struct PathReferenceRule;
+pub(crate) struct PathReferenceRule;
 
 impl Rule for PathReferenceRule {
     fn name(&self) -> &'static str {
@@ -1323,7 +1323,7 @@ fn check_path_fields(
 /// Scope: only checks files ending in `.sh`, `.zsh`, `.bash` — the
 /// platforms where shebang is the convention. PowerShell (`.ps1`) and
 /// batch scripts have their own header conventions and aren't checked.
-pub struct ShebangSyntaxRule;
+pub(crate) struct ShebangSyntaxRule;
 
 impl Rule for ShebangSyntaxRule {
     fn name(&self) -> &'static str {
@@ -1426,7 +1426,7 @@ fn is_posix_shell_script(path: &str) -> bool {
 ///
 /// Skips env-var refs (`$WEBHOOK_URL`) and 1Password refs (`op://...`)
 /// since those resolve server-side and can't be validated locally.
-pub struct WebhookEndpointRule;
+pub(crate) struct WebhookEndpointRule;
 
 impl Rule for WebhookEndpointRule {
     fn name(&self) -> &'static str {
@@ -1569,7 +1569,7 @@ fn webhook_url_problem(url: &str) -> Option<&'static str> {
 /// malformed URL is caught locally before it reaches the pipeline. Also flags
 /// the unfilled `https://REPLACE-ME.example.com/…` placeholder that
 /// `flint pkg --yml` emits, which parses as a URL but fails at apply.
-pub struct SoftwareUrlRule;
+pub(crate) struct SoftwareUrlRule;
 
 impl Rule for SoftwareUrlRule {
     fn name(&self) -> &'static str {
@@ -1684,7 +1684,7 @@ fn find_url_value_line(source: &str, url: &str) -> (Option<usize>, Option<usize>
 /// a standalone software file instead of `flint pkg --yml` (which scaffolds the
 /// `url:`). A warning, not an error, since the cached-by-hash pattern is a
 /// legitimate — if server-dependent — Fleet feature.
-pub struct SoftwareSourceRule {
+pub(crate) struct SoftwareSourceRule {
     /// Optional server snapshot. With a FRESH one carrying installer hashes,
     /// "is this package uploaded?" stops being a guess.
     pub snapshot: Option<std::sync::Arc<crate::snapshot::LoadedSnapshot>>,
@@ -1869,7 +1869,7 @@ fn find_line_containing(source: &str, needle: &str) -> (Option<usize>, Option<us
 /// both policies and the integrations block can co-exist. Team-level
 /// policy files without integrations are normal — they inherit from
 /// the global default.yml — and don't trigger this rule.
-pub struct CalendarEventCoercionRule;
+pub(crate) struct CalendarEventCoercionRule;
 
 impl Rule for CalendarEventCoercionRule {
     fn name(&self) -> &'static str {

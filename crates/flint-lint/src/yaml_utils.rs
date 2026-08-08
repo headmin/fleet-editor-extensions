@@ -7,7 +7,7 @@ use super::error::Span;
 use serde_yaml::{Mapping, Value};
 
 /// Parse YAML source, returning None on failure (rules skip unparseable files).
-pub fn parse_yaml(source: &str) -> Option<Value> {
+pub(crate) fn parse_yaml(source: &str) -> Option<Value> {
     serde_yaml::from_str(source).ok()
 }
 
@@ -15,7 +15,7 @@ pub fn parse_yaml(source: &str) -> Option<Value> {
 /// included). THE shared recursive walker — rules that only need to inspect
 /// each mapping (e.g. "does it have a `path:` key?") use this instead of
 /// rolling their own recursion.
-pub fn walk_mappings(value: &Value, visit: &mut impl FnMut(&Mapping)) {
+pub(crate) fn walk_mappings(value: &Value, visit: &mut impl FnMut(&Mapping)) {
     match value {
         Value::Mapping(map) => {
             visit(map);
@@ -36,7 +36,7 @@ pub fn walk_mappings(value: &Value, visit: &mut impl FnMut(&Mapping)) {
 /// path of the mapping (sequence hops appear as `[idx]`, e.g.
 /// `policies[0].install_software`). Used by rules that key their checks on
 /// where a mapping sits (deprecations).
-pub fn walk_mappings_with_path(value: &Value, visit: &mut impl FnMut(&str, &Mapping)) {
+pub(crate) fn walk_mappings_with_path(value: &Value, visit: &mut impl FnMut(&str, &Mapping)) {
     fn inner(value: &Value, path: &str, visit: &mut impl FnMut(&str, &Mapping)) {
         match value {
             Value::Mapping(map) => {
@@ -64,7 +64,7 @@ pub fn walk_mappings_with_path(value: &Value, visit: &mut impl FnMut(&str, &Mapp
 }
 
 /// Locate a specific `path:` value in the source text, spanning the value.
-pub fn find_path_value_line(source: &str, path_value: &str) -> Option<Span> {
+pub(crate) fn find_path_value_line(source: &str, path_value: &str) -> Option<Span> {
     for (line_idx, line) in source.lines().enumerate() {
         let trimmed = line.trim_start();
         // Match `path: <value>` or `- path: <value>` patterns
@@ -102,7 +102,7 @@ pub fn find_path_value_line(source: &str, path_value: &str) -> Option<Span> {
 
 /// Walk a `serde_yaml::Value` tree along a path of keys (e.g., `["software", "packages"]`)
 /// and return all array items found at that path.
-pub fn collect_items_at_path<'a>(root: &'a Value, path: &[&str]) -> Vec<&'a Value> {
+pub(crate) fn collect_items_at_path<'a>(root: &'a Value, path: &[&str]) -> Vec<&'a Value> {
     let mut current = root;
 
     for &key in path {
@@ -123,7 +123,7 @@ pub fn collect_items_at_path<'a>(root: &'a Value, path: &[&str]) -> Vec<&'a Valu
 }
 
 /// Check if a `serde_yaml::Value::Mapping` contains a given key.
-pub fn mapping_has_key(value: &Value, key: &str) -> bool {
+pub(crate) fn mapping_has_key(value: &Value, key: &str) -> bool {
     match value {
         Value::Mapping(map) => map.contains_key(Value::String(key.to_string())),
         _ => false,
@@ -131,7 +131,7 @@ pub fn mapping_has_key(value: &Value, key: &str) -> bool {
 }
 
 /// Get a string value from a mapping by key.
-pub fn mapping_get_str<'a>(value: &'a Value, key: &str) -> Option<&'a str> {
+pub(crate) fn mapping_get_str<'a>(value: &'a Value, key: &str) -> Option<&'a str> {
     match value {
         Value::Mapping(map) => map
             .get(Value::String(key.to_string()))
@@ -141,7 +141,7 @@ pub fn mapping_get_str<'a>(value: &'a Value, key: &str) -> Option<&'a str> {
 }
 
 /// Get a display name for an item (tries name, slug, app_store_id, path in order).
-pub fn item_display_name(value: &Value) -> String {
+pub(crate) fn item_display_name(value: &Value) -> String {
     for key in &["name", "slug", "app_store_id", "path"] {
         if let Some(s) = mapping_get_str(value, key) {
             return s.to_string();
@@ -153,7 +153,7 @@ pub fn item_display_name(value: &Value) -> String {
 /// Find the 1-indexed line number of a YAML key in source text.
 /// Searches for the key at the appropriate indentation level.
 /// Returns the first match after `after_line` (0 = search from start).
-pub fn find_key_line(source: &str, key: &str, after_line: usize) -> Option<usize> {
+pub(crate) fn find_key_line(source: &str, key: &str, after_line: usize) -> Option<usize> {
     let pattern = format!("{}:", key);
     for (idx, line) in source.lines().enumerate() {
         if idx < after_line {
@@ -173,7 +173,7 @@ pub fn find_key_line(source: &str, key: &str, after_line: usize) -> Option<usize
 /// Prefer this over [`find_key_line`] plus a hardcoded column. A column of 1
 /// puts the caret under the indentation, which reads as "something is wrong
 /// with this whole line" when the point is a single token.
-pub fn find_key_span(source: &str, key: &str, after_line: usize) -> Option<Span> {
+pub(crate) fn find_key_span(source: &str, key: &str, after_line: usize) -> Option<Span> {
     let pattern = format!("{key}:");
     for (idx, line) in source.lines().enumerate() {
         if idx < after_line {
@@ -198,7 +198,7 @@ pub fn find_key_span(source: &str, key: &str, after_line: usize) -> Option<Span>
 /// Matches the value exactly after unquoting, so `platform: "darwin"` and
 /// `platform: darwin` both resolve, and a different value on another line
 /// does not.
-pub fn find_value_span(source: &str, key: &str, value: &str) -> Option<Span> {
+pub(crate) fn find_value_span(source: &str, key: &str, value: &str) -> Option<Span> {
     for (idx, line) in source.lines().enumerate() {
         let trimmed = line.trim().trim_start_matches('-').trim_start();
         let Some(rest) = trimmed.strip_prefix(key).and_then(|r| r.trim_start().strip_prefix(':'))
@@ -223,7 +223,7 @@ pub fn find_value_span(source: &str, key: &str, value: &str) -> Option<Span> {
 /// `yaml_comments` is set — `#` comment lines. A YAML file that is empty,
 /// whitespace-only, or comment-only parses to null, which Fleet rejects where
 /// it expects a document (a software/policy/profile referenced by `path:`).
-pub fn is_effectively_empty(content: &str, yaml_comments: bool) -> bool {
+pub(crate) fn is_effectively_empty(content: &str, yaml_comments: bool) -> bool {
     for line in content.lines() {
         let t = line.trim();
         if t.is_empty() {
@@ -238,7 +238,7 @@ pub fn is_effectively_empty(content: &str, yaml_comments: bool) -> bool {
 }
 
 /// Get all string values from an array field within a mapping.
-pub fn mapping_get_string_array<'a>(value: &'a Value, key: &str) -> Vec<&'a str> {
+pub(crate) fn mapping_get_string_array<'a>(value: &'a Value, key: &str) -> Vec<&'a str> {
     match value {
         Value::Mapping(map) => map
             .get(Value::String(key.to_string()))

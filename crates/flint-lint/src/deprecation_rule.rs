@@ -12,13 +12,13 @@ use super::version_gate::VersionContext;
 use std::path::Path;
 
 /// Rule that detects usage of deprecated keys and directories.
-pub struct DeprecationRule {
+pub(crate) struct DeprecationRule {
     version_ctx: VersionContext,
 }
 
 impl DeprecationRule {
     /// Create a rule with a specific version context.
-    pub fn new(version_ctx: VersionContext) -> Self {
+    pub(crate) fn new(version_ctx: VersionContext) -> Self {
         Self { version_ctx }
     }
 

@@ -12,7 +12,7 @@ use std::path::Path;
 
 /// Detects `path:` values that resolve back to the file itself, which causes
 /// Fleet GitOps to loop or fail silently.
-pub struct SelfReferenceRule;
+pub(crate) struct SelfReferenceRule;
 
 impl Rule for SelfReferenceRule {
     fn name(&self) -> &'static str {

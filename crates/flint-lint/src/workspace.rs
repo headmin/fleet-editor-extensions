@@ -677,7 +677,7 @@ fn find_value_span(source: &str, key: &str, value: &str) -> Option<(usize, usize
 #[cfg(test)]
 mod tests_support {
     use super::*;
-    pub fn parsed(path: &str, source: &str) -> ParsedFile {
+    pub(super) fn parsed(path: &str, source: &str) -> ParsedFile {
         ParsedFile {
             path: PathBuf::from(path),
             source: source.to_string(),

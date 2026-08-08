@@ -27,7 +27,7 @@ use std::path::{Component, Path, PathBuf};
 /// Detects `path:` references whose target file is missing, suggesting the
 /// moved location when the file can be found elsewhere by name.
 #[derive(Default)]
-pub struct PathExistsRule {
+pub(crate) struct PathExistsRule {
     /// Basename index shared across files, keyed by workspace root. Before
     /// this cache, every file containing a broken reference re-walked the
     /// whole workspace to build suggestions (ADR-010 Phase 1 perf fix).

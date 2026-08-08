@@ -15,14 +15,14 @@ use std::path::{Path, PathBuf};
 /// `.fleetlint.toml` was untracked while silently suppressing 18 errors, and
 /// it was left out of a commit that included the tooling it configured.
 /// Modern linters have made the same move (ruff.toml, biome.json).
-pub const CONFIG_FILE_NAME: &str = "fleetlint.toml";
+pub(crate) const CONFIG_FILE_NAME: &str = "fleetlint.toml";
 
 /// Every accepted config filename, in discovery order.
 ///
 /// Visible first so it wins when both exist — a repo that has added the
 /// visible form has opted into it, and silently preferring the hidden one
 /// would make the migration look broken.
-pub const CONFIG_FILE_NAMES: &[&str] = &["fleetlint.toml", ".fleetlint.toml"];
+pub(crate) const CONFIG_FILE_NAMES: &[&str] = &["fleetlint.toml", ".fleetlint.toml"];
 
 /// Resolve the user-level config path from the process environment.
 ///
@@ -158,7 +158,7 @@ impl PlaceholdersConfig {
 /// is never what reaches Fleet, so flint has nothing to check and must stay
 /// silent — reporting one would be a false positive in every repo, which is
 /// why this is built in rather than configurable.
-pub fn is_fleet_variable(value: &str) -> bool {
+pub(crate) fn is_fleet_variable(value: &str) -> bool {
     let v = value.trim();
     v.starts_with('$') || v.contains("${")
 }
@@ -203,7 +203,7 @@ pub struct PatternConfig {
 }
 
 /// The assertion kinds `PatternConfig.assert` accepts.
-pub const PATTERN_ASSERTS: &[&str] = &[
+pub(crate) const PATTERN_ASSERTS: &[&str] = &[
     "name-matches-filename",
     "filename",
     "content-must-match",
