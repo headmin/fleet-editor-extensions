@@ -4,6 +4,7 @@
 //! `LintReport` collects errors, warnings, and infos for a single file.
 
 use colored::*;
+use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::path::PathBuf;
 
@@ -14,8 +15,8 @@ pub enum Severity {
     Info,
 }
 
-/// Fix applicability level — determines whether `--fix` auto-applies the suggestion.
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// Fix applicability level — determines whether `--fix` auto-applies the fix.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum FixSafety {
     /// Safe to auto-apply (typo corrections, case fixes, deprecated renames).
     Safe,
@@ -23,6 +24,84 @@ pub enum FixSafety {
     Unsafe,
     /// Show to user but never auto-apply (informational suggestions).
     Display,
+}
+
+/// The machine-actionable remedy attached to a diagnostic — at most one per
+/// error. Serialized whole into the LSP `Diagnostic.data` so editor quick-fix
+/// actions and CLI `--fix` share one representation (applied by
+/// [`crate::fix`]).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum Fix {
+    /// Replace `old` with `new` on the error's line. `old: None` marks a
+    /// display-only template (an example snippet, not a substitution) — the
+    /// applier skips it, but editors may still offer it over the diagnostic
+    /// range.
+    Replace {
+        old: Option<String>,
+        new: String,
+        safety: FixSafety,
+    },
+    /// Alternative replacements for `old` when the fix is ambiguous (e.g.
+    /// multiple files match a moved path). Never auto-applied; surfaced as a
+    /// choice of quick-fixes in the editor.
+    Candidates { old: String, options: Vec<String> },
+    /// Replace the inclusive 1-indexed line range with `replacement` — a
+    /// multi-line structural rewrite (e.g. expanding a directory `path:`
+    /// entry into one entry per file in the directory).
+    ReplaceLines {
+        start_line: usize,
+        end_line: usize,
+        replacement: String,
+        safety: FixSafety,
+    },
+}
+
+impl Fix {
+    /// Whether this fix may be applied automatically.
+    pub fn safety(&self) -> FixSafety {
+        match self {
+            Fix::Replace { safety, .. } | Fix::ReplaceLines { safety, .. } => *safety,
+            Fix::Candidates { .. } => FixSafety::Display,
+        }
+    }
+}
+
+/// 1-based source location with an optional highlight width.
+///
+/// Replaces the loose `Option<usize>` line/column pairs that every rule used
+/// to thread around (`if let (Some(l), Some(c)) = …`). `len` is the number of
+/// characters to highlight; `0` means "rest of the line".
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Span {
+    pub line: usize,
+    pub column: usize,
+    pub len: usize,
+}
+
+impl Span {
+    /// A whole-line span (column 1, highlight to end of line).
+    pub fn line(line: usize) -> Self {
+        Self {
+            line,
+            column: 1,
+            len: 0,
+        }
+    }
+
+    /// A point span at `line:column`.
+    pub fn at(line: usize, column: usize) -> Self {
+        Self {
+            line,
+            column,
+            len: 1,
+        }
+    }
+
+    /// A token span of `len` characters starting at `line:column`.
+    pub fn token(line: usize, column: usize, len: usize) -> Self {
+        Self { line, column, len }
+    }
 }
 
 impl fmt::Display for Severity {
@@ -40,76 +119,88 @@ pub struct LintError {
     pub severity: Severity,
     pub message: String,
     pub file: PathBuf,
-    pub line: Option<usize>,
-    pub column: Option<usize>,
+    /// Where in the source this diagnostic points, if known. See [`Span`].
+    pub span: Option<Span>,
     pub context: Option<String>,
     pub help: Option<String>,
-    pub suggestion: Option<String>,
-    /// Rule code for diagnostic identification (e.g., "required-fields", "platform-compatibility").
-    pub rule_code: Option<String>,
-    /// Fix safety level — determines if `--fix` can auto-apply this suggestion.
-    pub fix_safety: Option<FixSafety>,
+    /// Rule code for diagnostic identification — always one of the
+    /// [`crate::codes`] consts (e.g. `codes::REQUIRED_FIELDS`).
+    pub rule_code: Option<&'static str>,
+    /// Full documentation URL for the rule, stamped by the engine from
+    /// [`crate::codes::REGISTRY`].
+    pub doc_url: Option<&'static str>,
+    /// The machine-actionable remedy, if one exists. See [`Fix`].
+    pub fix: Option<Fix>,
+    /// Other file(s) involved in a cross-file finding — e.g. the renamed
+    /// target a broken reference still points at, or the case-colliding
+    /// sibling path. Empty for single-file findings. In `--staged`-style
+    /// scoping, a finding blocks if its `file` OR any `related` path is
+    /// staged (ADR-010).
+    pub related: Vec<PathBuf>,
 }
 
 impl LintError {
-    pub fn error(message: impl Into<String>, file: impl Into<PathBuf>) -> Self {
+    fn new(severity: Severity, message: impl Into<String>, file: impl Into<PathBuf>) -> Self {
         Self {
-            severity: Severity::Error,
+            severity,
             message: message.into(),
             file: file.into(),
-            line: None,
-            column: None,
+            span: None,
             context: None,
             help: None,
-            suggestion: None,
             rule_code: None,
-            fix_safety: None,
+            doc_url: None,
+            fix: None,
+            related: Vec::new(),
         }
     }
 
-    pub fn warning(message: impl Into<String>, file: impl Into<PathBuf>) -> Self {
-        Self {
-            severity: Severity::Warning,
-            message: message.into(),
-            file: file.into(),
-            line: None,
-            column: None,
-            context: None,
-            help: None,
-            suggestion: None,
-            rule_code: None,
-            fix_safety: None,
-        }
-    }
-
-    pub fn info(message: impl Into<String>, file: impl Into<PathBuf>) -> Self {
-        Self {
-            severity: Severity::Info,
-            message: message.into(),
-            file: file.into(),
-            line: None,
-            column: None,
-            context: None,
-            help: None,
-            suggestion: None,
-            rule_code: None,
-            fix_safety: None,
-        }
-    }
-
-    pub fn with_rule_code(mut self, code: impl Into<String>) -> Self {
-        self.rule_code = Some(code.into());
+    /// Attach another file involved in this cross-file finding.
+    pub fn with_related(mut self, path: impl Into<PathBuf>) -> Self {
+        self.related.push(path.into());
         self
     }
 
-    pub fn with_fix_safety(mut self, safety: FixSafety) -> Self {
-        self.fix_safety = Some(safety);
+    /// The 1-based line, if located.
+    pub fn line(&self) -> Option<usize> {
+        self.span.map(|s| s.line)
+    }
+
+    /// The 1-based column, if located.
+    pub fn column(&self) -> Option<usize> {
+        self.span.map(|s| s.column)
+    }
+
+    pub fn error(message: impl Into<String>, file: impl Into<PathBuf>) -> Self {
+        Self::new(Severity::Error, message, file)
+    }
+
+    pub fn warning(message: impl Into<String>, file: impl Into<PathBuf>) -> Self {
+        Self::new(Severity::Warning, message, file)
+    }
+
+    pub fn info(message: impl Into<String>, file: impl Into<PathBuf>) -> Self {
+        Self::new(Severity::Info, message, file)
+    }
+
+    pub fn with_rule_code(mut self, code: &'static str) -> Self {
+        self.rule_code = Some(code);
+        self
+    }
+
+    pub fn with_fix(mut self, fix: Fix) -> Self {
+        self.fix = Some(fix);
         self
     }
 
     pub fn with_location(mut self, line: usize, column: usize) -> Self {
-        self.line = Some(line);
-        self.column = Some(column);
+        // Width comes from `context` at render time when unknown here.
+        self.span = Some(Span { line, column, len: 0 });
+        self
+    }
+
+    pub fn with_span(mut self, span: Span) -> Self {
+        self.span = Some(span);
         self
     }
 
@@ -123,9 +214,31 @@ impl LintError {
         self
     }
 
-    pub fn with_suggestion(mut self, suggestion: impl Into<String>) -> Self {
-        self.suggestion = Some(suggestion.into());
-        self
+    /// Display-only convenience: attach an example/template suggestion that is
+    /// shown to the user (and offered as a non-preferred editor action) but
+    /// never auto-applied.
+    pub fn with_suggestion(self, suggestion: impl Into<String>) -> Self {
+        self.with_fix(Fix::Replace {
+            old: None,
+            new: suggestion.into(),
+            safety: FixSafety::Display,
+        })
+    }
+
+    /// The single replacement/suggestion text, if any (`Replace.new`). Kept
+    /// for report rendering (`suggestion:` line, JSON output). Ambiguous
+    /// `Candidates` deliberately yield `None` — presenting one option as "the"
+    /// suggestion would misrepresent an ambiguous fix.
+    pub fn suggestion(&self) -> Option<&str> {
+        match &self.fix {
+            Some(Fix::Replace { new, .. }) => Some(new),
+            _ => None,
+        }
+    }
+
+    /// The fix's applicability, if a fix is present.
+    pub fn fix_safety(&self) -> Option<FixSafety> {
+        self.fix.as_ref().map(|f| f.safety())
     }
 
     /// Format error with rich annotations
@@ -136,8 +249,8 @@ impl LintError {
         output.push_str(&format!("{}: {}\n", self.severity, self.message.bold()));
 
         // Location
-        if let Some(line) = self.line {
-            let location = if let Some(col) = self.column {
+        if let Some(line) = self.line() {
+            let location = if let Some(col) = self.column() {
                 format!("{}:{}:{}", self.file.display(), line, col)
             } else {
                 format!("{}:{}", self.file.display(), line)
@@ -152,7 +265,7 @@ impl LintError {
         }
 
         // Source snippet with annotation
-        if let (Some(src), Some(line_num), Some(col)) = (source, self.line, self.column) {
+        if let (Some(src), Some(line_num), Some(col)) = (source, self.line(), self.column()) {
             let snippet = self.create_snippet(src, line_num, col);
             output.push_str(&format!("\n{}\n", snippet));
         }
@@ -163,7 +276,7 @@ impl LintError {
         }
 
         // Suggestion
-        if let Some(suggestion) = &self.suggestion {
+        if let Some(suggestion) = self.suggestion() {
             output.push_str(&format!(
                 "  {} {}\n",
                 "suggestion:".cyan().bold(),

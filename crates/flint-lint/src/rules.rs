@@ -4,13 +4,19 @@
 //! the ordered collection that the engine iterates. Rules are stateless —
 //! they receive config, file path, and source, and return diagnostics.
 
-use super::error::{LintError, Severity};
+use super::error::LintError;
 use super::fleet_config::FleetConfig;
 use std::path::Path;
 
-/// Trait for linting rules
+/// Trait for linting rules.
+///
+/// Deliberately behavioral-only: rule metadata beyond name/description/
+/// category/fixability lives in [`crate::codes::REGISTRY`], the single
+/// source of truth for codes, doc URLs, and deprecation flags. (The former
+/// `docs_url()`/`is_preview()`/`default_severity()` trait methods were
+/// decorative — never enforced by the engine — and were removed.)
 pub trait Rule: Send + Sync {
-    /// Name of the rule (e.g., "required-fields", "osquery-syntax")
+    /// Name of the rule — always one of the [`crate::codes`] consts.
     fn name(&self) -> &'static str;
 
     /// Description of what this rule checks
@@ -24,24 +30,9 @@ pub trait Rule: Send + Sync {
         "general"
     }
 
-    /// URL to documentation for this rule
-    fn docs_url(&self) -> Option<&'static str> {
-        None
-    }
-
     /// Whether this rule can produce auto-fixable suggestions
     fn is_fixable(&self) -> bool {
         false
-    }
-
-    /// Whether this rule is experimental (requires --preview to enable)
-    fn is_preview(&self) -> bool {
-        false
-    }
-
-    /// Default severity level for this rule's diagnostics
-    fn default_severity(&self) -> Severity {
-        Severity::Error
     }
 }
 
@@ -65,59 +56,32 @@ impl RuleSet {
         &self.rules
     }
 
-    /// Create default ruleset with all built-in rules
-    pub fn default_rules() -> Self {
+    /// Create the standard ruleset. The single rule list — previously
+    /// duplicated verbatim between `default_rules` and
+    /// `default_rules_with_version`, which differed only in how the
+    /// deprecation rule was constructed.
+    pub fn standard(opts: RuleOptions) -> Self {
         let mut set = Self::new();
 
         set.add_rule(Box::new(RequiredFieldsRule));
         set.add_rule(Box::new(PlatformCompatibilityRule));
         set.add_rule(Box::new(TypeValidationRule));
         set.add_rule(Box::new(SecurityRule));
-        set.add_rule(Box::new(IntervalValidationRule));
+        set.add_rule(Box::new(IntervalValidationRule {
+            min: opts.thresholds.min_interval,
+            max: opts.thresholds.max_interval,
+        }));
         set.add_rule(Box::new(DuplicateNamesRule));
-        set.add_rule(Box::new(QuerySyntaxRule));
+        set.add_rule(Box::new(QuerySyntaxRule {
+            warn_select_star: opts.thresholds.warn_select_star,
+            max_query_length: opts.thresholds.max_query_length,
+        }));
         set.add_rule(Box::new(super::structural::StructuralValidationRule));
         set.add_rule(Box::new(super::self_reference::SelfReferenceRule));
-        set.add_rule(Box::new(super::deprecation_rule::DeprecationRule::dormant()));
-
-        // Semantic rules
-        set.add_rule(Box::new(super::semantic::LabelTargetingRule));
-        set.add_rule(Box::new(super::semantic::LabelMembershipRule));
-        set.add_rule(Box::new(super::semantic::PatchPolicyRule));
-        set.add_rule(Box::new(super::semantic::PolicyAutomationLocationRule));
-        set.add_rule(Box::new(super::semantic::DateFormatRule));
-        set.add_rule(Box::new(super::semantic::HashFormatRule));
-        set.add_rule(Box::new(super::semantic::CategoriesRule));
-        set.add_rule(Box::new(super::semantic::FileExtensionRule));
-        set.add_rule(Box::new(super::semantic::SecretHygieneRule));
-        set.add_rule(Box::new(super::semantic::PathReferenceRule));
-        set.add_rule(Box::new(super::semantic::ShebangSyntaxRule));
-        set.add_rule(Box::new(super::semantic::WebhookEndpointRule));
-        set.add_rule(Box::new(super::semantic::CalendarEventCoercionRule));
-
-        // YAML hygiene rules (ADR-008)
-        set.add_rule(Box::new(super::yaml_lint::YamlIndentationRule));
-        set.add_rule(Box::new(super::yaml_lint::YamlColonsRule));
-        set.add_rule(Box::new(super::yaml_lint::YamlEmptyValuesRule));
-
-        set
-    }
-
-    /// Create default ruleset with a specific version context for deprecation checking.
-    pub fn default_rules_with_version(version_ctx: super::version_gate::VersionContext) -> Self {
-        let mut set = Self::new();
-
-        set.add_rule(Box::new(RequiredFieldsRule));
-        set.add_rule(Box::new(PlatformCompatibilityRule));
-        set.add_rule(Box::new(TypeValidationRule));
-        set.add_rule(Box::new(SecurityRule));
-        set.add_rule(Box::new(IntervalValidationRule));
-        set.add_rule(Box::new(DuplicateNamesRule));
-        set.add_rule(Box::new(QuerySyntaxRule));
-        set.add_rule(Box::new(super::structural::StructuralValidationRule));
-        set.add_rule(Box::new(super::self_reference::SelfReferenceRule));
+        set.add_rule(Box::new(super::path_exists::PathExistsRule::default()));
+        set.add_rule(Box::new(super::profile::DuplicatePayloadUuidRule));
         set.add_rule(Box::new(super::deprecation_rule::DeprecationRule::new(
-            version_ctx,
+            opts.version,
         )));
 
         // Semantic rules
@@ -134,6 +98,13 @@ impl RuleSet {
         set.add_rule(Box::new(super::semantic::ShebangSyntaxRule));
         set.add_rule(Box::new(super::semantic::WebhookEndpointRule));
         set.add_rule(Box::new(super::semantic::CalendarEventCoercionRule));
+        set.add_rule(Box::new(super::semantic::SoftwareUrlRule));
+        set.add_rule(Box::new(super::semantic::SoftwareSourceRule {
+            snapshot: opts.snapshot.clone(),
+            placeholders: opts.placeholders.clone(),
+            referenced: opts.referenced.clone(),
+        }));
+        set.add_rule(Box::new(super::fma::FmaSlugRule));
 
         // YAML hygiene rules (ADR-008)
         set.add_rule(Box::new(super::yaml_lint::YamlIndentationRule));
@@ -141,6 +112,54 @@ impl RuleSet {
         set.add_rule(Box::new(super::yaml_lint::YamlEmptyValuesRule));
 
         set
+    }
+
+    /// The standard ruleset with a dormant deprecation rule — what you get
+    /// when no `.fleetlint.toml` provides a Fleet version.
+    pub fn default_rules() -> Self {
+        Self::standard(RuleOptions::default())
+    }
+}
+
+/// Options for [`RuleSet::standard`].
+pub struct RuleOptions {
+    pub version: super::version_gate::VersionContext,
+    /// Tunable limits from `.fleetlint.toml [thresholds]` — interval bounds,
+    /// SELECT * gating, max query length.
+    pub thresholds: super::config::ThresholdsConfig,
+    /// Optional server snapshot.
+    ///
+    /// Threaded through RuleOptions rather than the `Rule` trait signature:
+    /// exactly one rule needs it, and widening `check()` for all ~30 would be
+    /// a large change for a single consumer. Rules that want it take it as a
+    /// field at construction, the same way IntervalValidationRule takes its
+    /// thresholds.
+    pub snapshot: Option<std::sync::Arc<super::snapshot::LoadedSnapshot>>,
+    /// Repo-declared placeholder markers (`[placeholders] patterns`).
+    pub placeholders: super::config::PlaceholdersConfig,
+    /// Shared, late-filled set of every path some config file references.
+    ///
+    /// Rules are built before the workspace exists, so this is a handle the
+    /// engine populates once per DIRECTORY lint. It stays empty for a
+    /// single-file lint — which is the honest answer there: one file cannot
+    /// tell you what the repo wires up, so nothing may escalate on it.
+    pub referenced: super::rules::ReferencedPaths,
+}
+
+/// Late-filled set of referenced paths, shared between the engine and the
+/// rules that need wiring knowledge.
+pub type ReferencedPaths =
+    std::sync::Arc<once_cell::sync::OnceCell<std::collections::HashSet<std::path::PathBuf>>>;
+
+impl Default for RuleOptions {
+    fn default() -> Self {
+        Self {
+            snapshot: None,
+            placeholders: Default::default(),
+            referenced: Default::default(),
+            version: super::version_gate::VersionContext::dormant(),
+            thresholds: super::config::ThresholdsConfig::default(),
+        }
     }
 }
 
@@ -169,9 +188,6 @@ impl Rule for RequiredFieldsRule {
     }
     fn is_fixable(&self) -> bool {
         true
-    }
-    fn docs_url(&self) -> Option<&'static str> {
-        Some("https://fleetdm.com/docs/configuration/yaml-files#gitops")
     }
 
     fn check(&self, config: &FleetConfig, file: &Path, _source: &str) -> Vec<LintError> {
@@ -295,9 +311,6 @@ impl Rule for PlatformCompatibilityRule {
     fn category(&self) -> &'static str {
         "semantic"
     }
-    fn docs_url(&self) -> Option<&'static str> {
-        Some("https://fleetdm.com/docs/configuration/yaml-files#policies")
-    }
 
     fn check(&self, config: &FleetConfig, file: &Path, _source: &str) -> Vec<LintError> {
         let mut errors = Vec::new();
@@ -355,9 +368,6 @@ impl Rule for TypeValidationRule {
     fn is_fixable(&self) -> bool {
         true
     }
-    fn docs_url(&self) -> Option<&'static str> {
-        Some("https://fleetdm.com/docs/configuration/yaml-files#policies")
-    }
 
     fn check(&self, config: &FleetConfig, file: &Path, _source: &str) -> Vec<LintError> {
         let mut errors = Vec::new();
@@ -384,9 +394,12 @@ impl Rule for TypeValidationRule {
                                     file,
                                 )
                                 .with_help("Valid platforms: darwin, windows, linux, chrome, ios, ipados, android")
-                                .with_suggestion(find_similar_platform(component))
-                                .with_fix_safety(super::error::FixSafety::Safe)
-                                .with_context(component.to_string());
+                                .with_context(component.to_string())
+                                .with_fix(super::error::Fix::Replace {
+                                    old: Some(component.to_string()),
+                                    new: find_similar_platform(component),
+                                    safety: super::error::FixSafety::Safe,
+                                });
 
                                 // Find line number in source for --fix support
                                 if let Some(line) =
@@ -438,8 +451,11 @@ impl Rule for TypeValidationRule {
                                     file,
                                 )
                                 .with_help("Valid logging types: snapshot, differential, differential_ignore_removals")
-                                .with_suggestion(find_similar_logging(logging))
-                                .with_fix_safety(super::error::FixSafety::Safe)
+                                .with_fix(super::error::Fix::Replace {
+                                    old: Some(logging.clone()),
+                                    new: find_similar_logging(logging),
+                                    safety: super::error::FixSafety::Safe,
+                                }),
                             );
                         }
                     }
@@ -467,9 +483,6 @@ impl Rule for SecurityRule {
     }
     fn is_fixable(&self) -> bool {
         true
-    }
-    fn default_severity(&self) -> Severity {
-        Severity::Warning
     }
 
     fn check(&self, config: &FleetConfig, file: &Path, _source: &str) -> Vec<LintError> {
@@ -524,8 +537,11 @@ fn check_query_platform_compat(
         .filter(|p| !p.is_empty())
         .collect();
 
-    // Extract table names from query (simple regex for FROM clauses)
-    let re = regex::Regex::new(r"\bfrom\s+(\w+)").unwrap();
+    // Extract table names from query (simple regex for FROM clauses),
+    // compiled once (was per-call).
+    static FROM_TABLE: once_cell::sync::Lazy<regex::Regex> =
+        once_cell::sync::Lazy::new(|| regex::Regex::new(r"\bfrom\s+(\w+)").unwrap());
+    let re = &*FROM_TABLE;
     for cap in re.captures_iter(&query_lower) {
         let table = &cap[1];
 
@@ -666,8 +682,13 @@ fn find_similar_platform(input: &str) -> String {
 // Additional Rules
 // ============================================================================
 
-/// Check query interval values for sensible ranges
-pub struct IntervalValidationRule;
+/// Check query interval values for sensible ranges. Bounds come from
+/// `.fleetlint.toml [thresholds]` (previously hardcoded 60/86400 — user
+/// settings were silently ignored).
+pub struct IntervalValidationRule {
+    pub min: i64,
+    pub max: i64,
+}
 
 impl Rule for IntervalValidationRule {
     fn name(&self) -> &'static str {
@@ -683,12 +704,6 @@ impl Rule for IntervalValidationRule {
     fn is_fixable(&self) -> bool {
         true
     }
-    fn default_severity(&self) -> Severity {
-        Severity::Warning
-    }
-    fn docs_url(&self) -> Option<&'static str> {
-        Some("https://fleetdm.com/docs/configuration/yaml-files#reports")
-    }
 
     fn check(&self, config: &FleetConfig, file: &Path, _source: &str) -> Vec<LintError> {
         let mut errors = Vec::new();
@@ -699,7 +714,7 @@ impl Rule for IntervalValidationRule {
                     if let Some(interval) = query.interval {
                         let name = query.name.as_deref().unwrap_or("unnamed");
 
-                        if interval < 60 {
+                        if interval < self.min {
                             errors.push(
                                 LintError::warning(
                                     format!(
@@ -708,15 +723,22 @@ impl Rule for IntervalValidationRule {
                                     ),
                                     file,
                                 )
-                                .with_help("Consider using an interval of at least 60 seconds")
-                                .with_suggestion("interval: 60")
+                                .with_help(format!("Consider using an interval of at least {} seconds", self.min))
+                                .with_suggestion(format!("interval: {}", self.min))
                             );
-                        } else if interval > 86400 {
+                        } else if interval > self.max {
+                            // Whole hours read as hours ("> 24 hours" for the
+                            // default), odd maxima fall back to seconds.
+                            let above = if self.max % 3600 == 0 {
+                                format!("{} hours", self.max / 3600)
+                            } else {
+                                format!("{} seconds", self.max)
+                            };
                             errors.push(
                                 LintError::info(
                                     format!(
-                                        "Query '{}' has interval > 24 hours ({} seconds). Events may be missed.",
-                                        name, interval
+                                        "Query '{}' has interval > {} ({} seconds). Events may be missed.",
+                                        name, above, interval
                                     ),
                                     file,
                                 )
@@ -814,7 +836,14 @@ impl Rule for DuplicateNamesRule {
 }
 
 /// Check SQL query syntax for common issues
-pub struct QuerySyntaxRule;
+pub struct QuerySyntaxRule {
+    /// Warn on `SELECT * FROM` (`[thresholds] warn_select_star`, default true —
+    /// previously always warned regardless of the setting).
+    pub warn_select_star: bool,
+    /// Warn when a query exceeds this many characters
+    /// (`[thresholds] max_query_length`, default 10000 — previously unenforced).
+    pub max_query_length: usize,
+}
 
 impl Rule for QuerySyntaxRule {
     fn name(&self) -> &'static str {
@@ -827,9 +856,6 @@ impl Rule for QuerySyntaxRule {
     fn category(&self) -> &'static str {
         "semantic"
     }
-    fn docs_url(&self) -> Option<&'static str> {
-        Some("https://fleetdm.com/docs/configuration/yaml-files#reports")
-    }
 
     fn check(&self, config: &FleetConfig, file: &Path, _source: &str) -> Vec<LintError> {
         let mut errors = Vec::new();
@@ -840,7 +866,7 @@ impl Rule for QuerySyntaxRule {
                 if let super::fleet_config::PolicyOrPath::Policy(policy) = policy_or_path {
                     if let Some(query) = &policy.query {
                         let name = policy.name.as_deref().unwrap_or("unnamed");
-                        errors.extend(check_query_syntax(
+                        errors.extend(self.check_query_syntax(
                             query,
                             &format!("Policy '{}'", name),
                             file,
@@ -856,7 +882,7 @@ impl Rule for QuerySyntaxRule {
                 if let super::fleet_config::QueryOrPath::Query(query) = query_or_path {
                     if let Some(query_sql) = &query.query {
                         let name = query.name.as_deref().unwrap_or("unnamed");
-                        errors.extend(check_query_syntax(
+                        errors.extend(self.check_query_syntax(
                             query_sql,
                             &format!("Query '{}'", name),
                             file,
@@ -872,7 +898,7 @@ impl Rule for QuerySyntaxRule {
                 if let super::fleet_config::LabelOrPath::Label(label) = label_or_path {
                     if let Some(query) = &label.query {
                         let name = label.name.as_deref().unwrap_or("unnamed");
-                        errors.extend(check_query_syntax(
+                        errors.extend(self.check_query_syntax(
                             query,
                             &format!("Label '{}'", name),
                             file,
@@ -886,101 +912,127 @@ impl Rule for QuerySyntaxRule {
     }
 }
 
-fn check_query_syntax(query: &str, item_name: &str, file: &Path) -> Vec<LintError> {
-    let mut errors = Vec::new();
+/// `SELECT * FROM` detector, compiled once (was per-call).
+static SELECT_STAR: once_cell::sync::Lazy<regex::Regex> =
+    once_cell::sync::Lazy::new(|| regex::Regex::new(r"(?i)SELECT\s+\*\s+FROM").unwrap());
 
-    // Strip SQL comments before analysis to avoid false positives from
-    // apostrophes in English text (e.g., "organization's") or keywords
-    // in comment blocks.
-    let query_stripped = strip_sql_comments(query);
-    let query_upper = query_stripped.to_uppercase();
+impl QuerySyntaxRule {
+    fn check_query_syntax(&self, query: &str, item_name: &str, file: &Path) -> Vec<LintError> {
+        let mut errors = Vec::new();
 
-    // Check for SELECT keyword
-    if !query_upper.contains("SELECT") {
-        errors.push(
-            LintError::error(
-                format!("{} query does not contain SELECT statement", item_name),
-                file,
-            )
-            .with_help("osquery queries must be SELECT statements"),
-        );
-    }
+        // Strip SQL comments before analysis to avoid false positives from
+        // apostrophes in English text (e.g., "organization's") or keywords
+        // in comment blocks.
+        let query_stripped = strip_sql_comments(query);
+        let query_upper = query_stripped.to_uppercase();
 
-    // Warn about SELECT * (performance concern)
-    let select_star_pattern = regex::Regex::new(r"(?i)SELECT\s+\*\s+FROM").unwrap();
-    if select_star_pattern.is_match(query) {
-        errors.push(
-            LintError::info(
-                format!(
-                    "{} uses SELECT * which may return unnecessary data",
-                    item_name
-                ),
-                file,
-            )
-            .with_help("Consider selecting only the columns you need for better performance"),
-        );
-    }
-
-    // Check for unbalanced parentheses
-    let open_parens = query.matches('(').count();
-    let close_parens = query.matches(')').count();
-    if open_parens != close_parens {
-        errors.push(
-            LintError::error(
-                format!(
-                    "{} has unbalanced parentheses ({} open, {} close)",
-                    item_name, open_parens, close_parens
-                ),
-                file,
-            )
-            .with_help("Check that all parentheses are properly matched"),
-        );
-    }
-
-    // Check for unbalanced quotes (on comment-stripped query)
-    let single_quotes = query_stripped.matches('\'').count();
-    if !single_quotes.is_multiple_of(2) {
-        errors.push(
-            LintError::error(format!("{} has unbalanced single quotes", item_name), file)
-                .with_help("Check that all string literals are properly quoted"),
-        );
-    }
-
-    // Check for common dangerous patterns (word-boundary aware to avoid false positives
-    // like "software_update" matching "UPDATE").
-    // First strip string literals so keywords inside quotes (e.g., '%Drop Box%')
-    // don't trigger false positives.
-    let query_no_strings = strip_sql_string_literals(&query_upper);
-    let is_dangerous_sql = |q: &str, keyword: &str| -> bool {
-        for (i, _) in q.match_indices(keyword) {
-            // Check character before — must be start-of-string or non-alphanumeric/underscore
-            let before_ok = i == 0 || {
-                let c = q.as_bytes()[i - 1];
-                !(c.is_ascii_alphanumeric() || c == b'_')
-            };
-            if before_ok {
-                return true;
-            }
+        // Check for SELECT keyword
+        if !query_upper.contains("SELECT") {
+            errors.push(
+                LintError::error(
+                    format!("{} query does not contain SELECT statement", item_name),
+                    file,
+                )
+                .with_help("osquery queries must be SELECT statements"),
+            );
         }
-        false
-    };
-    if is_dangerous_sql(&query_no_strings, "DROP ")
-        || is_dangerous_sql(&query_no_strings, "DELETE ")
-        || is_dangerous_sql(&query_no_strings, "INSERT ")
-        || is_dangerous_sql(&query_no_strings, "UPDATE ")
-    {
-        errors.push(
-            LintError::error(
-                format!("{} contains non-SELECT SQL statement", item_name),
-                file,
-            )
-            .with_help("osquery only supports SELECT queries"),
-        );
+
+        // Warn about SELECT * (performance concern) — gated by
+        // `[thresholds] warn_select_star` (previously always on).
+        if self.warn_select_star && SELECT_STAR.is_match(query) {
+            errors.push(
+                LintError::info(
+                    format!(
+                        "{} uses SELECT * which may return unnecessary data",
+                        item_name
+                    ),
+                    file,
+                )
+                .with_help("Consider selecting only the columns you need for better performance"),
+            );
+        }
+
+        // Enforce `[thresholds] max_query_length` (previously declared in the
+        // config but never checked).
+        let query_chars = query.chars().count();
+        if query_chars > self.max_query_length {
+            errors.push(
+                LintError::warning(
+                    format!(
+                        "{} query is {} characters (max {})",
+                        item_name, query_chars, self.max_query_length
+                    ),
+                    file,
+                )
+                .with_rule_code(crate::codes::QUERY_LENGTH)
+                .with_help(
+                    "Very long queries are hard to review and may hit osquery limits. \
+                     Split it up, or raise `max_query_length` in .fleetlint.toml.",
+                ),
+            );
+        }
+
+        // Check for unbalanced parentheses
+        let open_parens = query.matches('(').count();
+        let close_parens = query.matches(')').count();
+        if open_parens != close_parens {
+            errors.push(
+                LintError::error(
+                    format!(
+                        "{} has unbalanced parentheses ({} open, {} close)",
+                        item_name, open_parens, close_parens
+                    ),
+                    file,
+                )
+                .with_help("Check that all parentheses are properly matched"),
+            );
+        }
+
+        // Check for unbalanced quotes (on comment-stripped query)
+        let single_quotes = query_stripped.matches('\'').count();
+        if !single_quotes.is_multiple_of(2) {
+            errors.push(
+                LintError::error(format!("{} has unbalanced single quotes", item_name), file)
+                    .with_help("Check that all string literals are properly quoted"),
+            );
+        }
+
+        // Check for common dangerous patterns (word-boundary aware to avoid false positives
+        // like "software_update" matching "UPDATE").
+        // First strip string literals so keywords inside quotes (e.g., '%Drop Box%')
+        // don't trigger false positives.
+        let query_no_strings = strip_sql_string_literals(&query_upper);
+        let is_dangerous_sql = |q: &str, keyword: &str| -> bool {
+            for (i, _) in q.match_indices(keyword) {
+                // Check character before — must be start-of-string or non-alphanumeric/underscore
+                let before_ok = i == 0 || {
+                    let c = q.as_bytes()[i - 1];
+                    !(c.is_ascii_alphanumeric() || c == b'_')
+                };
+                if before_ok {
+                    return true;
+                }
+            }
+            false
+        };
+        if is_dangerous_sql(&query_no_strings, "DROP ")
+            || is_dangerous_sql(&query_no_strings, "DELETE ")
+            || is_dangerous_sql(&query_no_strings, "INSERT ")
+            || is_dangerous_sql(&query_no_strings, "UPDATE ")
+        {
+            errors.push(
+                LintError::error(
+                    format!("{} contains non-SELECT SQL statement", item_name),
+                    file,
+                )
+                .with_help("osquery only supports SELECT queries"),
+            );
+        }
+
+        // Note: Trailing semicolons in queries are common and OK - don't warn about them
+
+        errors
     }
-
-    // Note: Trailing semicolons in queries are common and OK - don't warn about them
-
-    errors
 }
 
 #[cfg(test)]
