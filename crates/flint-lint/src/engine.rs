@@ -806,37 +806,152 @@ fn check_yaml_hygiene(content: &str, file: &Path, report: &mut LintReport) {
         }
     }
 
-    // Duplicate top-level keys (YAML spec says last wins, but it's almost always a mistake)
-    let mut seen_keys: HashMap<String, usize> = HashMap::new();
-    for (idx, line) in content.lines().enumerate() {
-        let line_num = idx + 1;
-        let trimmed = line.trim();
+    // Duplicate keys, at every nesting level.
+    //
+    // This used to check TOP-LEVEL keys only (`!line.starts_with(' ')`), which
+    // missed the common shape entirely: a field repeated inside a policy or a
+    // profile entry, where one of the two is silently discarded.
+    //
+    // Severity is deliberate, and verified against Fleet rather than assumed.
+    // `spec.GitOpsFromFile` on a document with a duplicated key returns
+    // err = nil and keeps the LAST value — Fleet accepts it without a word
+    // (checked against v4.89.2, which parses via ghodss/yaml). So this is not
+    // an apply failure, and claiming otherwise is the mistake `broken-reference`
+    // already made once. A dropped top-level section is a bigger loss than a
+    // dropped field, so the two keep different severities.
+    //
+    // Detection is line-based because it HAS to be: serde_yaml resolves
+    // duplicates silently while parsing, so by the time flint has a tree the
+    // evidence is gone.
+    report_duplicate_keys(content, file, report);
+}
 
-        // Only check top-level keys (no leading whitespace, not a comment, not a list item)
-        if !line.starts_with(' ')
-            && !line.starts_with('\t')
-            && !trimmed.starts_with('#')
-            && !trimmed.starts_with('-')
-            && !trimmed.is_empty()
-        {
-            if let Some(key) = trimmed.split(':').next() {
-                let key = key.trim().to_string();
-                if !key.is_empty() {
-                    if let Some(prev_line) = seen_keys.get(&key) {
-                        report.add(
-                            LintError::error(
-                                format!("Duplicate top-level key '{}' (first seen at line {})", key, prev_line),
-                                file,
-                            )
-                            .with_location(line_num, 1)
-                            .with_rule_code(crate::codes::YAML_DUPLICATE_KEY)
-                            .with_help("YAML uses the last occurrence of duplicate keys — the first one is silently ignored")
-                        );
-                    } else {
-                        seen_keys.insert(key, line_num);
-                    }
-                }
+/// One mapping level: the indent its keys sit at, and the keys seen so far.
+struct KeyScope {
+    indent: usize,
+    keys: HashMap<String, usize>,
+}
+
+/// Whether `rest` (the text after a `- ` marker, or the whole trimmed line)
+/// opens a mapping key, and if so which. YAML requires a plain key's colon to
+/// be followed by whitespace or end-of-line, which is what keeps a bare
+/// `https://example.com` list item from reading as a key called `https`.
+fn mapping_key_of(rest: &str) -> Option<String> {
+    let (raw_key, after) = match rest.find(':') {
+        Some(i) => (&rest[..i], &rest[i + 1..]),
+        None => return None,
+    };
+    if !(after.is_empty() || after.starts_with(' ') || after.starts_with('\t')) {
+        return None;
+    }
+    let key = raw_key.trim().trim_matches('"').trim_matches('\'');
+    if key.is_empty() || key.starts_with('#') || key.starts_with('-') {
+        return None;
+    }
+    Some(key.to_string())
+}
+
+/// True when a value opens a block scalar (`|`, `>`, with any chomping or
+/// indent indicator). Its body must be skipped: SQL and shell content is full
+/// of colons and would otherwise read as keys.
+fn opens_block_scalar(rest: &str) -> bool {
+    match rest.find(':') {
+        Some(i) => {
+            let v = rest[i + 1..].trim();
+            v.starts_with('|') || v.starts_with('>')
+        }
+        None => false,
+    }
+}
+
+fn report_duplicate_keys(content: &str, file: &Path, report: &mut LintReport) {
+    let mut stack: Vec<KeyScope> = Vec::new();
+    let mut block_scalar_at: Option<usize> = None;
+
+    for (idx, raw) in content.lines().enumerate() {
+        let line_num = idx + 1;
+        if raw.trim().is_empty() {
+            continue;
+        }
+        let indent = raw.len() - raw.trim_start().len();
+
+        // Inside a block scalar: everything more-indented than its key is text.
+        if let Some(key_indent) = block_scalar_at {
+            if indent > key_indent {
+                continue;
             }
+            block_scalar_at = None;
+        }
+
+        let trimmed = raw.trim_start();
+        if trimmed.starts_with('#') {
+            continue;
+        }
+        // A new document resets every scope.
+        if trimmed.starts_with("---") {
+            stack.clear();
+            continue;
+        }
+
+        // A `- ` marker starts a NEW mapping, so the previous item's keys stop
+        // being siblings. Without this, every `- name:` in a list after the
+        // first would report as a duplicate.
+        let (key_indent, rest) = if let Some(r) = trimmed.strip_prefix("- ") {
+            let ki = indent + 2;
+            stack.retain(|sc| sc.indent < ki);
+            (ki, r.trim_start())
+        } else if trimmed == "-" {
+            stack.retain(|sc| sc.indent < indent + 2);
+            continue;
+        } else {
+            (indent, trimmed)
+        };
+
+        let Some(key) = mapping_key_of(rest) else {
+            continue;
+        };
+
+        while stack.last().is_some_and(|sc| sc.indent > key_indent) {
+            stack.pop();
+        }
+        if stack.last().map(|sc| sc.indent) != Some(key_indent) {
+            stack.push(KeyScope {
+                indent: key_indent,
+                keys: HashMap::new(),
+            });
+        }
+
+        let top_level = key_indent == 0;
+        let scope = stack.last_mut().expect("just ensured non-empty");
+        match scope.keys.get(&key) {
+            Some(prev) => {
+                let msg = format!("Duplicate key '{key}' (first seen at line {prev})");
+                let help = "YAML keeps the LAST occurrence — the earlier value is silently \
+                            discarded. Fleet accepts the file either way, so this does not \
+                            fail an apply; it just does not do what the file says.";
+                let err = if top_level {
+                    // A repeated top-level key drops a whole section.
+                    LintError::error(msg, file)
+                } else {
+                    LintError::warning(msg, file)
+                };
+                report.add(
+                    err.with_span(crate::error::Span::token(
+                        line_num,
+                        key_indent + 1,
+                        key.chars().count(),
+                    ))
+                    .with_rule_code(crate::codes::YAML_DUPLICATE_KEY)
+                    .with_help(help),
+                );
+            }
+            None => {
+                scope.keys.insert(key, line_num);
+            }
+        }
+
+        if opens_block_scalar(rest) {
+            block_scalar_at = Some(key_indent);
         }
     }
 }
@@ -1097,6 +1212,89 @@ mod suppression_tests {
 
 #[cfg(test)]
 mod tests {
+
+    // --- duplicate-key detection ------------------------------------------
+    //
+    // Severity here is not a preference. `spec.GitOpsFromFile` at v4.89.2 was
+    // run against a duplicated key: it returns err = nil and keeps the LAST
+    // value. Fleet accepts the file, so a nested duplicate is a WARNING; a
+    // top-level one drops an entire section, so it stays an error.
+
+    fn dup_findings(source: &str) -> Vec<crate::error::LintError> {
+        let mut report = LintReport::new();
+        check_yaml_hygiene(source, Path::new("t.yml"), &mut report);
+        report
+            .errors
+            .iter()
+            .chain(&report.warnings)
+            .chain(&report.infos)
+            .filter(|e| e.rule_code == Some(crate::codes::YAML_DUPLICATE_KEY))
+            .cloned()
+            .collect()
+    }
+
+    #[test]
+    fn nested_duplicate_key_warns_and_points_at_the_key() {
+        let src = "policies:\n  - name: p\n    run_script:\n      path: a.sh\n    run_script:\n      path: b.sh\n";
+        let found = dup_findings(src);
+        assert_eq!(found.len(), 1, "got: {found:?}");
+        assert_eq!(found[0].severity, Severity::Warning, "Fleet accepts it");
+        assert!(found[0].message.contains("'run_script'"));
+        let span = found[0].span.expect("span");
+        assert_eq!((span.line, span.column, span.len), (5, 5, "run_script".len()));
+    }
+
+    #[test]
+    fn top_level_duplicate_key_is_an_error() {
+        let src = "controls:\n  scripts: []\ncontrols:\n  scripts: []\n";
+        let found = dup_findings(src);
+        assert_eq!(found.len(), 1);
+        assert_eq!(
+            found[0].severity,
+            Severity::Error,
+            "a repeated top-level key drops a whole section"
+        );
+    }
+
+    /// THE control that matters. Every list item is its own mapping, so the
+    /// same key repeating across items is normal YAML — a Fleet repo has
+    /// hundreds of `- name:` lines. If scope were not reset per item, this
+    /// rule would fire on every policy file in existence.
+    #[test]
+    fn repeated_keys_across_list_items_are_not_duplicates() {
+        let src = "policies:\n  - name: a\n    platform: darwin\n  - name: b\n    platform: darwin\n  - name: c\n    platform: linux\n";
+        assert!(dup_findings(src).is_empty(), "{:?}", dup_findings(src));
+    }
+
+    /// Same key at DIFFERENT nesting levels is not a duplicate either.
+    #[test]
+    fn same_key_at_different_depths_is_not_a_duplicate() {
+        let src = "a:\n  name: inner\nb:\n  name: other\nname: outer\n";
+        assert!(dup_findings(src).is_empty(), "{:?}", dup_findings(src));
+    }
+
+    /// Block scalars hold SQL and shell, which is full of colons. Treating
+    /// their body as keys would invent duplicates inside every script.
+    #[test]
+    fn block_scalar_bodies_are_not_scanned_for_keys() {
+        let src = "policies:\n  - name: p\n    query: |\n      SELECT 1;\n      note: first\n      note: second\n    critical: false\n";
+        assert!(dup_findings(src).is_empty(), "{:?}", dup_findings(src));
+    }
+
+    /// A colon not followed by whitespace is not a mapping key — otherwise a
+    /// bare URL in a list reads as a key called `https`.
+    #[test]
+    fn urls_in_lists_are_not_keys() {
+        let src = "urls:\n  - https://example.com\n  - https://other.example.com\n";
+        assert!(dup_findings(src).is_empty(), "{:?}", dup_findings(src));
+    }
+
+    /// Comments and document separators must not participate.
+    #[test]
+    fn comments_and_documents_do_not_produce_duplicates() {
+        let src = "# name: not a key\n# name: still not\nname: real\n---\nname: new document\n";
+        assert!(dup_findings(src).is_empty(), "{:?}", dup_findings(src));
+    }
     use super::*;
     use std::io::Write;
     use tempfile::NamedTempFile;
