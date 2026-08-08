@@ -1,13 +1,15 @@
 //! Configuration initialization for Fleet linter.
 //!
 //! Provides workspace detection and interactive configuration generation
-//! for creating `.fleetlint.toml` files.
+//! for creating `fleetlint.toml` files. The prompting itself is the CLI's
+//! ([`InitPrompts`]); the scope analysis the questions are asked over lives
+//! in [`super::scope`].
 
-use super::config::{FleetLintConfig, CONFIG_FILE_NAME};
+use super::config::CONFIG_FILE_NAME;
+use super::scope::{self, ScopePreview, ScopeScan, ScopeSelection};
 use colored::Colorize;
 use std::collections::HashSet;
 use std::fs;
-use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 
 /// Detected workspace configuration.
@@ -15,7 +17,8 @@ use std::path::{Path, PathBuf};
 pub struct DetectedConfig {
     /// Whether a fleets/ (or legacy teams/) directory exists.
     pub has_fleets_dir: bool,
-    /// Number of fleet subdirectories found.
+    /// Number of fleet (team) specs found — files with a top-level `name:`,
+    /// which is how Fleet itself identifies one. NOT a subdirectory count.
     pub fleet_count: usize,
     /// Whether the legacy `teams/` directory exists (without a `fleets/` directory).
     pub has_legacy_teams_dir: bool,
@@ -38,8 +41,28 @@ pub struct DetectedConfig {
 pub struct UserAnswers {
     /// Selected strictness level.
     pub strictness: StrictnessLevel,
-    /// Whether to include all detected files.
-    pub include_all_files: bool,
+    /// What the scope questions produced, already measured against the repo.
+    /// The default narrows nothing — see [`ScopePreview::default`].
+    pub scope: ScopePreview,
+}
+
+/// The interactive half of `flint init`.
+///
+/// The prompting lives in the CLI (`cli/src/interactive/scope.rs`), on top of
+/// the same `ask`/`ask_yes` scaffolding the unwired-file walk uses; this
+/// crate keeps the detection, the measurement and the file writing. Passing
+/// `None` to [`init`] is the non-interactive path: defaults, no narrowing.
+pub trait InitPrompts {
+    /// Which strictness preset to write.
+    fn strictness(&self, detected: &DetectedConfig) -> anyhow::Result<StrictnessLevel>;
+
+    /// Walk the scope tree and collect one in/out answer per directory.
+    ///
+    /// Implementations are expected to show the caller
+    /// [`scope::preview`]'s delta and let them back out; returning a
+    /// selection that narrows nothing leaves `include` unset, which is
+    /// always a safe answer.
+    fn scope(&self, scan: &ScopeScan) -> anyhow::Result<ScopeSelection>;
 }
 
 /// Strictness level for linting.
@@ -63,21 +86,11 @@ pub fn detect_workspace(root: &Path) -> DetectedConfig {
     let teams_dir = root.join("teams");
     if fleets_dir.is_dir() {
         config.has_fleets_dir = true;
-        if let Ok(entries) = fs::read_dir(&fleets_dir) {
-            config.fleet_count = entries
-                .filter_map(|e| e.ok())
-                .filter(|e| e.path().is_dir())
-                .count();
-        }
+        config.fleet_count = count_fleet_specs(&fleets_dir);
     } else if teams_dir.is_dir() {
         config.has_fleets_dir = true;
         config.has_legacy_teams_dir = true;
-        if let Ok(entries) = fs::read_dir(&teams_dir) {
-            config.fleet_count = entries
-                .filter_map(|e| e.ok())
-                .filter(|e| e.path().is_dir())
-                .count();
-        }
+        config.fleet_count = count_fleet_specs(&teams_dir);
     }
 
     // Check for lib/ directory
@@ -103,6 +116,53 @@ pub fn detect_workspace(root: &Path) -> DetectedConfig {
     scan_yaml_files(root, &mut config);
 
     config
+}
+
+/// Count the fleet (team) specs under `dir`, recursively.
+///
+/// Fleet's own discriminator, not a layout guess: `GitOpsFromFile` reads the
+/// top-level keys and treats a file with `name:` as a fleet spec, one with
+/// `org_settings:` as the org file, and errors on a file with neither
+/// (`pkg/spec/gitops.go:533-544`, Fleet @ 1b3288426f). Everything else under
+/// `fleets/` is a fragment pulled in by `path:`/`paths:`, or a README.
+///
+/// This used to count SUBDIRECTORIES, which was wrong both ways: a repo that
+/// keeps one YAML per fleet directly in `fleets/` reported 0 fleets, and a
+/// leftover empty directory counted as one.
+fn count_fleet_specs(dir: &Path) -> usize {
+    let Ok(entries) = fs::read_dir(dir) else {
+        return 0;
+    };
+    let mut count = 0;
+    for entry in entries.filter_map(|e| e.ok()) {
+        let path = entry.path();
+        if path.is_dir() {
+            // A fleet-per-directory layout keeps the spec in a nested
+            // default.yml; recursing covers both conventions.
+            count += count_fleet_specs(&path);
+        } else if matches!(path.extension().and_then(|e| e.to_str()), Some("yml" | "yaml")) {
+            if let Ok(content) = fs::read_to_string(&path) {
+                if declares_fleet_name(&content) {
+                    count += 1;
+                }
+            }
+        }
+    }
+    count
+}
+
+/// Whether a document has a TOP-LEVEL `name:` key.
+///
+/// Column 0 is the whole test: YAML requires a block scalar's content to be
+/// indented past its key, so an unindented `name:` cannot be anything but a
+/// top-level mapping key. Line-scanned rather than parsed so a repo with one
+/// malformed file still gets a usable count — the number is a summary, and
+/// refusing to count is worse than counting a file whose YAML is broken.
+fn declares_fleet_name(content: &str) -> bool {
+    content.lines().any(|line| {
+        line.strip_prefix("name:")
+            .is_some_and(|rest| rest.is_empty() || rest.starts_with([' ', '\t']))
+    })
 }
 
 /// Recursively scan for YAML files and extract configuration info.
@@ -181,84 +241,14 @@ fn extract_info_from_yaml(content: &str, config: &mut DetectedConfig) {
     }
 }
 
-/// Run interactive prompts and return user's answers.
-pub fn prompt_user(detected: &DetectedConfig) -> io::Result<UserAnswers> {
-    let mut answers = UserAnswers::default();
-
-    // Strictness level prompt
-    println!("\n{}", "? What strictness level would you like?".bold());
-    println!(
-        "  {} - Enforce best practices (require platform, warn on SELECT *)",
-        "1. Strict".cyan()
-    );
-    println!(
-        "  {} - Balanced defaults (recommended)",
-        "2. Moderate".green()
-    );
-    println!("  {} - Minimal warnings", "3. Relaxed".yellow());
-    print!("\n  Enter choice [2]: ");
-    io::stdout().flush()?;
-
-    let mut input = String::new();
-    io::stdin().read_line(&mut input)?;
-    let input = input.trim();
-
-    answers.strictness = match input {
+/// Map a strictness answer typed at a prompt. Shared by the CLI so the
+/// accepted spellings live next to the enum they produce.
+pub fn parse_strictness(input: &str) -> StrictnessLevel {
+    match input.trim().to_lowercase().as_str() {
         "1" | "strict" => StrictnessLevel::Strict,
         "3" | "relaxed" => StrictnessLevel::Relaxed,
         _ => StrictnessLevel::Moderate,
-    };
-
-    // Confirm file inclusion
-    if detected.yaml_file_count > 0 {
-        println!(
-            "\n{} {} YAML files detected.",
-            "?".bold(),
-            detected.yaml_file_count
-        );
-        print!("  Include all for linting? [Y/n]: ");
-        io::stdout().flush()?;
-
-        let mut input2 = String::new();
-        io::stdin().read_line(&mut input2)?;
-        let input2 = input2.trim().to_lowercase();
-
-        answers.include_all_files = input2.is_empty() || input2 == "y" || input2 == "yes";
-    } else {
-        answers.include_all_files = true;
     }
-
-    Ok(answers)
-}
-
-/// Generate a FleetLintConfig based on detection and user answers.
-pub fn generate_config(detected: &DetectedConfig, answers: &UserAnswers) -> FleetLintConfig {
-    let mut config = FleetLintConfig::default();
-
-    // Set thresholds based on strictness
-    match answers.strictness {
-        StrictnessLevel::Strict => {
-            config.thresholds.warn_select_star = true;
-            config.thresholds.warn_trailing_semicolon = true;
-            config.thresholds.min_interval = 60;
-            config.schema.require_platform = true;
-        }
-        StrictnessLevel::Moderate => {
-            // Use defaults
-        }
-        StrictnessLevel::Relaxed => {
-            config.thresholds.warn_select_star = false;
-            config.thresholds.warn_trailing_semicolon = false;
-            config.rules.disabled.push("query-syntax".to_string());
-        }
-    }
-
-    // Set root if fleets structure detected
-    if detected.has_fleets_dir {
-        config.files.root = Some(".".to_string());
-    }
-
-    config
 }
 
 /// Generate TOML content with comments based on detection and answers.
@@ -267,7 +257,7 @@ pub fn generate_config_toml(detected: &DetectedConfig, answers: &UserAnswers) ->
 
     // Header
     output.push_str("# Fleet Linter Configuration\n");
-    output.push_str("# Generated by `fleet-schema-gen init`\n");
+    output.push_str("# Generated by `flint init`\n");
     output.push_str("#\n");
 
     // Add detection summary as comment
@@ -287,7 +277,7 @@ pub fn generate_config_toml(detected: &DetectedConfig, answers: &UserAnswers) ->
             }
         }
         if detected.has_lib_dir {
-            output.push_str("#   - lib/ directory (shared configs)\n");
+            output.push_str("#   - lib/ directory (deprecated legacy layout — migrate to platforms/)\n");
         }
         if !detected.detected_platforms.is_empty() {
             output.push_str(&format!(
@@ -341,30 +331,19 @@ pub fn generate_config_toml(detected: &DetectedConfig, answers: &UserAnswers) ->
         StrictnessLevel::Relaxed => {
             output.push_str("\n# Warn when using SELECT * (disabled for relaxed mode)\n");
             output.push_str("warn_select_star = false\n");
-            output.push_str("\n# Warn on trailing semicolons (disabled for relaxed mode)\n");
-            output.push_str("warn_trailing_semicolon = false\n");
         }
         _ => {
             output.push_str("\n# Warn when using SELECT *\n");
             output.push_str("warn_select_star = true\n");
-            output.push_str("\n# Warn on trailing semicolons in queries\n");
-            output.push_str("warn_trailing_semicolon = true\n");
         }
     }
     output.push('\n');
 
-    // Files section
-    output.push_str("# File Patterns\n");
-    output.push_str("[files]\n");
-    output.push_str("# Glob patterns to include\n");
-    output.push_str("include = [\"**/*.yml\", \"**/*.yaml\"]\n");
-    output.push_str("\n# Glob patterns to exclude\n");
-    output.push_str("exclude = [\n");
-    output.push_str("    \"**/node_modules/**\",\n");
-    output.push_str("    \"**/target/**\",\n");
-    output.push_str("    \"**/.git/**\",\n");
-    output.push_str("    \"**/dist/**\",\n");
-    output.push_str("]\n");
+    // Files section — rendered from the measured scope selection, so the
+    // globs written here are the globs the delta was computed from. Both
+    // shapes (unset `include`, or a directory allowlist) come out of
+    // `scope::render_files_section`; neither can be an extension glob.
+    output.push_str(&scope::render_files_section(&answers.scope));
 
     if detected.has_fleets_dir {
         output.push_str("\n# Root directory for path resolution\n");
@@ -395,10 +374,17 @@ pub fn generate_config_toml(detected: &DetectedConfig, answers: &UserAnswers) ->
 }
 
 /// Initialize Fleet linter configuration in the given directory.
+///
+/// Writes the VISIBLE `fleetlint.toml` ([`CONFIG_FILE_NAME`]) unless
+/// `output` says otherwise; the hidden `.fleetlint.toml` spelling is still
+/// read by the loader, so an existing repo keeps working untouched.
+///
+/// `prompts` is the interactive half. `None` takes the defaults and narrows
+/// nothing.
 pub fn init(
     root: &Path,
     output: Option<PathBuf>,
-    interactive: bool,
+    prompts: Option<&dyn InitPrompts>,
     force: bool,
 ) -> anyhow::Result<()> {
     let config_path = output.unwrap_or_else(|| root.join(CONFIG_FILE_NAME));
@@ -439,7 +425,11 @@ pub fn init(
         }
     }
     if detected.has_lib_dir {
-        println!("  • {} directory (shared configs)", "lib/".green());
+        println!(
+            "  • {} directory {}",
+            "lib/".yellow(),
+            "(deprecated legacy layout — migrate to platforms/)".dimmed()
+        );
     }
     if !detected.root_yaml_files.is_empty() {
         println!(
@@ -476,11 +466,22 @@ pub fn init(
         );
     }
 
-    // Get user answers (interactive or defaults)
-    let answers = if interactive {
-        prompt_user(&detected)?
-    } else {
-        UserAnswers::default()
+    // Get user answers (interactive or defaults).
+    //
+    // The scope walk is the expensive part (it reads every YAML file to
+    // resolve `path:`/`paths:` references), so it only runs when someone is
+    // there to answer it.
+    let answers = match prompts {
+        Some(p) => {
+            let strictness = p.strictness(&detected)?;
+            let scan = scope::scan(root);
+            let selection = p.scope(&scan)?;
+            UserAnswers {
+                strictness,
+                scope: scope::preview(&scan, &selection),
+            }
+        }
+        None => UserAnswers::default(),
     };
 
     // Generate config
@@ -494,11 +495,16 @@ pub fn init(
         "✓".green().bold(),
         config_path.display().to_string().bold()
     );
+    if !answers.scope.include.is_empty() {
+        println!(
+            "  {} {} of {} file(s) in scope",
+            "•".dimmed(),
+            answers.scope.in_scope.to_string().cyan(),
+            answers.scope.total
+        );
+    }
     println!("\n{}:", "Next steps".bold());
-    println!(
-        "  • Run {} to validate your configs",
-        "fleet-schema-gen lint .".cyan()
-    );
+    println!("  • Run {} to validate your configs", "flint check .".cyan());
     println!(
         "  • Edit {} to customize rules",
         config_path.display().to_string().cyan()
@@ -507,10 +513,53 @@ pub fn init(
     Ok(())
 }
 
+/// Walk up from a path to the GitOps repo root. `.git` or `.fleetlint.toml`
+/// wins immediately; the shallowest ancestor holding a `default.yml` is
+/// remembered as a fallback; failing both, the starting directory itself.
+pub fn discover_gitops_root(start: &Path) -> PathBuf {
+    // Start at `start` itself if it's a directory, else its parent.
+    let first = if start.is_dir() {
+        Some(start)
+    } else {
+        start.parent()
+    };
+    let mut cur = first;
+    let mut gitops = None;
+    while let Some(dir) = cur {
+        // Either config spelling marks the repo root, same as `.git`.
+        if dir.join(".git").exists()
+            || super::config::CONFIG_FILE_NAMES
+                .iter()
+                .any(|n| dir.join(n).exists())
+        {
+            return dir.to_path_buf();
+        }
+        if dir.join("default.yml").exists() {
+            gitops = Some(dir.to_path_buf());
+        }
+        cur = dir.parent();
+    }
+    gitops
+        .or_else(|| first.map(|p| p.to_path_buf()))
+        .unwrap_or_else(|| PathBuf::from("."))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use tempfile::TempDir;
+
+    #[test]
+    fn discover_root_prefers_git_marker() {
+        let tmp = TempDir::new().unwrap();
+        std::fs::create_dir_all(tmp.path().join(".git")).unwrap();
+        let deep = tmp.path().join("platforms/macos/profiles");
+        std::fs::create_dir_all(&deep).unwrap();
+        assert_eq!(
+            discover_gitops_root(&deep).canonicalize().unwrap(),
+            tmp.path().canonicalize().unwrap()
+        );
+    }
 
     #[test]
     fn test_detect_empty_workspace() {
@@ -527,7 +576,8 @@ mod tests {
     fn test_detect_fleets_structure() {
         let temp_dir = TempDir::new().unwrap();
 
-        // Create fleets structure
+        // Create fleets structure: one real fleet-per-directory spec, and a
+        // leftover empty directory next to it.
         fs::create_dir(temp_dir.path().join("fleets")).unwrap();
         fs::create_dir(temp_dir.path().join("fleets/engineering")).unwrap();
         fs::create_dir(temp_dir.path().join("fleets/security")).unwrap();
@@ -541,7 +591,7 @@ mod tests {
         .unwrap();
         fs::write(
             temp_dir.path().join("fleets/engineering/default.yml"),
-            "policies:\n  - name: Fleet Policy\n    platform: linux\n",
+            "name: Engineering\npolicies:\n  - name: Fleet Policy\n    platform: linux\n",
         )
         .unwrap();
 
@@ -549,7 +599,9 @@ mod tests {
 
         assert!(detected.has_fleets_dir);
         assert!(!detected.has_legacy_teams_dir);
-        assert_eq!(detected.fleet_count, 2);
+        // One spec, not two directories: `fleets/security/` is empty and is
+        // not a fleet. The indented `- name: Fleet Policy` is not one either.
+        assert_eq!(detected.fleet_count, 1);
         assert!(detected.has_lib_dir);
         assert_eq!(detected.yaml_file_count, 2);
         assert!(detected.detected_platforms.contains(&"darwin".to_string()));
@@ -563,12 +615,80 @@ mod tests {
         // Create legacy teams/ structure (no fleets/)
         fs::create_dir(temp_dir.path().join("teams")).unwrap();
         fs::create_dir(temp_dir.path().join("teams/engineering")).unwrap();
+        fs::write(
+            temp_dir.path().join("teams/engineering/default.yml"),
+            "name: Engineering\n",
+        )
+        .unwrap();
 
         let detected = detect_workspace(temp_dir.path());
 
         assert!(detected.has_fleets_dir);
         assert!(detected.has_legacy_teams_dir);
         assert_eq!(detected.fleet_count, 1);
+    }
+
+    /// The layout the reference repo uses — one YAML per fleet, directly in
+    /// `fleets/`. The old subdirectory count reported 0 fleets for 25 files.
+    ///
+    /// Fleet decides this by top-level key, so the fixture carries one of
+    /// each thing that is NOT a fleet: a fragment (no `name:`), an org file
+    /// (`org_settings:`), a README, and an empty directory. If the count
+    /// comes back as anything but 3, one of those is being miscounted.
+    #[test]
+    fn fleet_count_counts_specs_not_directories() {
+        let temp_dir = TempDir::new().unwrap();
+        let fleets = temp_dir.path().join("fleets");
+        fs::create_dir(&fleets).unwrap();
+
+        fs::write(fleets.join("FDN-ALPHA.yml"), "name: FDN-ALPHA\ncontrols: {}\n").unwrap();
+        fs::write(fleets.join("CFG-ONE.yml"), "name: CFG-ONE\n").unwrap();
+        fs::write(fleets.join("unassigned.yml"), "name: Unassigned\n").unwrap();
+
+        // Not fleets:
+        fs::write(
+            fleets.join("shared-policies.yml"),
+            "policies:\n  - name: Some Policy\n",
+        )
+        .unwrap();
+        fs::write(fleets.join("org.yml"), "org_settings:\n  org_info: {}\n").unwrap();
+        fs::write(fleets.join("README.md"), "# fleets\n").unwrap();
+        fs::create_dir(fleets.join("_wip")).unwrap();
+
+        let detected = detect_workspace(temp_dir.path());
+        assert!(detected.has_fleets_dir);
+        assert_eq!(detected.fleet_count, 3);
+    }
+
+    /// THE CONTROL for the old bug, in isolation: subdirectories alone are
+    /// not fleets. Before this fix `fleets/{a,b}/` reported 2.
+    #[test]
+    fn empty_fleet_directories_count_as_zero() {
+        let temp_dir = TempDir::new().unwrap();
+        fs::create_dir_all(temp_dir.path().join("fleets/engineering")).unwrap();
+        fs::create_dir_all(temp_dir.path().join("fleets/security")).unwrap();
+
+        let detected = detect_workspace(temp_dir.path());
+        assert!(detected.has_fleets_dir, "the directory does exist");
+        assert_eq!(
+            detected.fleet_count, 0,
+            "empty directories are not fleets — this is the bug that reported \
+             '2 fleet(s)' for a repo with none, and '0' for one with 25"
+        );
+    }
+
+    #[test]
+    fn top_level_name_detection_ignores_indented_and_commented_keys() {
+        assert!(declares_fleet_name("name: FDN-ALPHA\n"));
+        assert!(declares_fleet_name("controls: {}\nname: FDN-ALPHA\n"));
+        // Value on the following line is still a top-level key.
+        assert!(declares_fleet_name("name:\n"));
+
+        assert!(!declares_fleet_name("policies:\n  - name: Some Policy\n"));
+        assert!(!declares_fleet_name("# name: commented out\n"));
+        assert!(!declares_fleet_name("org_settings:\n  org_info: {}\n"));
+        // `name:value` without a space is a scalar, not a mapping key.
+        assert!(!declares_fleet_name("name:nospace\n"));
     }
 
     #[test]
@@ -602,34 +722,6 @@ mod tests {
     }
 
     #[test]
-    fn test_generate_config_strict() {
-        let detected = DetectedConfig::default();
-        let answers = UserAnswers {
-            strictness: StrictnessLevel::Strict,
-            include_all_files: true,
-        };
-
-        let config = generate_config(&detected, &answers);
-
-        assert!(config.schema.require_platform);
-        assert!(config.thresholds.warn_select_star);
-    }
-
-    #[test]
-    fn test_generate_config_relaxed() {
-        let detected = DetectedConfig::default();
-        let answers = UserAnswers {
-            strictness: StrictnessLevel::Relaxed,
-            include_all_files: true,
-        };
-
-        let config = generate_config(&detected, &answers);
-
-        assert!(!config.thresholds.warn_select_star);
-        assert!(config.rules.disabled.contains(&"query-syntax".to_string()));
-    }
-
-    #[test]
     fn test_generate_config_toml() {
         let detected = DetectedConfig {
             has_fleets_dir: true,
@@ -652,5 +744,130 @@ mod tests {
         assert!(toml.contains("[schema]"));
         assert!(toml.contains("fleets/ directory"));
         assert!(toml.contains("darwin, linux"));
+    }
+
+    /// A generated config must never set an EXTENSION-based `include`.
+    ///
+    /// A non-empty `include` is authoritative and also scopes the workspace
+    /// rules — orphaned-file, duplicate-content, case-collision,
+    /// unregistered-script — which report on scripts, profiles and payloads,
+    /// not YAML. `include = ["**/*.yml"]` therefore reads as a harmless
+    /// tautology while switching all of them off for every non-YAML file.
+    ///
+    /// This is the belt to `files_config_default_include_is_empty`'s braces:
+    /// that test fixes the DEFAULT, this one stops the template handing users
+    /// an explicit copy of the same mistake. Narrowing by DIRECTORY
+    /// (`platforms/**`) is fine — scripts under it stay in scope. Only
+    /// extension globs are the trap.
+    #[test]
+    fn generated_config_never_sets_extension_only_include() {
+        let detected = DetectedConfig::default();
+        let toml = generate_config_toml(&detected, &UserAnswers::default());
+
+        for line in toml.lines() {
+            let t = line.trim();
+            if t.starts_with('#') || !t.starts_with("include") {
+                continue;
+            }
+            panic!(
+                "generated config sets an active `include` ({t}) — an \
+                 extension-based include silently disables the cross-file \
+                 rules on scripts and profiles. Leave it unset, or narrow \
+                 by directory."
+            );
+        }
+    }
+
+    /// The scope assistant DOES emit an active `include` — the rule it must
+    /// still obey is that every entry names a directory or an exact file.
+    /// The full type-level argument and the extension-glob control live in
+    /// `scope::tests::include_entries_are_never_extension_globs`; this
+    /// checks what actually lands in the file.
+    #[test]
+    fn a_narrowed_config_writes_only_directory_globs() {
+        let tmp = TempDir::new().unwrap();
+        fs::create_dir_all(tmp.path().join("platforms/macos")).unwrap();
+        fs::create_dir_all(tmp.path().join("tools")).unwrap();
+        fs::write(tmp.path().join("default.yml"), "org_settings: {}\n").unwrap();
+        fs::write(tmp.path().join("platforms/macos/a.sh"), "#!/bin/sh\n").unwrap();
+        fs::write(tmp.path().join("tools/build.sh"), "#!/bin/sh\n").unwrap();
+
+        let scan = scope::scan(tmp.path());
+        let mut selection = ScopeSelection::default();
+        for unit in scan.top_level() {
+            selection.decide(unit, unit.rel != "tools");
+        }
+        let answers = UserAnswers {
+            strictness: StrictnessLevel::Moderate,
+            scope: scope::preview(&scan, &selection),
+        };
+
+        let toml = generate_config_toml(&DetectedConfig::default(), &answers);
+        let parsed: super::super::config::FleetLintConfig =
+            toml::from_str(&toml).expect("generated config must parse");
+
+        assert!(!parsed.files.include.is_empty(), "control: this selection narrows");
+        for g in &parsed.files.include {
+            assert!(!g.contains("*."), "include entry {g:?} is an extension glob");
+        }
+        assert!(!parsed.is_out_of_scope_file(Path::new("platforms/macos/a.sh")));
+        assert!(parsed.is_out_of_scope_file(Path::new("tools/build.sh")));
+    }
+
+    /// End to end through the [`InitPrompts`] seam: `init` must write the
+    /// VISIBLE `fleetlint.toml` and it must carry the answers.
+    #[test]
+    fn init_writes_the_visible_config_with_the_chosen_scope() {
+        struct Scripted;
+        impl InitPrompts for Scripted {
+            fn strictness(&self, _: &DetectedConfig) -> anyhow::Result<StrictnessLevel> {
+                Ok(StrictnessLevel::Strict)
+            }
+            fn scope(&self, scan: &ScopeScan) -> anyhow::Result<ScopeSelection> {
+                let mut sel = ScopeSelection::default();
+                for unit in scan.top_level() {
+                    sel.decide(unit, unit.rel != "tools");
+                }
+                Ok(sel)
+            }
+        }
+
+        let tmp = TempDir::new().unwrap();
+        fs::create_dir_all(tmp.path().join("fleets")).unwrap();
+        fs::create_dir_all(tmp.path().join("tools")).unwrap();
+        fs::write(tmp.path().join("default.yml"), "org_settings: {}\n").unwrap();
+        fs::write(tmp.path().join("fleets/a.yml"), "name: A\n").unwrap();
+        fs::write(tmp.path().join("tools/build.sh"), "#!/bin/sh\n").unwrap();
+
+        init(tmp.path(), None, Some(&Scripted), false).unwrap();
+
+        let visible = tmp.path().join(CONFIG_FILE_NAME);
+        assert_eq!(CONFIG_FILE_NAME, "fleetlint.toml");
+        assert!(visible.exists(), "init must write the visible spelling");
+        assert!(
+            !tmp.path().join(".fleetlint.toml").exists(),
+            "init must not write the hidden spelling"
+        );
+
+        let written = fs::read_to_string(&visible).unwrap();
+        let parsed: super::super::config::FleetLintConfig = toml::from_str(&written).unwrap();
+        assert_eq!(parsed.files.include, vec!["default.yml", "fleets/**"]);
+        assert!(parsed.files.exclude.contains(&"tools/**".to_string()));
+        assert!(parsed.schema.require_platform, "strict answer must survive");
+    }
+
+    /// The non-interactive path stays exactly as it was: no scope questions,
+    /// no `include`, cross-file rules armed everywhere.
+    #[test]
+    fn non_interactive_init_narrows_nothing() {
+        let tmp = TempDir::new().unwrap();
+        fs::write(tmp.path().join("default.yml"), "org_settings: {}\n").unwrap();
+
+        init(tmp.path(), None, None, false).unwrap();
+
+        let written = fs::read_to_string(tmp.path().join(CONFIG_FILE_NAME)).unwrap();
+        let parsed: super::super::config::FleetLintConfig = toml::from_str(&written).unwrap();
+        assert!(parsed.files.include.is_empty());
+        assert!(!parsed.is_out_of_scope_file(Path::new("anything/at/all.sh")));
     }
 }
