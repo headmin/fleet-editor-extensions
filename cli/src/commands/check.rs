@@ -88,7 +88,8 @@ pub(crate) fn run(args: CheckArgs) -> anyhow::Result<()> {
     }
     let json_mode = format == "json";
     let markdown_mode = format == "markdown";
-    let structured_mode = json_mode || markdown_mode;
+    let github_mode = format == "github";
+    let structured_mode = json_mode || markdown_mode || github_mode;
 
     // Collect (path, report) across every input into one list.
     // Directory inputs run the cross-file graph pass (a whole repo is
@@ -184,6 +185,12 @@ pub(crate) fn run(args: CheckArgs) -> anyhow::Result<()> {
             }
         });
         println!("{}", serde_json::to_string_pretty(&wrapper)?);
+    } else if github_mode {
+        // Workflow commands go to stdout; GitHub scrapes the runner log.
+        // Paths must be workspace-relative for the annotation to bind to the
+        // diff, so strip the directory flint was pointed at.
+        let root = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+        print!("{}", crate::output::github::render(&results, &root));
     } else if markdown_mode {
         let pairs: Vec<(String, &linter::error::LintReport)> = results
             .iter()

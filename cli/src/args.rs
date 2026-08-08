@@ -157,7 +157,7 @@ pub(crate) struct CheckArgs {
     pub(crate) unsafe_fixes: bool,
 
     /// Output format
-    #[arg(short, long, default_value = "text", value_parser = ["text", "json", "markdown"])]
+    #[arg(short, long, default_value = "text", value_parser = ["text", "json", "markdown", "github"])]
     pub(crate) format: String,
 
     /// Run as a non-blocking git hook: print diagnostics but always exit 0,

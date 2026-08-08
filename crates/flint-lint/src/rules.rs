@@ -401,11 +401,16 @@ impl Rule for TypeValidationRule {
                                     safety: super::error::FixSafety::Safe,
                                 });
 
-                                // Find line number in source for --fix support
-                                if let Some(line) =
-                                    super::yaml_utils::find_key_line(_source, "platform", 0)
+                                // Point at the offending platform value, not
+                                // the start of the line: the diagnostic is
+                                // about one token in a comma-separated list.
+                                if let Some(span) =
+                                    super::yaml_utils::find_value_span(_source, "platform", component)
+                                        .or_else(|| {
+                                            super::yaml_utils::find_key_span(_source, "platform", 0)
+                                        })
                                 {
-                                    err = err.with_location(line, 1);
+                                    err = err.with_span(span);
                                 }
                                 errors.push(err);
                             }

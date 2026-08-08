@@ -6,7 +6,7 @@
 //! - **Missing wrappers** (key belongs under a child that was omitted)
 
 use super::deprecations::DEPRECATION_REGISTRY;
-use super::error::LintError;
+use super::error::{LintError, Span};
 use super::fleet_config::FleetConfig;
 use super::rules::Rule;
 use super::structure::{
@@ -179,7 +179,7 @@ fn validate_node(
                 )
                 .with_help("Use 'true' or 'false'".to_string());
                 if let Some(l) = line {
-                    err = err.with_location(l, col.unwrap_or(1));
+                    err = err.with_span(span_for(l, col, key_name));
                 }
                 errors.push(err);
             }
@@ -256,7 +256,7 @@ fn classify_unknown_key(
                         .with_help(format!("Place '{}' inside '{}' instead", key, sibling_path));
 
                         if let Some(l) = line {
-                            err = err.with_location(l, col.unwrap_or(1));
+                            err = err.with_span(span_for(l, col, key));
                         }
                         return Some(err);
                     }
@@ -286,7 +286,7 @@ fn classify_unknown_key(
             ));
 
             if let Some(l) = line {
-                err = err.with_location(l, col.unwrap_or(1));
+                err = err.with_span(span_for(l, col, key));
             }
             return Some(err);
         }
@@ -326,7 +326,7 @@ fn classify_unknown_key(
     }
 
     if let Some(l) = line {
-        err = err.with_location(l, col.unwrap_or(1));
+        err = err.with_span(span_for(l, col, key));
     }
 
     Some(err)
@@ -407,6 +407,15 @@ fn find_key_position(source: &str, key: &str, _path: &str) -> (Option<usize>, Op
 }
 
 /// Find the source position of a value (after the colon) for a given key.
+/// Build a span for a key diagnostic from what these rules already know.
+///
+/// A missing column means the key was not located textually; fall back to
+/// column 1 with the key's width rather than a bare caret, so the highlight
+/// is still the size of the thing being talked about.
+fn span_for(line: usize, col: Option<usize>, key: &str) -> Span {
+    Span::token(line, col.unwrap_or(1), key.chars().count())
+}
+
 fn find_value_position(source: &str, key: &str, _path: &str) -> (Option<usize>, Option<usize>) {
     let pattern = format!("{}:", key);
 

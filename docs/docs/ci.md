@@ -35,9 +35,15 @@ jobs:
             --git https://github.com/headmin/fleet-editor-extensions \
             --tag v0.1.4 flint
 
+      # `--format github` emits workflow commands, which GitHub renders as
+      # inline annotations on the PR diff. No token, no `gh`, no API call.
       - name: Lint
-        run: flint check . --format json
+        run: flint check . --format github
 ```
+
+Unlike `--git` (which posts one markdown comment), `--format github` needs no
+credentials and works on every event — pushes and merge queues included, not
+just `pull_request`.
 
 Once Linux binaries ship, this collapses back to a download:
 

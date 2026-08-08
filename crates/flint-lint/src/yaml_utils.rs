@@ -167,6 +167,58 @@ pub fn find_key_line(source: &str, key: &str, after_line: usize) -> Option<usize
     None
 }
 
+/// Span covering the KEY token of `key:`, for diagnostics about the key
+/// itself (unknown key, misplaced key, deprecated spelling).
+///
+/// Prefer this over [`find_key_line`] plus a hardcoded column. A column of 1
+/// puts the caret under the indentation, which reads as "something is wrong
+/// with this whole line" when the point is a single token.
+pub fn find_key_span(source: &str, key: &str, after_line: usize) -> Option<Span> {
+    let pattern = format!("{key}:");
+    for (idx, line) in source.lines().enumerate() {
+        if idx < after_line {
+            continue;
+        }
+        let trimmed = line.trim().trim_start_matches('-').trim();
+        if trimmed.starts_with(&pattern) {
+            // `find` is safe here: `trimmed` came from `line`, so the key is
+            // present. Fall back to a whole-line span rather than guessing.
+            return match line.find(key) {
+                Some(col) => Some(Span::token(idx + 1, col + 1, key.chars().count())),
+                None => Some(Span::line(idx + 1)),
+            };
+        }
+    }
+    None
+}
+
+/// Span covering the VALUE of `key: value`, for diagnostics about the value
+/// (invalid platform, unknown label, bad interval).
+///
+/// Matches the value exactly after unquoting, so `platform: "darwin"` and
+/// `platform: darwin` both resolve, and a different value on another line
+/// does not.
+pub fn find_value_span(source: &str, key: &str, value: &str) -> Option<Span> {
+    for (idx, line) in source.lines().enumerate() {
+        let trimmed = line.trim().trim_start_matches('-').trim_start();
+        let Some(rest) = trimmed.strip_prefix(key).and_then(|r| r.trim_start().strip_prefix(':'))
+        else {
+            continue;
+        };
+        let raw = rest.trim();
+        if raw.trim_matches('"').trim_matches('\'') != value {
+            continue;
+        }
+        // Point at the value as written, skipping any quote so the caret
+        // covers the text the user would edit.
+        return match line.rfind(value) {
+            Some(col) => Some(Span::token(idx + 1, col + 1, value.chars().count())),
+            None => Some(Span::line(idx + 1)),
+        };
+    }
+    None
+}
+
 /// True if `content` carries no usable data: only blank lines, and — when
 /// `yaml_comments` is set — `#` comment lines. A YAML file that is empty,
 /// whitespace-only, or comment-only parses to null, which Fleet rejects where
@@ -246,5 +298,44 @@ mod tests {
         assert_eq!(find_key_line(source, "name", 0), Some(2));
         assert_eq!(find_key_line(source, "platform", 0), Some(3));
         assert_eq!(find_key_line(source, "missing", 0), None);
+    }
+}
+
+#[cfg(test)]
+mod span_tests {
+    use super::*;
+
+    #[test]
+    fn value_span_points_at_the_value() {
+        let src = "policies:\n  - name: Test\n    platform: darwn\n";
+        let span = find_value_span(src, "platform", "darwn").expect("found");
+        assert_eq!((span.line, span.column, span.len), (3, 15, 5));
+        // Column 15 is exactly where `darwn` starts on that line.
+        assert_eq!(&src.lines().nth(2).unwrap()[span.column - 1..], "darwn");
+    }
+
+    #[test]
+    fn value_span_matches_through_quotes_and_skips_other_values() {
+        let src = "a:\n  platform: linux\n  platform: \"darwin\"\n";
+        let span = find_value_span(src, "platform", "darwin").expect("found");
+        assert_eq!(span.line, 3, "must skip the line whose value differs");
+        assert_eq!(span.len, 6);
+    }
+
+    #[test]
+    fn key_span_covers_the_key_token() {
+        let src = "policies:\n  - name: Test\n    polcies: x\n";
+        let span = find_key_span(src, "polcies", 0).expect("found");
+        assert_eq!((span.line, span.column, span.len), (3, 5, 7));
+    }
+
+    /// The control: an absent key or value must not produce a confident span
+    /// pointing at something arbitrary.
+    #[test]
+    fn absent_key_or_value_yields_no_span() {
+        let src = "policies:\n  - name: Test\n";
+        assert!(find_key_span(src, "platform", 0).is_none());
+        assert!(find_value_span(src, "platform", "darwin").is_none());
+        assert!(find_value_span(src, "name", "Other").is_none());
     }
 }

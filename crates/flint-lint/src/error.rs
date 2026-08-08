@@ -311,16 +311,32 @@ impl LintError {
                     width = line_num_width
                 ));
 
-                // Add pointer to error column
+                // Add pointer to error column.
+                //
+                // Caret WIDTH comes from the span, not from `context`. It
+                // used to be `context.len()`, which is unrelated to the
+                // source text: a rule with `context = "darwn"` drew a 5-wide
+                // caret wherever its column happened to point, and a rule
+                // with no context drew a 1-wide caret under a 7-character
+                // key. `Span::len` was carried on every diagnostic and read
+                // by nothing.
                 let pointer_offset = col.saturating_sub(1);
+                let caret_len = self
+                    .span
+                    .map(|s| s.len)
+                    .filter(|len| *len > 0)
+                    // `with_location` leaves len 0 for "unknown width"; fall
+                    // back to the old behaviour so those sites are no worse
+                    // than before, then to a single caret.
+                    .or_else(|| self.context.as_ref().map(|s| s.chars().count()))
+                    .unwrap_or(1)
+                    .max(1);
                 output.push_str(&format!(
                     "{:>width$} {} {}{}\n",
                     "",
                     "|".blue().bold(),
                     " ".repeat(pointer_offset),
-                    "^".repeat(self.context.as_ref().map(|s| s.len()).unwrap_or(1))
-                        .red()
-                        .bold(),
+                    "^".repeat(caret_len).red().bold(),
                     width = line_num_width
                 ));
             } else {
@@ -414,5 +430,74 @@ impl LintReport {
         };
         let _ = writeln!(out, "{summary}");
         out
+    }
+}
+
+#[cfg(test)]
+mod render_tests {
+    use super::*;
+
+    /// Drop ANSI colour so assertions compare text, not styling.
+    fn plain(s: &str) -> String {
+        let mut out = String::new();
+        let mut chars = s.chars();
+        while let Some(c) = chars.next() {
+            if c == '\u{1b}' {
+                for c2 in chars.by_ref() {
+                    if c2 == 'm' {
+                        break;
+                    }
+                }
+            } else {
+                out.push(c);
+            }
+        }
+        out
+    }
+
+    /// The caret must sit under the span and be as wide as the span.
+    ///
+    /// This was wrong in both directions before: caret WIDTH came from
+    /// `context.len()` — a field unrelated to the source text — while
+    /// `Span::len` was carried on every diagnostic and read by nothing. A
+    /// rule with `context = "darwn"` drew a 5-wide caret wherever its column
+    /// happened to point; a rule with no context drew a 1-wide caret under a
+    /// 7-character key.
+    #[test]
+    fn caret_matches_the_span_not_the_context() {
+        let src = "policies:\n  - name: Test\n    platform: darwn\n";
+        let err = LintError::error("bad platform", std::path::Path::new("x.yml"))
+            .with_span(Span::token(3, 15, 5))
+            // Deliberately a different length from the span: if this string
+            // ever drives the caret again, this test fails.
+            .with_context("a much longer context string");
+
+        let rendered = plain(&err.format(Some(src)));
+        let caret = rendered
+            .lines()
+            .find(|l| l.contains('^'))
+            .expect("a span must render a caret");
+
+        assert_eq!(caret.matches('^').count(), 5, "width comes from the span: {caret:?}");
+        let after_gutter = &caret[caret.find('|').expect("gutter") + 1..];
+        assert_eq!(
+            after_gutter.len() - after_gutter.trim_start().len(),
+            15,
+            "caret must start at the span's column: {caret:?}"
+        );
+    }
+
+    /// `with_location` leaves width unknown (len 0). Those call sites must
+    /// keep their old behaviour rather than collapsing to a bare caret.
+    #[test]
+    fn unknown_width_falls_back_to_context_then_one() {
+        let src = "a: 1\n";
+        let with_ctx = LintError::error("m", std::path::Path::new("x.yml"))
+            .with_location(1, 1)
+            .with_context("abc");
+        assert_eq!(plain(&with_ctx.format(Some(src))).matches('^').count(), 3);
+
+        let bare = LintError::error("m", std::path::Path::new("x.yml")).with_location(1, 1);
+        assert_eq!(plain(&bare.format(Some(src))).matches('^').count(), 1);
     }
 }
