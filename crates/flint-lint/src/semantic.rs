@@ -6,7 +6,7 @@
 use std::path::Path;
 
 use super::engine::{detect_file_type, FileType};
-use super::error::{LintError, Severity};
+use super::error::LintError;
 use super::fleet_config::FleetConfig;
 use super::rules::Rule;
 use super::yaml_utils::*;
@@ -15,8 +15,27 @@ use super::yaml_utils::*;
 // Rule 1: Label Targeting Mutual Exclusivity
 // ============================================================================
 
-/// Validates that `labels_include_any` and `labels_include_all` are not both set
-/// on the same item. `labels_exclude_any` can coexist with either.
+/// Validates label-targeting combinations against Fleet's PER-CONTEXT
+/// contracts (verified in Fleet source, main @ 3c8df41762):
+///
+/// - Software items (`pkg/spec/gitops.go`): only ONE of
+///   `labels_include_all` / `labels_include_any` / `labels_exclude_any`.
+/// - Profiles & scripts (`fleet/mdm.go` ValidateMDMProfileSpecs): the two
+///   include forms are mutually exclusive; `labels_exclude_any` MAY
+///   coexist with either (289 live combos in the reference repo).
+/// - Policies (`fleet/policies.go` verifyPolicyLabelScopes): include pair
+///   exclusive, exclude pair (`labels_exclude_any`/`labels_exclude_all`)
+///   exclusive, and the SAME label may not appear in both an include and
+///   an exclude list (`fleet.LabelOverlap`, policies.go:230).
+///
+/// The docs sentence "only one of these fields can be set" describes the
+/// software context only — a blanket rule false-positived on hundreds of
+/// legal profile combos.
+///
+/// Presence is measured by VALUE, not by key: every Fleet check counts
+/// `len(slice) > 0` (policies.go:207, gitops.go:2334), and policies.go:203
+/// spells it out — `{labels_include_any: [], labels_include_all: [A]}` is
+/// valid. Keying off mere presence would flag that legal shape.
 pub struct LabelTargetingRule;
 
 impl Rule for LabelTargetingRule {
@@ -24,13 +43,10 @@ impl Rule for LabelTargetingRule {
         "label-targeting"
     }
     fn description(&self) -> &'static str {
-        "Checks that labels_include_any and labels_include_all are not both specified"
+        "Checks that only one labels_* targeting key is set per item"
     }
     fn category(&self) -> &'static str {
         "semantic"
-    }
-    fn docs_url(&self) -> Option<&'static str> {
-        Some("https://fleetdm.com/docs/configuration/yaml-files#policies")
     }
 
     fn check(&self, _config: &FleetConfig, file: &Path, source: &str) -> Vec<LintError> {
@@ -41,34 +57,152 @@ impl Rule for LabelTargetingRule {
 
         let mut errors = Vec::new();
 
-        // All paths where label targeting can appear
-        let paths: &[&[&str]] = &[
-            &["policies"],
-            &["queries"],
-            &["reports"],
+        // Software items: Fleet rejects ANY two of the three (gitops.go).
+        let strict_paths: &[&[&str]] = &[
             &["software", "packages"],
             &["software", "app_store_apps"],
             &["software", "fleet_maintained_apps"],
+        ];
+        // Everything else: only the include pair is mutually exclusive;
+        // exclude coexists (mdm.go, policies.go).
+        let include_pair_paths: &[&[&str]] = &[
+            &["policies"],
+            &["queries"],
+            &["reports"],
             &["controls", "scripts"],
+            &["controls", "apple_settings", "configuration_profiles"],
+            &["controls", "apple_settings", "custom_settings"],
+            &["controls", "macos_settings", "configuration_profiles"],
+            &["controls", "macos_settings", "custom_settings"],
+            &["controls", "windows_settings", "configuration_profiles"],
+            &["controls", "windows_settings", "custom_settings"],
+            &["controls", "android_settings", "configuration_profiles"],
+            &["controls", "android_settings", "custom_settings"],
         ];
 
-        for path in paths {
-            for item in collect_items_at_path(&yaml, path) {
-                let has_any = mapping_has_key(item, "labels_include_any");
-                let has_all = mapping_has_key(item, "labels_include_all");
+        // Mirrors Fleet's `len(slice) > 0`: an empty list is "no value".
+        let has_labels = |item: &serde_yaml::Value, key: &str| {
+            !mapping_get_string_array(item, key).is_empty()
+        };
 
-                if has_any && has_all {
-                    let name = item_display_name(item);
+        let flag_pair = |errors: &mut Vec<LintError>, item, a: &str, b: &str, why: &str| {
+            if has_labels(item, a) && has_labels(item, b) {
+                errors.push(
+                    LintError::error(
+                        format!(
+                            "'{}' sets both {} and {} — {}",
+                            item_display_name(item),
+                            a,
+                            b,
+                            why
+                        ),
+                        file,
+                    )
+                    .with_help(
+                        "labels_include_any = hosts with ANY listed label; \
+                         labels_include_all = hosts with ALL; labels_exclude_* = \
+                         hosts WITHOUT"
+                            .to_string(),
+                    ),
+                );
+            }
+        };
+
+        for path in strict_paths {
+            for item in collect_items_at_path(&yaml, path) {
+                let present: Vec<&str> = [
+                    "labels_include_any",
+                    "labels_include_all",
+                    "labels_exclude_any",
+                ]
+                .iter()
+                .copied()
+                .filter(|k| has_labels(item, k))
+                .collect();
+                if present.len() > 1 {
                     errors.push(
                         LintError::error(
                             format!(
-                                "'{}' has both labels_include_any and labels_include_all — only one is allowed",
-                                name
+                                "'{}' sets {} — software items allow only ONE labels_* key",
+                                item_display_name(item),
+                                present.join(" and "),
                             ),
                             file,
                         )
-                        .with_help("Use labels_include_any to match hosts with ANY label, or labels_include_all to match hosts with ALL labels")
+                        .with_help(
+                            "Fleet rejects this at apply time: pick one of \
+                             labels_include_any, labels_include_all, or labels_exclude_any"
+                                .to_string(),
+                        ),
                     );
+                }
+            }
+        }
+
+        for path in include_pair_paths {
+            for item in collect_items_at_path(&yaml, path) {
+                flag_pair(
+                    &mut errors,
+                    item,
+                    "labels_include_any",
+                    "labels_include_all",
+                    "only one include form is allowed",
+                );
+                // Policies additionally have an exclude pair (policies.go).
+                if *path == ["policies"] {
+                    flag_pair(
+                        &mut errors,
+                        item,
+                        "labels_exclude_any",
+                        "labels_exclude_all",
+                        "only one exclude form is allowed",
+                    );
+
+                    // Value-level check: policies are the only context where
+                    // an include form and an exclude form may be combined, so
+                    // they are the only context where one label can land on
+                    // both sides. Fleet rejects that at apply time
+                    // (policies.go:230 → LabelOverlap). Matching is exact —
+                    // Fleet compares raw names, no trimming or case folding.
+                    let include: Vec<&str> = ["labels_include_any", "labels_include_all"]
+                        .iter()
+                        .flat_map(|k| mapping_get_string_array(item, k))
+                        .collect();
+                    let exclude: Vec<&str> = ["labels_exclude_any", "labels_exclude_all"]
+                        .iter()
+                        .flat_map(|k| mapping_get_string_array(item, k))
+                        .collect();
+
+                    // Report every overlap, in include-list order, so the
+                    // message is deterministic and fixing is one pass. Fleet
+                    // only names the first — it stops at the first error.
+                    let mut overlaps: Vec<&str> = Vec::new();
+                    for name in &include {
+                        if exclude.contains(name) && !overlaps.contains(name) {
+                            overlaps.push(name);
+                        }
+                    }
+
+                    if !overlaps.is_empty() {
+                        let quoted: Vec<String> =
+                            overlaps.iter().map(|n| format!("'{}'", n)).collect();
+                        errors.push(
+                            LintError::error(
+                                format!(
+                                    "'{}' lists {} in both an include and an exclude list",
+                                    item_display_name(item),
+                                    quoted.join(", "),
+                                ),
+                                file,
+                            )
+                            .with_help(
+                                "Fleet rejects this at apply time: a label cannot both \
+                                 select and deselect the same hosts — drop it from one \
+                                 side"
+                                    .to_string(),
+                            ),
+                        );
+                    }
                 }
             }
         }
@@ -96,9 +230,6 @@ impl Rule for LabelMembershipRule {
     }
     fn category(&self) -> &'static str {
         "semantic"
-    }
-    fn docs_url(&self) -> Option<&'static str> {
-        Some("https://fleetdm.com/docs/configuration/yaml-files#labels")
     }
 
     fn check(&self, _config: &FleetConfig, file: &Path, source: &str) -> Vec<LintError> {
@@ -392,9 +523,6 @@ impl Rule for DateFormatRule {
     fn is_fixable(&self) -> bool {
         true
     }
-    fn docs_url(&self) -> Option<&'static str> {
-        Some("https://fleetdm.com/docs/configuration/yaml-files#macos_updates")
-    }
 
     fn check(&self, _config: &FleetConfig, file: &Path, source: &str) -> Vec<LintError> {
         let yaml = match parse_yaml(source) {
@@ -517,9 +645,6 @@ impl Rule for PatchPolicyRule {
     fn category(&self) -> &'static str {
         "semantic"
     }
-    fn docs_url(&self) -> Option<&'static str> {
-        Some("https://fleetdm.com/docs/configuration/yaml-files#patch-policy")
-    }
 
     fn check(&self, _config: &FleetConfig, file: &Path, source: &str) -> Vec<LintError> {
         let yaml = match parse_yaml(source) {
@@ -632,9 +757,6 @@ impl Rule for PolicyAutomationLocationRule {
     fn category(&self) -> &'static str {
         "semantic"
     }
-    fn docs_url(&self) -> Option<&'static str> {
-        Some("https://fleetdm.com/docs/configuration/yaml-files#policies")
-    }
 
     fn check(&self, _config: &FleetConfig, file: &Path, source: &str) -> Vec<LintError> {
         // Only applies to default.yml. Other file types (fleet files, lib
@@ -708,9 +830,6 @@ impl Rule for HashFormatRule {
     fn is_fixable(&self) -> bool {
         true
     }
-    fn docs_url(&self) -> Option<&'static str> {
-        Some("https://fleetdm.com/docs/configuration/yaml-files#packages")
-    }
 
     fn check(&self, _config: &FleetConfig, file: &Path, source: &str) -> Vec<LintError> {
         let yaml = match parse_yaml(source) {
@@ -770,8 +889,11 @@ fn check_hash(hash: &str, item_name: &str, file: &Path, errors: &mut Vec<LintErr
                     format!("'{}': hash_sha256 must be lowercase hex", item_name),
                     file,
                 )
-                .with_suggestion(hash.to_lowercase())
-                .with_fix_safety(super::error::FixSafety::Safe),
+                .with_fix(super::error::Fix::Replace {
+                    old: Some(hash.to_string()),
+                    new: hash.to_lowercase(),
+                    safety: super::error::FixSafety::Safe,
+                }),
             );
         } else {
             errors.push(
@@ -798,7 +920,13 @@ const VALID_CATEGORIES: &[&str] = &[
     "Utilities",
 ];
 
-/// Validates that `categories` values are from the supported set.
+/// Validates `categories` values against Fleet's CURRENT contract: custom
+/// category names are legal (fleet source: DefaultSelfServiceCategoryNames
+/// plus user-created categories; unknown names are accepted, emoji
+/// supported, ≤255 chars). Enforcing the six defaults as the only valid
+/// set produced 487 false positives on a real repo using emoji-prefixed
+/// custom categories. What still warns: empty names, >255 chars, and
+/// case-variants of a default name (likely an unintended near-duplicate).
 pub struct CategoriesRule;
 
 impl Rule for CategoriesRule {
@@ -806,16 +934,13 @@ impl Rule for CategoriesRule {
         "categories"
     }
     fn description(&self) -> &'static str {
-        "Checks that software category values are from the supported set"
+        "Checks software category values (empty, over-long, or case-variant of a default)"
     }
     fn category(&self) -> &'static str {
         "semantic"
     }
     fn is_fixable(&self) -> bool {
         true
-    }
-    fn default_severity(&self) -> Severity {
-        Severity::Warning
     }
 
     fn check(&self, _config: &FleetConfig, file: &Path, source: &str) -> Vec<LintError> {
@@ -836,17 +961,48 @@ impl Rule for CategoriesRule {
             for item in collect_items_at_path(&yaml, path) {
                 let name = item_display_name(item);
                 for cat in mapping_get_string_array(item, "categories") {
-                    if !VALID_CATEGORIES.contains(&cat) {
-                        let suggestion = find_similar_category(cat);
-                        let mut err = LintError::warning(
-                            format!("'{}': unknown category '{}'", name, cat),
+                    if cat.trim().is_empty() {
+                        errors.push(LintError::warning(
+                            format!("'{}': empty category name", name),
                             file,
-                        )
-                        .with_help(format!("Valid categories: {}", VALID_CATEGORIES.join(", ")));
-                        if let Some(s) = suggestion {
-                            err = err.with_suggestion(s.to_string());
+                        ));
+                        continue;
+                    }
+                    if cat.chars().count() > 255 {
+                        errors.push(LintError::warning(
+                            format!(
+                                "'{}': category '{}…' exceeds Fleet's 255-character limit",
+                                name,
+                                cat.chars().take(30).collect::<String>()
+                            ),
+                            file,
+                        ));
+                        continue;
+                    }
+                    // Custom names are legal; only flag a CASE-variant of a
+                    // default (e.g. 'browsers') — almost certainly meant the
+                    // default and would create a near-duplicate category.
+                    if !VALID_CATEGORIES.contains(&cat) {
+                        if let Some(default) = VALID_CATEGORIES
+                            .iter()
+                            .find(|d| d.eq_ignore_ascii_case(cat))
+                        {
+                            errors.push(
+                                LintError::warning(
+                                    format!(
+                                        "'{}': category '{}' is a case-variant of the default '{}'",
+                                        name, cat, default
+                                    ),
+                                    file,
+                                )
+                                .with_help(
+                                    "Fleet treats these as different categories — use the \
+                                     default's casing unless a separate category is intended"
+                                        .to_string(),
+                                )
+                                .with_suggestion(default.to_string()),
+                            );
                         }
-                        errors.push(err);
                     }
                 }
             }
@@ -855,29 +1011,6 @@ impl Rule for CategoriesRule {
         errors
     }
 }
-
-fn find_similar_category(input: &str) -> Option<&'static str> {
-    let input_lower = input.to_lowercase();
-    for cat in VALID_CATEGORIES {
-        if cat.to_lowercase() == input_lower {
-            return Some(cat); // Case mismatch
-        }
-        if cat.to_lowercase().contains(&input_lower) || input_lower.contains(&cat.to_lowercase()) {
-            return Some(cat);
-        }
-    }
-    // Common aliases
-    match input_lower.as_str() {
-        "browser" | "web" => Some("Browsers"),
-        "chat" | "messaging" | "comms" => Some("Communication"),
-        "dev" | "developer" | "development" | "tools" | "devtools" => Some("Developer tools"),
-        "office" | "work" => Some("Productivity"),
-        "privacy" | "antivirus" | "firewall" => Some("Security"),
-        "utility" | "utils" => Some("Utilities"),
-        _ => None,
-    }
-}
-
 // ============================================================================
 // Rule 6: File Extension Validation
 // ============================================================================
@@ -894,12 +1027,6 @@ impl Rule for FileExtensionRule {
     }
     fn category(&self) -> &'static str {
         "semantic"
-    }
-    fn default_severity(&self) -> Severity {
-        Severity::Warning
-    }
-    fn docs_url(&self) -> Option<&'static str> {
-        Some("https://fleetdm.com/docs/configuration/yaml-files#controls")
     }
 
     fn check(&self, _config: &FleetConfig, file: &Path, source: &str) -> Vec<LintError> {
@@ -976,9 +1103,6 @@ impl Rule for SecretHygieneRule {
     }
     fn is_fixable(&self) -> bool {
         true
-    }
-    fn default_severity(&self) -> Severity {
-        Severity::Warning
     }
 
     fn check(&self, _config: &FleetConfig, file: &Path, source: &str) -> Vec<LintError> {
@@ -1211,9 +1335,6 @@ impl Rule for ShebangSyntaxRule {
     fn category(&self) -> &'static str {
         "semantic"
     }
-    fn default_severity(&self) -> Severity {
-        Severity::Warning
-    }
 
     fn check(&self, _config: &FleetConfig, file: &Path, source: &str) -> Vec<LintError> {
         let yaml = match parse_yaml(source) {
@@ -1247,7 +1368,7 @@ impl Rule for ShebangSyntaxRule {
                     format!("Script '{}' is missing a shebang (#!) on first line", rel_path),
                     file,
                 )
-                .with_rule_code("shebang-syntax")
+                .with_rule_code(crate::codes::SHEBANG_SYNTAX)
                 .with_help("Add `#!/bin/sh` (or `#!/usr/bin/env bash`) as the first line so the interpreter is unambiguous across platforms");
                 // Try to point at the path: line where this script was referenced.
                 if let Some(line) = find_key_line(source, "path", 0) {
@@ -1316,9 +1437,6 @@ impl Rule for WebhookEndpointRule {
     }
     fn category(&self) -> &'static str {
         "semantic"
-    }
-    fn default_severity(&self) -> Severity {
-        Severity::Warning
     }
 
     fn check(&self, _config: &FleetConfig, file: &Path, source: &str) -> Vec<LintError> {
@@ -1399,7 +1517,7 @@ fn check_webhook_url_field(
                         format!("'{}' is not a valid webhook URL ({}): {}", field, reason, url),
                         file,
                     )
-                    .with_rule_code("webhook-endpoint-valid")
+                    .with_rule_code(crate::codes::WEBHOOK_ENDPOINT_VALID)
                     .with_help(
                         "Webhook URLs must use https:// and include a host (e.g. https://hooks.example.com/path)",
                     ),
@@ -1442,6 +1560,299 @@ fn webhook_url_problem(url: &str) -> Option<&'static str> {
 }
 
 // ============================================================================
+// Rule: Software Package URL validation (software-url)
+// ============================================================================
+
+/// Validates `software.packages[].url` (and a standalone software file's
+/// top-level `url:`) is a well-formed https URL — mirroring the URL validation
+/// `fleetctl gitops --dry-run` performs server-side (added in Fleet 4.66), so a
+/// malformed URL is caught locally before it reaches the pipeline. Also flags
+/// the unfilled `https://REPLACE-ME.example.com/…` placeholder that
+/// `flint pkg --yml` emits, which parses as a URL but fails at apply.
+pub struct SoftwareUrlRule;
+
+impl Rule for SoftwareUrlRule {
+    fn name(&self) -> &'static str {
+        "software-url"
+    }
+    fn description(&self) -> &'static str {
+        "Checks software package URLs are well-formed https URLs and not unfilled placeholders"
+    }
+    fn category(&self) -> &'static str {
+        "semantic"
+    }
+
+    fn check(&self, _config: &FleetConfig, file: &Path, source: &str) -> Vec<LintError> {
+        let yaml = match parse_yaml(source) {
+            Some(v) => v,
+            None => return Vec::new(),
+        };
+        let mut errors = Vec::new();
+        for entry in software_package_entries(file, &yaml) {
+            if let Some(url) = mapping_get_str(entry, "url") {
+                check_software_url(url, source, file, &mut errors);
+            }
+        }
+        errors
+    }
+}
+
+/// Collect every software package entry in a file, across all three shapes:
+///   - inline `software.packages[]` in a fleet/team/default config;
+///   - a standalone software file that is a top-level **sequence** of entries
+///     (`- hash_sha256: …` / `- url: …`, what `flint pkg` and `--yml` emit);
+///   - a standalone software file that is a single top-level **mapping**.
+///
+/// A bare top-level sequence is ambiguous (it could be policies or labels), so
+/// it is only treated as software when the path is a software file. A top-level
+/// mapping is treated as a package only when it carries `hash_sha256` — a strong
+/// software signal — so an unrelated top-level `url:` isn't misread.
+fn software_package_entries<'a>(file: &Path, yaml: &'a serde_yaml::Value) -> Vec<&'a serde_yaml::Value> {
+    use serde_yaml::Value;
+    let mut entries: Vec<&Value> = collect_items_at_path(yaml, &["software", "packages"]);
+    match yaml {
+        Value::Sequence(seq) if matches!(detect_file_type(file), FileType::Software) => {
+            entries.extend(seq.iter());
+        }
+        Value::Mapping(_) if mapping_has_key(yaml, "hash_sha256") => {
+            entries.push(yaml);
+        }
+        _ => {}
+    }
+    entries
+}
+
+/// Validate one software `url:` value, pushing a finding when it is malformed
+/// (fails dry-run) or still the `flint pkg --yml` placeholder (fails at apply).
+/// Env-var / `op://` refs resolve server-side and are skipped.
+fn check_software_url(url: &str, source: &str, file: &Path, errors: &mut Vec<LintError>) {
+    if url.starts_with('$') || url.starts_with("op://") {
+        return;
+    }
+    let (line, col) = find_url_value_line(source, url);
+
+    // The pkg --yml scaffold ships a REPLACE-ME host: it parses as a valid URL
+    // (so the malformed check below won't catch it) but will fail when Fleet
+    // tries to download it. Surface it as its own actionable warning.
+    if url.contains("REPLACE-ME") || url.contains("REPLACE_ME") {
+        let mut err = LintError::warning(format!("software url is still a placeholder: {url}"), file)
+            .with_rule_code(crate::codes::SOFTWARE_URL)
+            .with_help("Replace the `flint pkg --yml` placeholder with the real installer URL Fleet should download from.");
+        if let (Some(l), Some(c)) = (line, col) {
+            err = err.with_location(l, c);
+        }
+        errors.push(err);
+        return;
+    }
+
+    if let Some(reason) = webhook_url_problem(url) {
+        let mut err = LintError::error(format!("software url is not a valid URL ({reason}): {url}"), file)
+            .with_rule_code(crate::codes::SOFTWARE_URL)
+            .with_help("Fleet downloads the package from this URL; it must be a well-formed https:// URL with a host.");
+        if let (Some(l), Some(c)) = (line, col) {
+            err = err.with_location(l, c);
+        }
+        errors.push(err);
+    }
+}
+
+/// Find the 1-indexed (line, column) of a `url:` value in source. The column
+/// points at the start of the value so an editor range covers the URL itself.
+fn find_url_value_line(source: &str, url: &str) -> (Option<usize>, Option<usize>) {
+    for (idx, line) in source.lines().enumerate() {
+        if let Some(vpos) = line.find(url) {
+            // Only treat it as a url: value when `url:` precedes it on the line
+            // (avoids matching the same string inside a comment elsewhere).
+            if line[..vpos].contains("url:") {
+                return (Some(idx + 1), Some(vpos + 1));
+            }
+        }
+    }
+    (None, None)
+}
+
+// ============================================================================
+// Rule: Software package installer source (software-source)
+// ============================================================================
+
+/// Flags a software package that carries `hash_sha256` but no `url`. Such an
+/// entry has no installer Fleet can download — it can only be installed if a
+/// package with that exact hash is *already cached* in Fleet. Against a fresh
+/// or different server, `fleetctl gitops` fails with
+/// `package not found with hash <…>`. This is the exact failure produced when
+/// `flint pkg`'s minimal metadata block (`- hash_sha256: …`, no url) is used as
+/// a standalone software file instead of `flint pkg --yml` (which scaffolds the
+/// `url:`). A warning, not an error, since the cached-by-hash pattern is a
+/// legitimate — if server-dependent — Fleet feature.
+pub struct SoftwareSourceRule {
+    /// Optional server snapshot. With a FRESH one carrying installer hashes,
+    /// "is this package uploaded?" stops being a guess.
+    pub snapshot: Option<std::sync::Arc<crate::snapshot::LoadedSnapshot>>,
+    /// Values this repo declares as intentionally unresolved.
+    pub placeholders: crate::config::PlaceholdersConfig,
+    /// Paths some config file references, filled in per directory lint.
+    pub referenced: crate::rules::ReferencedPaths,
+}
+
+impl Rule for SoftwareSourceRule {
+    fn name(&self) -> &'static str {
+        "software-source"
+    }
+    fn description(&self) -> &'static str {
+        "Flags software packages with a hash but no url installer source (gitops fails 'package not found with hash' unless the package is already cached in Fleet)"
+    }
+    fn category(&self) -> &'static str {
+        "semantic"
+    }
+
+    fn check(&self, _config: &FleetConfig, file: &Path, source: &str) -> Vec<LintError> {
+        // A software lib file that is empty or comment-only (e.g. just a
+        // `# … version …` header, no `hash_sha256:`) has no package at all —
+        // flag it even when linted directly, where no `path:` referrer exists
+        // to trigger the reference-side `path-empty` check.
+        if matches!(detect_file_type(file), FileType::Software)
+            && is_effectively_empty(source, true)
+        {
+            return vec![LintError::error(
+                "software file has no package definition (only a comment / empty)".to_string(),
+                file,
+            )
+            .with_rule_code(crate::codes::SOFTWARE_SOURCE)
+            .with_help(
+                "A software file needs at least `hash_sha256:` (and a `url:`, or the package uploaded by that hash). Regenerate it with `flint pkg --yml`.",
+            )];
+        }
+
+        let yaml = match parse_yaml(source) {
+            Some(v) => v,
+            None => return Vec::new(),
+        };
+        let mut errors = Vec::new();
+        for entry in software_package_entries(file, &yaml) {
+            let hash = match mapping_get_str(entry, "hash_sha256") {
+                Some(h) => h,
+                None => continue, // no hash → app-store/FMA/path entry, not affected
+            };
+            let has_url = mapping_get_str(entry, "url").is_some_and(|u| !u.trim().is_empty());
+            if has_url {
+                continue;
+            }
+
+            // A value that is not a 64-hex digest is not a hash at all — it is
+            // a SCAFFOLD MARKER, e.g.
+            // `hash_sha256: PLACEHOLDER_REPLACE_WITH_ACTUAL_PKG_HASH`,
+            // written deliberately by `flint gen` or by hand when a package is
+            // planned but not yet built.
+            //
+            // That is a different state from "this package is not uploaded",
+            // and must never gate: the author already knows it is incomplete —
+            // that is what the marker SAYS — and these files are typically left
+            // unreferenced until the real hash lands. Escalating it to an error
+            // blocks commits on work the author has explicitly parked.
+            // Fleet's own interpolation: nothing to check, so say nothing.
+            if crate::config::is_fleet_variable(hash) {
+                continue;
+            }
+
+            let is_hex_digest =
+                hash.len() == 64 && hash.chars().all(|c| c.is_ascii_hexdigit());
+            if !is_hex_digest {
+                let (line, col) = find_line_containing(source, hash);
+                let declared = self.placeholders.is_placeholder(hash);
+                let msg = if declared {
+                    format!("'{hash}' is a declared placeholder — package not built yet")
+                } else {
+                    format!("'{hash}' is not a valid sha256 (64 hex chars)")
+                };
+                let mut err = LintError::warning(
+                    msg,
+                    file,
+                )
+                .with_rule_code(crate::codes::SOFTWARE_SOURCE)
+                .with_help(
+                    "Intentional scaffolding is fine: this stays a warning and never blocks a commit. Fill in the real hash (or add a `url:`) before referencing this file from a fleet — an unresolved hash only reaches Fleet once something points at it.",
+                );
+                if let (Some(l), Some(c)) = (line, col) {
+                    err = err.with_location(l, c);
+                }
+                errors.push(err);
+                continue;
+            }
+
+            // `hash_sha256:` with no `url:` is VALID when that exact installer
+            // is already uploaded, and unresolvable otherwise. Without a
+            // snapshot flint cannot tell those apart and warns on both — 55
+            // such findings on the reference repo, at least one of which a
+            // production CI log later proved to be a false alarm.
+            //
+            // A fresh snapshot settles it BOTH ways: present -> silent (the
+            // upload-and-reference-by-hash workflow is working as intended),
+            // absent -> this WILL fail the apply with "package not found with
+            // hash", so it gates.
+            // Escalation additionally requires the file to be WIRED. Fleet
+            // reads a software file only via a `path:`/`paths:` reference, so
+            // an unreferenced one with an unresolved hash cannot fail an
+            // apply — reporting it as an error would assert a failure that
+            // cannot occur. Unknown wiring (single-file lint) counts as not
+            // referenced, so escalation stays conservative.
+            let is_referenced = self
+                .referenced
+                .get()
+                .is_some_and(|set| set.contains(&crate::util::normalize_path(file)));
+
+            let authoritative = self
+                .snapshot
+                .as_deref()
+                .filter(|_| is_referenced)
+                .filter(|s| s.freshness.may_gate() && s.has_software());
+            if let Some(snap) = authoritative {
+                if snap.knows_hash(hash) {
+                    continue;
+                }
+                let (line, col) = find_line_containing(source, hash);
+                let mut err = LintError::error(
+                    "software package hash is not uploaded to the Fleet server".to_string(),
+                    file,
+                )
+                .with_rule_code(crate::codes::SOFTWARE_SOURCE)
+                .with_help(
+                    "No installer with this hash exists on the server, and there is no `url:` to download one, so `fleetctl gitops` fails with 'package not found with hash'. Add a `url:`, or upload the package.",
+                );
+                if let (Some(l), Some(c)) = (line, col) {
+                    err = err.with_location(l, c);
+                }
+                errors.push(err);
+                continue;
+            }
+            let (line, col) = find_line_containing(source, hash);
+            let mut err = LintError::warning(
+                "software package has hash_sha256 but no url installer source".to_string(),
+                file,
+            )
+            .with_rule_code(crate::codes::SOFTWARE_SOURCE)
+            .with_help(
+                "Fleet has no installer to download for this package. Either add a `url:` (e.g. regenerate with `flint pkg --yml`), OR ensure a package with this exact hash is uploaded to the target Fleet server (the upload-and-reference-by-hash workflow). Otherwise `fleetctl gitops` fails with 'package not found with hash'.",
+            );
+            if let (Some(l), Some(c)) = (line, col) {
+                err = err.with_location(l, c);
+            }
+            errors.push(err);
+        }
+        errors
+    }
+}
+
+/// Find the 1-indexed (line, column) of the first line containing `needle`.
+fn find_line_containing(source: &str, needle: &str) -> (Option<usize>, Option<usize>) {
+    for (idx, line) in source.lines().enumerate() {
+        if let Some(pos) = line.find(needle) {
+            return (Some(idx + 1), Some(pos + 1));
+        }
+    }
+    (None, None)
+}
+
+// ============================================================================
 // Rule 13: Calendar-Event Integration Coercion
 // ============================================================================
 
@@ -1469,9 +1880,6 @@ impl Rule for CalendarEventCoercionRule {
     }
     fn category(&self) -> &'static str {
         "semantic"
-    }
-    fn default_severity(&self) -> Severity {
-        Severity::Warning
     }
 
     fn check(&self, _config: &FleetConfig, file: &Path, source: &str) -> Vec<LintError> {
@@ -1520,7 +1928,7 @@ impl Rule for CalendarEventCoercionRule {
                     ),
                     file,
                 )
-                .with_rule_code("calendar-event-coercion")
+                .with_rule_code(crate::codes::CALENDAR_EVENT_COERCION)
                 .with_help(
                     "Add `integrations.google_calendar` (or `org_settings.integrations.google_calendar`) with at least one entry. Without the integration, the calendar feature silently no-ops at runtime.",
                 )
@@ -1564,6 +1972,7 @@ fn check_secret_field(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::error::Severity;
     use std::path::PathBuf;
 
     fn lint(rule: &dyn Rule, source: &str) -> Vec<LintError> {
@@ -1590,13 +1999,137 @@ mod tests {
     }
 
     #[test]
-    fn test_label_targeting_exclude_with_include_any_valid() {
+    fn test_label_targeting_per_context_contracts() {
+        // Verified against Fleet source (policies.go, mdm.go, gitops.go):
+
+        // Policies: include+exclude MAY combine…
         let errors = lint(
             &LabelTargetingRule,
             "policies:\n  - name: test\n    labels_include_any:\n      - Eng\n    labels_exclude_any:\n      - QA\n",
         );
-        // labels_exclude_any can coexist with labels_include_any
-        assert!(errors.is_empty());
+        assert!(errors.is_empty(), "{:?}", errors);
+
+        // …but the exclude PAIR is exclusive (policies.go).
+        let errors = lint(
+            &LabelTargetingRule,
+            "policies:\n  - name: test\n    labels_exclude_any:\n      - Eng\n    labels_exclude_all:\n      - QA\n",
+        );
+        assert_eq!(errors.len(), 1);
+
+        // Profiles: include+exclude legal (289 live combos in the
+        // reference repo; mdm.go only bans the include pair)…
+        let errors = lint(
+            &LabelTargetingRule,
+            "controls:\n  apple_settings:\n    configuration_profiles:\n      - path: ../p/wifi.mobileconfig\n        labels_include_any:\n          - Eng\n        labels_exclude_any:\n          - QA\n",
+        );
+        assert!(errors.is_empty(), "{:?}", errors);
+
+        // …include pair on a profile item is not.
+        let errors = lint(
+            &LabelTargetingRule,
+            "controls:\n  apple_settings:\n    configuration_profiles:\n      - path: ../p/wifi.mobileconfig\n        labels_include_any:\n          - Eng\n        labels_include_all:\n          - QA\n",
+        );
+        assert_eq!(errors.len(), 1);
+
+        // Software: ANY two of the three is rejected (gitops.go).
+        let errors = lint(
+            &LabelTargetingRule,
+            "software:\n  packages:\n    - path: ../s/a.package.yml\n      labels_include_any:\n        - Eng\n      labels_exclude_any:\n        - QA\n",
+        );
+        assert_eq!(errors.len(), 1);
+        assert!(errors[0].message.contains("software items allow only ONE"));
+    }
+
+    #[test]
+    fn test_label_targeting_include_exclude_overlap() {
+        // policies.go:230 → LabelOverlap: the same label may not appear in
+        // both an include and an exclude list.
+        let errors = lint(
+            &LabelTargetingRule,
+            "policies:\n  - name: test\n    labels_include_any:\n      - Eng\n    labels_exclude_any:\n      - Eng\n",
+        );
+        assert_eq!(errors.len(), 1, "{:?}", errors);
+        assert!(errors[0].message.contains("'Eng'"), "{:?}", errors[0]);
+        assert!(errors[0]
+            .message
+            .contains("both an include and an exclude list"));
+
+        // Overlap is computed across the concatenated pairs, so
+        // include_all ∩ exclude_all counts too.
+        let errors = lint(
+            &LabelTargetingRule,
+            "policies:\n  - name: test\n    labels_include_all:\n      - A\n      - B\n    labels_exclude_all:\n      - B\n",
+        );
+        assert_eq!(errors.len(), 1, "{:?}", errors);
+        assert!(errors[0].message.contains("'B'"));
+
+        // Every overlapping name is named, in include-list order.
+        let errors = lint(
+            &LabelTargetingRule,
+            "policies:\n  - name: test\n    labels_include_any:\n      - A\n      - B\n    labels_exclude_any:\n      - B\n      - A\n",
+        );
+        assert_eq!(errors.len(), 1, "{:?}", errors);
+        assert!(errors[0].message.contains("'A', 'B'"), "{:?}", errors[0]);
+
+        // Disjoint include/exclude stays legal.
+        let errors = lint(
+            &LabelTargetingRule,
+            "policies:\n  - name: test\n    labels_include_any:\n      - Eng\n    labels_exclude_any:\n      - QA\n",
+        );
+        assert!(errors.is_empty(), "{:?}", errors);
+
+        // Fleet compares raw names (labels.go:385 — no trim, no case fold),
+        // so a case difference is NOT an overlap. Flagging it would be a
+        // false positive against real server behavior.
+        let errors = lint(
+            &LabelTargetingRule,
+            "policies:\n  - name: test\n    labels_include_any:\n      - Eng\n    labels_exclude_any:\n      - eng\n",
+        );
+        assert!(errors.is_empty(), "{:?}", errors);
+    }
+
+    #[test]
+    fn test_label_targeting_overlap_is_policies_only() {
+        // Profiles legally combine include+exclude, but mdm.go's
+        // ValidateMDMProfileSpecs never calls LabelOverlap — so the same
+        // label on both sides is accepted for a profile.
+        let errors = lint(
+            &LabelTargetingRule,
+            "controls:\n  apple_settings:\n    configuration_profiles:\n      - path: ../p/wifi.mobileconfig\n        labels_include_any:\n          - Eng\n        labels_exclude_any:\n          - Eng\n",
+        );
+        assert!(errors.is_empty(), "{:?}", errors);
+
+        // Scripts likewise.
+        let errors = lint(
+            &LabelTargetingRule,
+            "controls:\n  scripts:\n    - path: ../s/x.sh\n      labels_include_any:\n        - Eng\n      labels_exclude_any:\n        - Eng\n",
+        );
+        assert!(errors.is_empty(), "{:?}", errors);
+    }
+
+    #[test]
+    fn test_label_targeting_empty_lists_are_no_value() {
+        // policies.go:203 states this shape explicitly as VALID:
+        // {LabelsIncludeAny: [], LabelsIncludeAll: [A]}.
+        let errors = lint(
+            &LabelTargetingRule,
+            "policies:\n  - name: test\n    labels_include_any: []\n    labels_include_all:\n      - Eng\n",
+        );
+        assert!(errors.is_empty(), "{:?}", errors);
+
+        // Same for the software strict 3-way (gitops.go counts len > 0).
+        let errors = lint(
+            &LabelTargetingRule,
+            "software:\n  packages:\n    - path: ../s/a.package.yml\n      labels_include_any: []\n      labels_exclude_any:\n        - QA\n",
+        );
+        assert!(errors.is_empty(), "{:?}", errors);
+
+        // An empty exclude list cannot overlap with anything.
+        let errors = lint(
+            &LabelTargetingRule,
+            "policies:\n  - name: test\n    labels_include_any:\n      - Eng\n    labels_exclude_any: []\n",
+        );
+        assert!(errors.is_empty(), "{:?}", errors);
     }
 
     #[test]
@@ -1759,7 +2292,7 @@ mod tests {
             .iter()
             .find(|e| e.message.contains("empty 'label_membership_type'"))
             .expect("expected empty-membership error");
-        assert_eq!(err.suggestion.as_deref(), Some("label_membership_type: host_vitals"));
+        assert_eq!(err.suggestion(), Some("label_membership_type: host_vitals"));
     }
 
     #[test]
@@ -1770,7 +2303,7 @@ mod tests {
             .iter()
             .find(|e| e.message.contains("empty 'label_membership_type'"))
             .expect("expected empty-membership error");
-        assert_eq!(err.suggestion.as_deref(), Some("label_membership_type: manual"));
+        assert_eq!(err.suggestion(), Some("label_membership_type: manual"));
     }
 
     #[test]
@@ -1781,7 +2314,7 @@ mod tests {
             .iter()
             .find(|e| e.message.contains("empty 'label_membership_type'"))
             .expect("expected empty-membership error");
-        assert_eq!(err.suggestion.as_deref(), Some("label_membership_type: dynamic"));
+        assert_eq!(err.suggestion(), Some("label_membership_type: dynamic"));
     }
 
     #[test]
@@ -2029,7 +2562,7 @@ mod tests {
         );
         assert_eq!(errors.len(), 1);
         assert!(errors[0].message.contains("lowercase"));
-        assert!(errors[0].suggestion.is_some());
+        assert!(errors[0].suggestion().is_some());
     }
 
     #[test]
@@ -2054,13 +2587,14 @@ mod tests {
     }
 
     #[test]
-    fn test_categories_invalid() {
+    fn test_categories_custom_names_are_legal() {
+        // Fleet accepts user-created categories (emoji supported, ≤255
+        // chars) — the old fixed-set check produced 487 false positives.
         let errors = lint(
             &CategoriesRule,
-            "software:\n  packages:\n    - path: foo.yml\n      categories:\n        - Gaming\n",
+            "software:\n  packages:\n    - path: foo.yml\n      categories:\n        - Gaming\n        - \"🛟 Support\"\n",
         );
-        assert_eq!(errors.len(), 1);
-        assert!(errors[0].message.contains("unknown category 'Gaming'"));
+        assert!(errors.is_empty(), "{:?}", errors);
     }
 
     #[test]
@@ -2070,7 +2604,7 @@ mod tests {
             "software:\n  packages:\n    - path: foo.yml\n      categories:\n        - browsers\n",
         );
         assert_eq!(errors.len(), 1);
-        assert_eq!(errors[0].suggestion.as_deref(), Some("Browsers"));
+        assert_eq!(errors[0].suggestion(), Some("Browsers"));
     }
 
     // -- FileExtensionRule --
@@ -2393,6 +2927,146 @@ mod tests {
         );
         assert_eq!(errors.len(), 1);
         assert!(errors[0].message.contains("whitespace"));
+    }
+
+    // -- SoftwareUrlRule --
+
+    #[test]
+    fn software_url_accepts_valid_inline_package() {
+        let errors = lint(
+            &SoftwareUrlRule,
+            "software:\n  packages:\n    - url: https://cdn.example.com/app.pkg\n      hash_sha256: abc\n",
+        );
+        assert!(errors.is_empty(), "got: {errors:?}");
+    }
+
+    #[test]
+    fn software_url_flags_plain_http_inline() {
+        let errors = lint(
+            &SoftwareUrlRule,
+            "software:\n  packages:\n    - url: http://cdn.example.com/app.pkg\n",
+        );
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].severity, Severity::Error);
+        assert!(errors[0].message.contains("plain HTTP"));
+        assert!(errors[0].line().is_some());
+    }
+
+    #[test]
+    fn software_url_flags_missing_scheme_standalone_file() {
+        // Standalone software file shape (top-level hash_sha256 + url).
+        let errors = lint(
+            &SoftwareUrlRule,
+            "hash_sha256: 8c30a711\nurl: cdn.example.com/app.pkg\nself_service: false\n",
+        );
+        assert_eq!(errors.len(), 1);
+        assert!(errors[0].message.contains("missing https"));
+    }
+
+    #[test]
+    fn software_url_flags_pkg_yml_placeholder() {
+        // The exact placeholder `flint pkg --yml` writes — parses as a URL but
+        // would fail at apply, so it's surfaced as a warning.
+        let errors = lint(
+            &SoftwareUrlRule,
+            "hash_sha256: 8c30a711\nurl: https://REPLACE-ME.example.com/Support.3.0.3.pkg\nself_service: false\n",
+        );
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].severity, Severity::Warning);
+        assert!(errors[0].message.contains("placeholder"));
+    }
+
+    #[test]
+    fn software_url_skips_env_and_op_refs() {
+        let errors = lint(
+            &SoftwareUrlRule,
+            "software:\n  packages:\n    - url: $INSTALLER_URL\n    - url: op://vault/item/url\n",
+        );
+        assert!(errors.is_empty(), "got: {errors:?}");
+    }
+
+    #[test]
+    fn software_url_ignores_unrelated_top_level_url() {
+        // A non-software file with a top-level `url:` but no hash_sha256 must
+        // not be treated as a software package.
+        let errors = lint(&SoftwareUrlRule, "url: not-a-software-file\n");
+        assert!(errors.is_empty(), "got: {errors:?}");
+    }
+
+    #[test]
+    fn software_url_handles_sequence_form_file() {
+        // Standalone software file written as a top-level sequence (what
+        // `flint pkg` emits) — must still validate each entry's url.
+        let errs = lint_at(
+            &SoftwareUrlRule,
+            "- url: http://cdn.example.com/a.pkg\n  hash_sha256: abc\n",
+            "platforms/macos/L0/software/a.yml",
+        );
+        assert_eq!(errs.len(), 1);
+        assert!(errs[0].message.contains("plain HTTP"));
+    }
+
+    // -- SoftwareSourceRule --
+
+    #[test]
+    fn software_source_flags_hash_without_url() {
+        // The real dry-run failure: `flint pkg`'s minimal block used as a
+        // standalone software file — a sequence entry with a hash but no url.
+        let errs = lint_at(
+            &SoftwareSourceRule { snapshot: None, placeholders: Default::default(), referenced: Default::default() },
+            "# com.fleetdm.fonts.corp (Corp-Fonts-1.0.pkg) version 1.0\n- hash_sha256: 3a673c556d864348df3702a806be41bcdf44721976c7aacac41682aa159a3be2\n",
+            "platforms/macos/L0/software/corp-fonts.yml",
+        );
+        assert_eq!(errs.len(), 1, "got: {errs:?}");
+        assert_eq!(errs[0].severity, Severity::Warning);
+        assert_eq!(errs[0].rule_code, Some("software-source"));
+        assert!(errs[0].message.contains("no url"));
+        assert!(errs[0].line().is_some());
+    }
+
+    #[test]
+    fn software_source_ok_when_url_present() {
+        let errs = lint_at(
+            &SoftwareSourceRule { snapshot: None, placeholders: Default::default(), referenced: Default::default() },
+            "- url: https://cdn.example.com/a.pkg\n  hash_sha256: abc\n",
+            "platforms/macos/L0/software/a.yml",
+        );
+        assert!(errs.is_empty(), "got: {errs:?}");
+    }
+
+    #[test]
+    fn software_source_flags_inline_hash_without_url() {
+        // Same problem inline in a team file's software.packages.
+        let errs = lint(
+            &SoftwareSourceRule { snapshot: None, placeholders: Default::default(), referenced: Default::default() },
+            "software:\n  packages:\n    - hash_sha256: deadbeef\n",
+        );
+        assert_eq!(errs.len(), 1);
+        assert_eq!(errs[0].rule_code, Some("software-source"));
+    }
+
+    #[test]
+    fn software_source_flags_comment_only_file() {
+        // A software lib file that is only a comment (no minimum key) → error.
+        let errs = lint_at(
+            &SoftwareSourceRule { snapshot: None, placeholders: Default::default(), referenced: Default::default() },
+            "# com.example.fonts-corp (Corp-Fonts-1.0.1.pkg) version 1.0.1\n",
+            "platforms/macos/L0/software/corp-fonts.yml",
+        );
+        assert_eq!(errs.len(), 1, "got: {errs:?}");
+        assert_eq!(errs[0].severity, Severity::Error);
+        assert!(errs[0].message.contains("no package definition"));
+    }
+
+    #[test]
+    fn software_source_ignores_path_reference_entry() {
+        // A `path:` reference (no hash) is not flagged — its source lives in
+        // the referenced file.
+        let errs = lint(
+            &SoftwareSourceRule { snapshot: None, placeholders: Default::default(), referenced: Default::default() },
+            "software:\n  packages:\n    - path: ../lib/software/a.yml\n",
+        );
+        assert!(errs.is_empty(), "got: {errs:?}");
     }
 
     #[test]

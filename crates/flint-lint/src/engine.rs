@@ -18,26 +18,98 @@ use std::path::{Path, PathBuf};
 
 pub struct Linter {
     rules: RuleSet,
-    config: Option<FleetLintConfig>,
+    config: FleetLintConfig,
     /// Directory containing the loaded `.fleetlint.toml`, when known.
     /// `[files]` include/exclude globs are resolved relative to this.
     config_root: Option<PathBuf>,
+    /// Shared handle the rules read for wiring knowledge; filled once per
+    /// directory lint. Empty for single-file lints, where wiring is unknowable.
+    referenced: super::rules::ReferencedPaths,
+}
+
+/// Build the standard ruleset parameterized by a config (version context for
+/// deprecations, thresholds for interval/query rules).
+fn rules_for(config: &FleetLintConfig, version_ctx: VersionContext) -> RuleSet {
+    rules_for_with_snapshot(config, version_ctx, None)
+}
+
+/// Build the ruleset with an optional server snapshot attached.
+///
+/// Separate from `rules_for` because the snapshot lives next to the config
+/// file, so only the config-discovering constructors can find one — and
+/// `Linter::new()`/`with_rules()` must stay snapshot-free so a bare linter
+/// behaves identically with or without a snapshot on disk.
+fn rules_for_with_snapshot(
+    config: &FleetLintConfig,
+    version_ctx: VersionContext,
+    snapshot: Option<std::sync::Arc<super::snapshot::LoadedSnapshot>>,
+) -> RuleSet {
+    rules_for_full(config, version_ctx, snapshot, None)
+}
+
+fn rules_for_full(
+    config: &FleetLintConfig,
+    version_ctx: VersionContext,
+    snapshot: Option<std::sync::Arc<super::snapshot::LoadedSnapshot>>,
+    referenced: Option<super::rules::ReferencedPaths>,
+) -> RuleSet {
+    RuleSet::standard(super::rules::RuleOptions {
+        version: version_ctx,
+        thresholds: config.thresholds.clone(),
+        snapshot,
+        placeholders: config.placeholders.clone(),
+        referenced: referenced.unwrap_or_default(),
+    })
+}
+
+/// Discover a snapshot beside the config root, if one exists.
+fn discover_snapshot_with_age(
+    root: &Path,
+    max_age_days: u64,
+) -> Option<std::sync::Arc<super::snapshot::LoadedSnapshot>> {
+    let now_unix = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0);
+    super::snapshot::LoadedSnapshot::discover(root, max_age_days, now_unix)
+        .map(std::sync::Arc::new)
+}
+
+#[allow(dead_code)]
+fn discover_snapshot(root: &Path) -> Option<std::sync::Arc<super::snapshot::LoadedSnapshot>> {
+    let now_unix = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0);
+    super::snapshot::LoadedSnapshot::discover(
+        root,
+        super::snapshot::DEFAULT_MAX_AGE_DAYS,
+        now_unix,
+    )
+    .map(std::sync::Arc::new)
 }
 
 impl Linter {
+    /// Default rules, default config — deliberately NO config discovery
+    /// (pinned by `test_new_does_not_load_config`); use [`Linter::from_path`]
+    /// to pick up a repo's `.fleetlint.toml`.
     pub fn new() -> Self {
         Self {
             rules: RuleSet::default_rules(),
-            config: None,
+            config: FleetLintConfig::default(),
             config_root: None,
+
+            referenced: Default::default(),
         }
     }
 
     pub fn with_rules(rules: RuleSet) -> Self {
         Self {
             rules,
-            config: None,
+            config: FleetLintConfig::default(),
             config_root: None,
+
+            referenced: Default::default(),
         }
     }
 
@@ -48,68 +120,82 @@ impl Linter {
             config.deprecations.future_names,
         );
         Self {
-            rules: RuleSet::default_rules_with_version(version_ctx),
-            config: Some(config),
+            rules: rules_for(&config, version_ctx),
+            config,
             config_root: None,
+
+            referenced: Default::default(),
         }
     }
 
     /// Create a linter by searching for configuration from a path.
     pub fn from_path(start_path: &Path) -> Self {
-        let loaded = FleetLintConfig::find_and_load(start_path);
-        let config_root = loaded.as_ref().and_then(|(config_path, _)| {
-            let root = config_path.parent()?;
-            Some(root.canonicalize().unwrap_or_else(|_| root.to_path_buf()))
-        });
-        let config = loaded.map(|(_, c)| c);
-        let version_ctx = config
-            .as_ref()
-            .map(|c| {
-                VersionContext::resolve(
-                    Some(&c.deprecations.fleet_version),
-                    c.deprecations.future_names,
-                )
-            })
-            .unwrap_or_else(VersionContext::latest);
-        Self {
-            rules: RuleSet::default_rules_with_version(version_ctx),
-            config,
-            config_root,
+        match FleetLintConfig::find_and_load(start_path) {
+            Some((config_path, config)) => {
+                let config_root = config_path.parent().map(|root| {
+                    root.canonicalize().unwrap_or_else(|_| root.to_path_buf())
+                });
+                let version_ctx = VersionContext::resolve(
+                    Some(&config.deprecations.fleet_version),
+                    config.deprecations.future_names,
+                );
+                let max_age = config
+                    .fleet
+                    .snapshot_max_age_days
+                    .unwrap_or(super::snapshot::DEFAULT_MAX_AGE_DAYS);
+                let snapshot = config_root
+                    .as_deref()
+                    .and_then(|r| discover_snapshot_with_age(r, max_age));
+                let referenced: super::rules::ReferencedPaths = Default::default();
+                Self {
+                    rules: rules_for_full(&config, version_ctx, snapshot, Some(referenced.clone())),
+                    referenced,
+                    config,
+                    config_root,
+                }
+            }
+            None => {
+                let config = FleetLintConfig::default();
+                Self {
+                    rules: rules_for(&config, VersionContext::latest()),
+                    config,
+                    config_root: None,
+
+                    referenced: Default::default(),
+                }
+            }
         }
     }
 
-    /// Get the current configuration, if any.
-    pub fn config(&self) -> Option<&FleetLintConfig> {
-        self.config.as_ref()
+    /// Get the current configuration.
+    pub fn config(&self) -> &FleetLintConfig {
+        &self.config
     }
 
-    /// Get the current configuration mutably, if any.
-    pub fn config_mut(&mut self) -> Option<&mut FleetLintConfig> {
-        self.config.as_mut()
-    }
-
-    /// Set the configuration.
+    /// Set the configuration (rebuilds the threshold-parameterized rules).
     pub fn set_config(&mut self, config: FleetLintConfig) {
-        self.config = Some(config);
+        let version_ctx = VersionContext::resolve(
+            Some(&config.deprecations.fleet_version),
+            config.deprecations.future_names,
+        );
+        self.rules = rules_for(&config, version_ctx);
+        self.config = config;
     }
 
-    /// Set the directory that `[files]` include/exclude globs are relative
-    /// to (the directory containing the loaded `.fleetlint.toml`).
+    /// Set the directory that `[files]` include/exclude globs resolve
+    /// against (the directory holding `.fleetlint.toml`). Needed when the
+    /// config was not discovered via [`Linter::from_path`], e.g. the LSP
+    /// receiving a workspace root (issue #15).
     pub fn set_config_root(&mut self, root: PathBuf) {
         self.config_root = Some(root.canonicalize().unwrap_or(root));
     }
 
-    /// Check whether a file should be linted per the config's `[files]`
-    /// include/exclude patterns. Returns `true` when no config is loaded.
+    /// Whether a file passes the config's `[files]` include/exclude globs.
     ///
-    /// Glob patterns are matched against the path relative to the config
-    /// root when known, so `include = ["./fleets/*.yml"]` works regardless
-    /// of whether callers pass absolute or relative paths.
+    /// Absolute paths are first made relative to the config root so that
+    /// narrowing `include` patterns written relative to the repo (e.g.
+    /// `fleets/*.yml`) still match (issue #15).
     pub fn should_lint(&self, file_path: &Path) -> bool {
-        let Some(config) = &self.config else {
-            return true;
-        };
-
         let candidate = self
             .config_root
             .as_ref()
@@ -121,7 +207,28 @@ impl Linter {
             })
             .unwrap_or_else(|| file_path.to_path_buf());
 
-        config.should_lint_file(&candidate)
+        self.config.should_lint_file(&candidate)
+    }
+
+    /// Whether `[files]` scoping puts this path out of bounds, resolved the
+    /// same way `should_lint` resolves its candidate.
+    ///
+    /// Used to scope WORKSPACE-rule findings. Those attach to files the YAML
+    /// walk never sees (scripts, profiles, payloads), so `should_lint` is the
+    /// wrong question for them — it is false for every non-YAML path.
+    pub fn is_out_of_scope(&self, file_path: &Path) -> bool {
+        let candidate = self
+            .config_root
+            .as_ref()
+            .and_then(|root| {
+                let abs = file_path
+                    .canonicalize()
+                    .unwrap_or_else(|_| file_path.to_path_buf());
+                abs.strip_prefix(root).ok().map(Path::to_path_buf)
+            })
+            .unwrap_or_else(|| file_path.to_path_buf());
+
+        self.config.is_out_of_scope_file(&candidate)
     }
 
     /// Lint a single file
@@ -147,16 +254,20 @@ impl Linter {
         // from triggering policy checks, etc.
         let file_type = detect_file_type(file_path);
 
-        // Software and agent-options lib files are not fleet configs —
-        // return early with just hygiene checks, no structural/semantic rules.
-        if matches!(
-            file_type,
-            FileType::Software | FileType::AgentOptions | FileType::NonYaml
-        ) {
+        // Agent-options lib files and opaque non-YAML assets are not fleet
+        // configs and nothing in the ruleset applies — return early with just
+        // hygiene checks.
+        if matches!(file_type, FileType::AgentOptions | FileType::NonYaml) {
             return Ok(report);
         }
 
+        // Software lib files aren't fleet configs either, but a few rules still
+        // apply (they parse the file directly, e.g. `software-url`). Run only
+        // those — see SOFTWARE_RULES and the filter in the rule loop below.
+        let software_only = matches!(file_type, FileType::Software);
+
         let fleet_config: FleetConfig = match file_type {
+            FileType::Software => FleetConfig::default(),
             FileType::Labels => {
                 // lib/*/labels/*.yml — parse as label array
                 if let Ok(labels) = serde_yaml::from_str::<Vec<Label>>(content) {
@@ -168,7 +279,7 @@ impl Linter {
                     FleetConfig::default()
                 }
             }
-            FileType::Software | FileType::AgentOptions | FileType::NonYaml => {
+            FileType::AgentOptions | FileType::NonYaml => {
                 unreachable!("handled by early return above")
             }
             FileType::Policies => {
@@ -215,7 +326,7 @@ impl Linter {
                                         format!("YAML parse error: {}", e),
                                         file_path,
                                     )
-                                    .with_rule_code("yaml-syntax".to_string());
+                                    .with_rule_code(crate::codes::YAML_SYNTAX);
 
                                     if let Some(location) = e.location() {
                                         err = err.with_location(location.line(), location.column());
@@ -235,29 +346,22 @@ impl Linter {
         // (report was initialized earlier with YAML hygiene checks)
 
         // Get disabled and warning rules from config
-        let mut disabled_rules = self
-            .config
-            .as_ref()
-            .map(|c| c.disabled_rules())
-            .unwrap_or_default();
-        let warning_rules = self
-            .config
-            .as_ref()
-            .map(|c| c.warning_rules())
-            .unwrap_or_default();
+        let mut disabled_rules = self.config.disabled_rules();
+        let warning_rules = self.config.warning_rules();
 
         // If allow_unknown_fields is enabled, disable structural validation
-        let allow_unknown = self
-            .config
-            .as_ref()
-            .map(|c| c.schema.allow_unknown_fields)
-            .unwrap_or(false);
-        if allow_unknown {
+        if self.config.schema.allow_unknown_fields {
             disabled_rules.insert("structural-validation");
         }
 
         // Collect all errors first (for suppression filtering)
         let mut all_errors = Vec::new();
+
+        // Rules that apply to standalone software lib files (which are not
+        // fleet configs). These parse the file directly rather than relying on
+        // the typed FleetConfig, so they work with the empty config above.
+        const SOFTWARE_RULES: &[&str] =
+            &["software-url", "software-source", "structural-validation"];
 
         for rule in self.rules.rules() {
             // Skip disabled rules
@@ -265,11 +369,15 @@ impl Linter {
                 continue;
             }
 
+            // On software lib files, run only the software-applicable subset.
+            if software_only && !SOFTWARE_RULES.contains(&rule.name()) {
+                continue;
+            }
+
             let errors = rule.check(&fleet_config, file_path, content);
 
             // Downgrade to warnings if configured
             let should_warn = warning_rules.contains(rule.name());
-            let rule_name = rule.name().to_string();
 
             for mut error in errors {
                 if should_warn && error.severity == Severity::Error {
@@ -277,19 +385,19 @@ impl Linter {
                 }
                 // Tag each error with its originating rule code
                 if error.rule_code.is_none() {
-                    error.rule_code = Some(rule_name.clone());
+                    error.rule_code = Some(rule.name());
                 }
                 all_errors.push(error);
             }
         }
 
-        // Apply inline suppressions (# fleet-lint: ignore [rule-code])
+        // Apply inline suppressions (# fleet-lint: ignore [rule-code]) and
+        // configured downgrades through the shared control pass.
         let suppressions = parse_suppressions(content);
-        if !suppressions.is_empty() {
-            all_errors.retain(|error| !is_suppressed(error, &suppressions));
-        }
+        apply_error_controls(&mut all_errors, &suppressions, &warning_rules);
 
-        for error in all_errors {
+        for mut error in all_errors {
+            stamp_doc_url(&mut error);
             report.add(error);
         }
 
@@ -329,19 +437,269 @@ impl Linter {
         dir: &Path,
         pattern: Option<&str>,
     ) -> Result<Vec<(PathBuf, LintReport)>> {
+        use rayon::prelude::*;
+
         let pattern = pattern.unwrap_or("**/*.{yml,yaml}");
 
-        // Find all YAML files, then apply the config's [files]
-        // include/exclude patterns (issue #15)
-        let yaml_files = find_yaml_files(dir, pattern)?;
+        // Find all YAML files, filtered through the config's include/exclude
+        // globs (.fleetlint.toml `files`) so excluded folders are skipped by
+        // the per-file rules AND the cross-file graph pass below.
+        let mut yaml_files = find_yaml_files(dir, pattern)?;
+        yaml_files.retain(|p| self.should_lint(p));
 
-        // Lint each file (parallel if > 3 files)
-        let file_refs: Vec<&Path> = yaml_files
-            .iter()
-            .map(|p| p.as_path())
-            .filter(|p| self.should_lint(p))
+        // Read each file ONCE; both the per-file rules and the cross-file
+        // pass work from these sources (previously the cross-file pass
+        // re-read every file from disk).
+        let sources: Vec<(PathBuf, String)> = yaml_files
+            .into_iter()
+            .filter_map(|path| {
+                let source = fs::read_to_string(&path).ok()?;
+                Some((path, source))
+            })
             .collect();
-        self.lint_files(&file_refs)
+
+        // Fill the wiring handle BEFORE per-file rules run.
+        //
+        // software-source may only escalate an unresolved hash to an ERROR for
+        // a file some config actually references: `fleetctl gitops` reads a
+        // software file only through a `path:`/`paths:` reference, so an
+        // unreferenced file with a bad hash cannot fail an apply. Claiming
+        // otherwise is the same overreach as the glob-zero rule.
+        //
+        // Parsed here rather than reusing the cross-file pass's Workspace
+        // because that pass runs AFTER per-file rules. One extra parse of the
+        // already-read sources, not a second disk walk.
+        {
+            let parsed: Vec<super::cross_reference::ParsedFile> = sources
+                .iter()
+                .filter_map(|(path, source)| {
+                    Some(super::cross_reference::ParsedFile {
+                        path: path.clone(),
+                        source: source.clone(),
+                        yaml: serde_yaml::from_str(source).ok()?,
+                    })
+                })
+                .collect();
+            let ws = super::workspace::Workspace::build(dir, &parsed);
+            let mut refs = std::collections::HashSet::new();
+            for pf in ws.parsed {
+                refs.extend(super::workspace::referenced_by(pf, &ws));
+            }
+            let _ = self.referenced.set(refs);
+        }
+
+        let lint_one = |(path, source): &(PathBuf, String)| -> (PathBuf, LintReport) {
+            match self.lint_content(source, path) {
+                Ok(report) => (path.clone(), report),
+                Err(e) => {
+                    let mut report = LintReport::new();
+                    report.add(LintError::error(
+                        format!("Failed to lint file: {}", e),
+                        path.as_path(),
+                    ));
+                    (path.clone(), report)
+                }
+            }
+        };
+        let mut results: Vec<(PathBuf, LintReport)> = if sources.len() > 3 {
+            sources.par_iter().map(lint_one).collect()
+        } else {
+            sources.iter().map(lint_one).collect()
+        };
+
+        // Cross-file graph pass: only meaningful with a whole repo in view, so
+        // it runs here (directory lint) rather than per-file. Build the index
+        // once, then check every file's references against it.
+        self.run_cross_reference_pass(dir, &sources, &mut results);
+
+        Ok(results)
+    }
+
+    /// The cross-file graph pass ONLY — no per-file rules. The LSP's
+    /// save-time workspace pass uses this: the saved document's per-file
+    /// diagnostics already come from `lint_content`, so re-running every
+    /// rule over every repo file on each save would be pure waste. Returns
+    /// only files that received findings.
+    pub fn cross_file_findings(&self, dir: &Path) -> Result<Vec<(PathBuf, LintReport)>> {
+        let mut yaml_files = find_yaml_files(dir, "**/*.{yml,yaml}")?;
+        yaml_files.retain(|p| self.should_lint(p));
+        let sources: Vec<(PathBuf, String)> = yaml_files
+            .into_iter()
+            .filter_map(|path| {
+                let source = fs::read_to_string(&path).ok()?;
+                Some((path, source))
+            })
+            .collect();
+        let mut results: Vec<(PathBuf, LintReport)> = sources
+            .iter()
+            .map(|(p, _)| (p.clone(), LintReport::new()))
+            .collect();
+        self.run_cross_reference_pass(dir, &sources, &mut results);
+        results.retain(|(_, r)| r.total_issues() > 0);
+        Ok(results)
+    }
+
+    /// Build the repo-wide index and append cross-file reference findings
+    /// (undefined labels, unresolved `install_software` hashes) to each file's
+    /// report. Findings respect the same inline `# fleet-lint: ignore` and
+    /// `.fleetlint.toml` controls as per-file rules.
+    fn run_cross_reference_pass(
+        &self,
+        root: &Path,
+        sources: &[(PathBuf, String)],
+        results: &mut Vec<(PathBuf, LintReport)>,
+    ) {
+        use super::cross_reference::{
+            check_app_store_vpp, check_package_id_match, check_references, check_team_membership,
+            ParsedFile, RepoIndex,
+        };
+
+        // Respect disabling the cross-file rules via config. The code list
+        // lives in the registry (`codes::CROSS_FILE`) — no hardcoded copies.
+        let disabled = self.config.disabled_rules();
+        if super::codes::CROSS_FILE
+            .iter()
+            .all(|code| disabled.contains(*code))
+        {
+            return;
+        }
+
+        // Parse each already-read source once (skip unparseable — per-file
+        // linting already reported their syntax errors).
+        let parsed: Vec<ParsedFile> = sources
+            .iter()
+            .filter_map(|(path, source)| {
+                let yaml = serde_yaml::from_str(source).ok()?;
+                Some(ParsedFile {
+                    path: path.clone(),
+                    source: source.clone(),
+                    yaml,
+                })
+            })
+            .collect();
+
+        // Load the server snapshot once for the whole pass. Absent is the
+        // normal case and simply leaves label findings at warning severity.
+        let now_unix = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs() as i64)
+            .unwrap_or(0);
+        let snapshot = crate::snapshot::LoadedSnapshot::discover(
+            self.config_root.as_deref().unwrap_or(root),
+            self.config
+                .fleet
+                .snapshot_max_age_days
+                .unwrap_or(crate::snapshot::DEFAULT_MAX_AGE_DAYS),
+            now_unix,
+        );
+
+        let index = RepoIndex::build(&parsed);
+        let warning_rules = self.config.warning_rules();
+
+        // Suppressions parsed once per file; findings attached via an index
+        // map instead of a linear scan per finding (was O(files²)).
+        let suppressions_by_path: HashMap<&Path, HashMap<usize, Vec<String>>> = parsed
+            .iter()
+            .map(|pf| (pf.path.as_path(), parse_suppressions(&pf.source)))
+            .collect();
+        // Owned keys so the map doesn't hold a borrow of `results` while we
+        // mutate its reports.
+        let report_idx: HashMap<PathBuf, usize> = results
+            .iter()
+            .enumerate()
+            .map(|(i, (p, _))| (p.clone(), i))
+            .collect();
+        let empty_suppressions = HashMap::new();
+
+        for pf in &parsed {
+            let mut findings =
+                check_references(&index, &pf.path, &pf.source, &pf.yaml, snapshot.as_ref());
+            findings.retain(|e| !disabled.contains(e.rule_code.unwrap_or("")));
+            if findings.is_empty() {
+                continue;
+            }
+
+            let suppressions = suppressions_by_path
+                .get(pf.path.as_path())
+                .unwrap_or(&empty_suppressions);
+            apply_error_controls(&mut findings, suppressions, &warning_rules);
+
+            if let Some(&i) = report_idx.get(&pf.path) {
+                for mut f in findings {
+                    stamp_doc_url(&mut f);
+                    results[i].1.add(f);
+                }
+            }
+        }
+
+        // Whole-repo passes that attach findings to a specific file (not the
+        // file being scanned). Merge each through the same control pass.
+        // Findings may attach to files that weren't linted (payloads,
+        // scripts — e.g. case-collision between two .mobileconfig files);
+        // those get a fresh report entry instead of being dropped.
+        let mut report_idx = report_idx;
+        let mut merge = |findings: Vec<(PathBuf, LintError)>| {
+            for (path, err) in findings {
+                // Scope workspace findings by `[files].exclude`.
+                //
+                // The Workspace file set deliberately stays COMPLETE — every
+                // file under the root, excluded ones included — because it is
+                // what reference resolution runs against. Dropping excluded
+                // files from that set would turn each surviving reference to
+                // one into a phantom `broken-reference`. So the exclusion is
+                // applied to the finding's SUBJECT here instead: an excluded
+                // file is never reported ON, but is still found BY others.
+                if self.is_out_of_scope(&path) {
+                    continue;
+                }
+                let suppressions = suppressions_by_path
+                    .get(path.as_path())
+                    .unwrap_or(&empty_suppressions);
+                let mut one = vec![err];
+                apply_error_controls(&mut one, suppressions, &warning_rules);
+                let Some(mut err) = one.pop() else { continue };
+                stamp_doc_url(&mut err);
+                let i = *report_idx.entry(path.clone()).or_insert_with(|| {
+                    results.push((path.clone(), LintReport::new()));
+                    results.len() - 1
+                });
+                results[i].1.add(err);
+            }
+        };
+
+        // A policy's install_software references a package the fleet doesn't include.
+        if !disabled.contains(super::codes::INSTALL_SOFTWARE_TEAM) {
+            merge(check_team_membership(&parsed));
+        }
+        // A policy's query checks a different id than the package it installs.
+        if !disabled.contains(super::codes::INSTALL_SOFTWARE_ID) {
+            merge(check_package_id_match(&parsed));
+        }
+        // app_store_apps declared but VPP not configured anywhere.
+        if !disabled.contains(super::codes::APP_STORE_VPP) {
+            merge(check_app_store_vpp(&parsed));
+        }
+
+        // Workspace rules (ADR-010 Phase 1): one file-set walk, then each
+        // rule is index lookups over it. Declarative [[patterns]] (Phase 2)
+        // share the same Workspace.
+        let ws_rules: Vec<_> = super::workspace::workspace_rules()
+            .into_iter()
+            .filter(|r| !disabled.contains(r.code()))
+            .collect();
+        let has_patterns = !self.config.patterns.is_empty();
+        if !ws_rules.is_empty() || has_patterns {
+            let ws = super::workspace::Workspace::build(root, &parsed);
+            for rule in ws_rules {
+                merge(rule.check(&ws));
+            }
+            if has_patterns {
+                let mut findings =
+                    super::patterns::check_patterns(&self.config.patterns, root, &ws);
+                findings.retain(|(_, e)| !disabled.contains(e.rule_code.unwrap_or("")));
+                merge(findings);
+            }
+        }
     }
 }
 
@@ -375,24 +733,35 @@ pub(crate) fn detect_file_type(path: &Path) -> FileType {
         return FileType::AgentOptions;
     }
 
-    // Check parent directory names
     if let Some(parent) = path.parent() {
+        // v4.83 non-YAML asset directories — matched on the immediate parent
+        // (these are leaf dirs holding profiles/scripts/icons, never nested).
         let parent_name = parent.file_name().and_then(|n| n.to_str()).unwrap_or("");
-
-        match parent_name {
-            "labels" => return FileType::Labels,
-            "software" => return FileType::Software,
-            "policies" => return FileType::Policies,
-            "queries" | "reports" => return FileType::Queries,
-            // v4.83 directories that contain non-YAML-to-lint files
+        if matches!(
+            parent_name,
             "configuration-profiles"
-            | "declaration-profiles"
-            | "enrollment-profiles"
-            | "commands"
-            | "scripts"
-            | "icons"
-            | "managed-app-configurations" => return FileType::NonYaml,
-            _ => {}
+                | "declaration-profiles"
+                | "enrollment-profiles"
+                | "commands"
+                | "scripts"
+                | "icons"
+                | "managed-app-configurations"
+        ) {
+            return FileType::NonYaml;
+        }
+
+        // Content directories (labels/software/policies/queries) may be nested
+        // at ANY depth — e.g. labels/dynamic/*.yml, labels/api/*.yml,
+        // lib/macos/software/*.yml. The nearest matching ancestor wins, so a
+        // top-level `labels:` block in a fleet file isn't mistaken for one.
+        for comp in parent.components().rev() {
+            match comp.as_os_str().to_str() {
+                Some("labels") => return FileType::Labels,
+                Some("software") => return FileType::Software,
+                Some("policies") => return FileType::Policies,
+                Some("queries") | Some("reports") => return FileType::Queries,
+                _ => {}
+            }
         }
     }
 
@@ -422,7 +791,7 @@ fn check_yaml_hygiene(content: &str, file: &Path, report: &mut LintReport) {
                     file,
                 )
                 .with_location(line_num, col)
-                .with_rule_code("yaml-tabs".to_string())
+                .with_rule_code(crate::codes::YAML_TABS)
                 .with_help("YAML indentation must use spaces, not tabs"),
             );
         }
@@ -432,7 +801,7 @@ fn check_yaml_hygiene(content: &str, file: &Path, report: &mut LintReport) {
             report.add(
                 LintError::info("Trailing whitespace", file)
                     .with_location(line_num, line.trim_end().len() + 1)
-                    .with_rule_code("yaml-trailing-whitespace".to_string()),
+                    .with_rule_code(crate::codes::YAML_TRAILING_WHITESPACE),
             );
         }
     }
@@ -460,7 +829,7 @@ fn check_yaml_hygiene(content: &str, file: &Path, report: &mut LintReport) {
                                 file,
                             )
                             .with_location(line_num, 1)
-                            .with_rule_code("yaml-duplicate-key".to_string())
+                            .with_rule_code(crate::codes::YAML_DUPLICATE_KEY)
                             .with_help("YAML uses the last occurrence of duplicate keys — the first one is silently ignored")
                         );
                     } else {
@@ -525,6 +894,17 @@ fn find_yaml_files(dir: &Path, _pattern: &str) -> Result<Vec<std::path::PathBuf>
 // Inline Suppression Support
 // ============================================================================
 
+/// Fill `doc_url` from the code registry for any error that has a rule code
+/// but no documentation link yet. The single stamping point — rules never
+/// carry URL knowledge themselves.
+fn stamp_doc_url(error: &mut LintError) {
+    if error.doc_url.is_none() {
+        if let Some(code) = error.rule_code {
+            error.doc_url = super::codes::doc_url(code);
+        }
+    }
+}
+
 /// Parse inline suppression comments from YAML source.
 ///
 /// Supports two forms:
@@ -534,6 +914,26 @@ fn find_yaml_files(dir: &Path, _pattern: &str) -> Result<Vec<std::path::PathBuf>
 ///
 /// Returns a map of 1-indexed line numbers to suppressed rule codes.
 /// An empty Vec means "suppress all rules on this line".
+/// The one error-control pass shared by per-file linting and the cross-file
+/// pass: drop suppressed findings, then downgrade errors whose code is listed
+/// in `[rules] warn`. (Suppression and downgrade are independent — order
+/// doesn't matter.)
+fn apply_error_controls(
+    errors: &mut Vec<LintError>,
+    suppressions: &HashMap<usize, Vec<String>>,
+    warning_rules: &std::collections::HashSet<&str>,
+) {
+    if !suppressions.is_empty() {
+        errors.retain(|e| !is_suppressed(e, suppressions));
+    }
+    for e in errors.iter_mut() {
+        if e.severity == Severity::Error && warning_rules.contains(e.rule_code.unwrap_or_default())
+        {
+            e.severity = Severity::Warning;
+        }
+    }
+}
+
 fn parse_suppressions(source: &str) -> HashMap<usize, Vec<String>> {
     let mut suppressions = HashMap::new();
 
@@ -573,7 +973,7 @@ fn parse_suppressions(source: &str) -> HashMap<usize, Vec<String>> {
 /// - Its line has a same-line suppression comment matching the rule code
 /// - The line immediately before it has a standalone suppression comment matching the rule code
 fn is_suppressed(error: &LintError, suppressions: &HashMap<usize, Vec<String>>) -> bool {
-    let line = match error.line {
+    let line = match error.line() {
         Some(l) => l,
         None => return false, // Can't suppress errors without line info
     };
@@ -654,7 +1054,7 @@ mod suppression_tests {
 
         let error = LintError::error("test", "test.yml")
             .with_location(5, 1)
-            .with_rule_code("type-validation");
+            .with_rule_code(crate::codes::TYPE_VALIDATION);
         assert!(is_suppressed(&error, &suppressions));
 
         let error2 = LintError::error("test", "test.yml")
@@ -670,7 +1070,7 @@ mod suppression_tests {
 
         let error = LintError::error("test", "test.yml")
             .with_location(5, 1)
-            .with_rule_code("type-validation");
+            .with_rule_code(crate::codes::TYPE_VALIDATION);
         assert!(is_suppressed(&error, &suppressions));
     }
 
@@ -700,60 +1100,6 @@ mod tests {
     use super::*;
     use std::io::Write;
     use tempfile::NamedTempFile;
-
-    // Regression test for issue #15: lint_directory must honor the
-    // [files] include/exclude patterns from .fleetlint.toml.
-    #[test]
-    fn test_lint_directory_respects_config_include_exclude() {
-        let dir = tempfile::tempdir().unwrap();
-        let root = dir.path();
-
-        std::fs::write(
-            root.join(".fleetlint.toml"),
-            r#"
-[files]
-include = ["./fleets/*.yml", "./lib/**/*.yaml"]
-exclude = ["**/node_modules/**", "cspell.config.yaml"]
-"#,
-        )
-        .unwrap();
-
-        std::fs::create_dir_all(root.join("fleets")).unwrap();
-        std::fs::create_dir_all(root.join("lib/macos")).unwrap();
-
-        let policy_yaml = "policies:\n  - name: Test\n    query: SELECT 1;\n    platform: darwin\n";
-        std::fs::write(root.join("fleets/prod.yml"), policy_yaml).unwrap();
-        std::fs::write(root.join("lib/macos/policies.yaml"), policy_yaml).unwrap();
-        // Files that must NOT be linted
-        std::fs::write(root.join("cspell.config.yaml"), "version: '0.2'\nwords: []\n").unwrap();
-        std::fs::write(root.join("random.yml"), "foo: bar\n").unwrap();
-
-        let linter = Linter::from_path(root);
-        let results = linter.lint_directory(root, None).unwrap();
-
-        let linted: Vec<String> = results
-            .iter()
-            .map(|(p, _)| p.file_name().unwrap().to_string_lossy().to_string())
-            .collect();
-
-        assert!(linted.contains(&"prod.yml".to_string()), "include pattern should match fleets/prod.yml, got {linted:?}");
-        assert!(linted.contains(&"policies.yaml".to_string()), "include pattern should match lib/**, got {linted:?}");
-        assert!(!linted.contains(&"cspell.config.yaml".to_string()), "excluded file was linted: {linted:?}");
-        assert!(!linted.contains(&"random.yml".to_string()), "file outside include list was linted: {linted:?}");
-    }
-
-    #[test]
-    fn test_lint_directory_no_config_lints_all_yaml() {
-        let dir = tempfile::tempdir().unwrap();
-        let root = dir.path();
-
-        std::fs::write(root.join("a.yml"), "foo: bar\n").unwrap();
-        std::fs::write(root.join("b.yaml"), "foo: bar\n").unwrap();
-
-        let linter = Linter::new();
-        let results = linter.lint_directory(root, None).unwrap();
-        assert_eq!(results.len(), 2);
-    }
 
     #[test]
     fn test_lint_valid_config() {
@@ -870,6 +1216,33 @@ policies:
         assert_eq!(
             detect_file_type(Path::new("my.labels.yml")),
             FileType::Labels
+        );
+        // Nested under labels/ at any depth (Fleet repos organize labels into
+        // labels/dynamic/, labels/api/, …) — must still classify as Labels.
+        assert_eq!(
+            detect_file_type(Path::new("labels/dynamic/macos-27-hosts.yml")),
+            FileType::Labels
+        );
+        assert_eq!(
+            detect_file_type(Path::new("labels/api/debug-profiles.yml")),
+            FileType::Labels
+        );
+    }
+
+    #[test]
+    fn test_detect_file_type_nested_content_dirs() {
+        assert_eq!(
+            detect_file_type(Path::new("software/macos/L1/slack.yml")),
+            FileType::Software
+        );
+        assert_eq!(
+            detect_file_type(Path::new("policies/autoinstalls/gp.yml")),
+            FileType::Policies
+        );
+        // A fleet config is unaffected — no content-dir ancestor.
+        assert_eq!(
+            detect_file_type(Path::new("fleets/FDN-ALPHA.yml")),
+            FileType::FleetConfig
         );
     }
 
@@ -1120,12 +1493,106 @@ config:
         let has_required_fields_error = report
             .errors
             .iter()
-            .any(|e| e.rule_code.as_deref() == Some("required-fields"));
+            .any(|e| e.rule_code == Some("required-fields"));
         assert!(
             !has_required_fields_error,
             "required-fields rule should be disabled by .fleetlint.toml; got errors: {:?}",
             report.errors
         );
+    }
+
+    #[test]
+    fn test_out_of_scope_covers_non_yaml_under_both_scoping_styles() {
+        use super::super::config::FilesConfig;
+
+        // Workspace rules (orphaned-file, duplicate-content, case-collision)
+        // report on scripts and profiles, which `should_lint` rejects outright
+        // because it defaults to YAML-only. Scoping those findings therefore
+        // needs `is_out_of_scope`, and it has to honor BOTH styles: a denylist
+        // repo writes `exclude`, an allowlist repo writes `include`.
+        let script = Path::new("tools-scripts/runscripts/scripts/install-rosetta.sh");
+        let kept = Path::new("platforms/macos/L1/scripts/real.sh");
+
+        // Denylist style.
+        let mut cfg = FleetLintConfig::default();
+        cfg.files = FilesConfig {
+            include: vec![],
+            exclude: vec!["tools-scripts/**".to_string()],
+            ..Default::default()
+        };
+        let linter = Linter::with_config(cfg);
+        assert!(linter.is_out_of_scope(script), "exclude must scope a .sh");
+        assert!(!linter.is_out_of_scope(kept));
+        // The YAML-only default is exactly why should_lint is the wrong test.
+        assert!(!linter.should_lint(kept), "should_lint is false for any .sh");
+
+        // Allowlist style — the same script is out of scope by omission.
+        let mut cfg = FleetLintConfig::default();
+        cfg.files = FilesConfig {
+            include: vec![
+                "default.yml".to_string(),
+                "fleets/**".to_string(),
+                "platforms/**".to_string(),
+            ],
+            exclude: vec!["platforms/_retired/**".to_string()],
+            ..Default::default()
+        };
+        let linter = Linter::with_config(cfg);
+        assert!(
+            linter.is_out_of_scope(script),
+            "a non-empty include is authoritative — omission means out of scope"
+        );
+        assert!(!linter.is_out_of_scope(kept));
+        // exclude still wins over include.
+        assert!(linter.is_out_of_scope(Path::new("platforms/_retired/old.mobileconfig")));
+    }
+
+    #[test]
+    fn test_should_lint_resolves_absolute_paths_against_config_root() {
+        // Issue #15 (LSP): the editor hands the linter ABSOLUTE paths, but
+        // narrowing [files].include globs are written repo-relative. Without
+        // config_root the absolute path matches no include and every file is
+        // silently skipped.
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("fleets")).unwrap();
+        std::fs::create_dir_all(dir.path().join("vendor")).unwrap();
+        let in_scope = dir.path().join("fleets/prod.yml");
+        let out_of_scope = dir.path().join("vendor/c.yml");
+        std::fs::write(&in_scope, "name: prod\n").unwrap();
+        std::fs::write(&out_of_scope, "name: vendor\n").unwrap();
+
+        let mut config = FleetLintConfig::default();
+        config.files.include = vec!["fleets/*.yml".to_string()];
+        let mut linter = Linter::with_config(config);
+
+        // Without a config root, the absolute path matches nothing.
+        assert!(!linter.should_lint(&in_scope));
+
+        linter.set_config_root(dir.path().to_path_buf());
+        assert!(linter.should_lint(&in_scope));
+        assert!(!linter.should_lint(&out_of_scope));
+
+        // Relative paths keep working unchanged.
+        assert!(linter.should_lint(Path::new("fleets/prod.yml")));
+    }
+
+    #[test]
+    fn test_from_path_sets_config_root() {
+        // from_path discovers .fleetlint.toml and must anchor [files] globs
+        // to its directory, so absolute paths from any caller stay in scope.
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join(".fleetlint.toml"),
+            "[files]\ninclude = [\"fleets/*.yml\"]\n",
+        )
+        .unwrap();
+        std::fs::create_dir_all(dir.path().join("fleets")).unwrap();
+        let in_scope = dir.path().join("fleets/prod.yml");
+        std::fs::write(&in_scope, "name: prod\n").unwrap();
+
+        let linter = Linter::from_path(dir.path());
+        assert!(linter.should_lint(&in_scope));
+        assert!(!linter.should_lint(&dir.path().join("other.yml")));
     }
 
     #[test]
@@ -1148,7 +1615,7 @@ config:
         let has_required_fields_error = report
             .errors
             .iter()
-            .any(|e| e.rule_code.as_deref() == Some("required-fields"));
+            .any(|e| e.rule_code == Some("required-fields"));
         assert!(
             has_required_fields_error,
             "Linter::new() ignores .fleetlint.toml — required-fields should still fire"

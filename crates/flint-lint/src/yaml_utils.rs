@@ -3,11 +3,101 @@
 //! Provides helpers for parsing and navigating raw `serde_yaml::Value` trees,
 //! used by rules that need to inspect fields across both typed and untyped sections.
 
-use serde_yaml::Value;
+use super::error::Span;
+use serde_yaml::{Mapping, Value};
 
 /// Parse YAML source, returning None on failure (rules skip unparseable files).
 pub fn parse_yaml(source: &str) -> Option<Value> {
     serde_yaml::from_str(source).ok()
+}
+
+/// Depth-first visit of every mapping in the tree (mappings inside sequences
+/// included). THE shared recursive walker — rules that only need to inspect
+/// each mapping (e.g. "does it have a `path:` key?") use this instead of
+/// rolling their own recursion.
+pub fn walk_mappings(value: &Value, visit: &mut impl FnMut(&Mapping)) {
+    match value {
+        Value::Mapping(map) => {
+            visit(map);
+            for (_, v) in map {
+                walk_mappings(v, visit);
+            }
+        }
+        Value::Sequence(seq) => {
+            for item in seq {
+                walk_mappings(item, visit);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Like [`walk_mappings`], but each visit also receives the dotted context
+/// path of the mapping (sequence hops appear as `[idx]`, e.g.
+/// `policies[0].install_software`). Used by rules that key their checks on
+/// where a mapping sits (deprecations).
+pub fn walk_mappings_with_path(value: &Value, visit: &mut impl FnMut(&str, &Mapping)) {
+    fn inner(value: &Value, path: &str, visit: &mut impl FnMut(&str, &Mapping)) {
+        match value {
+            Value::Mapping(map) => {
+                visit(path, map);
+                for (key, v) in map {
+                    let Some(key_str) = key.as_str() else { continue };
+                    let child_path = if path.is_empty() {
+                        key_str.to_string()
+                    } else {
+                        format!("{}.{}", path, key_str)
+                    };
+                    inner(v, &child_path, visit);
+                }
+            }
+            Value::Sequence(seq) => {
+                for (idx, item) in seq.iter().enumerate() {
+                    let item_path = format!("{}[{}]", path, idx);
+                    inner(item, &item_path, visit);
+                }
+            }
+            _ => {}
+        }
+    }
+    inner(value, "", visit);
+}
+
+/// Locate a specific `path:` value in the source text, spanning the value.
+pub fn find_path_value_line(source: &str, path_value: &str) -> Option<Span> {
+    for (line_idx, line) in source.lines().enumerate() {
+        let trimmed = line.trim_start();
+        // Match `path: <value>` or `- path: <value>` patterns
+        let after_path = trimmed
+            .strip_prefix("path:")
+            .or_else(|| trimmed.strip_prefix("- path:"));
+
+        if let Some(rest) = after_path {
+            let rest = rest.trim();
+            // Strip optional quotes
+            let unquoted = rest
+                .trim_start_matches('"')
+                .trim_end_matches('"')
+                .trim_start_matches('\'')
+                .trim_end_matches('\'');
+            if unquoted == path_value {
+                // Point to the start of the value
+                if let Some(val_offset) = line.find(path_value) {
+                    return Some(Span::token(
+                        line_idx + 1,
+                        val_offset + 1,
+                        path_value.len(),
+                    ));
+                }
+                // Fall back to after the colon
+                if let Some(colon_pos) = line.find(':') {
+                    return Some(Span::token(line_idx + 1, colon_pos + 3, path_value.len()));
+                }
+                return Some(Span::line(line_idx + 1));
+            }
+        }
+    }
+    None
 }
 
 /// Walk a `serde_yaml::Value` tree along a path of keys (e.g., `["software", "packages"]`)
@@ -75,6 +165,24 @@ pub fn find_key_line(source: &str, key: &str, after_line: usize) -> Option<usize
         }
     }
     None
+}
+
+/// True if `content` carries no usable data: only blank lines, and — when
+/// `yaml_comments` is set — `#` comment lines. A YAML file that is empty,
+/// whitespace-only, or comment-only parses to null, which Fleet rejects where
+/// it expects a document (a software/policy/profile referenced by `path:`).
+pub fn is_effectively_empty(content: &str, yaml_comments: bool) -> bool {
+    for line in content.lines() {
+        let t = line.trim();
+        if t.is_empty() {
+            continue;
+        }
+        if yaml_comments && t.starts_with('#') {
+            continue;
+        }
+        return false; // found real content
+    }
+    true
 }
 
 /// Get all string values from an array field within a mapping.

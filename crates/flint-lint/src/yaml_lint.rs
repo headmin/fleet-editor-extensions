@@ -11,7 +11,7 @@
 
 use std::path::Path;
 
-use super::error::{FixSafety, LintError, Severity};
+use super::error::{FixSafety, LintError};
 use super::fleet_config::FleetConfig;
 use super::rules::Rule;
 
@@ -36,9 +36,6 @@ impl Rule for YamlIndentationRule {
     }
     fn category(&self) -> &'static str {
         "yaml"
-    }
-    fn default_severity(&self) -> Severity {
-        Severity::Warning
     }
     fn is_fixable(&self) -> bool {
         true
@@ -101,11 +98,14 @@ impl Rule for YamlIndentationRule {
                         file,
                     )
                     .with_location(line_num, 1)
-                    .with_rule_code("yaml-indentation".to_string())
+                    .with_rule_code(crate::codes::YAML_INDENTATION)
                     .with_help("Use 2-space indentation for consistent YAML formatting")
-                    .with_context(old_spaces)
-                    .with_suggestion(new_spaces)
-                    .with_fix_safety(FixSafety::Unsafe),
+                    .with_context(old_spaces.clone())
+                    .with_fix(super::error::Fix::Replace {
+                        old: Some(old_spaces),
+                        new: new_spaces,
+                        safety: FixSafety::Unsafe,
+                    }),
                 );
                 continue; // Don't also flag mixed-indent for an odd-width line
             }
@@ -129,7 +129,7 @@ impl Rule for YamlIndentationRule {
                                 file,
                             )
                             .with_location(line_num, 1)
-                            .with_rule_code("yaml-indentation".to_string())
+                            .with_rule_code(crate::codes::YAML_INDENTATION)
                             .with_help("Use a consistent indent width throughout the file"),
                         );
                     }
@@ -164,9 +164,6 @@ impl Rule for YamlColonsRule {
     }
     fn category(&self) -> &'static str {
         "yaml"
-    }
-    fn default_severity(&self) -> Severity {
-        Severity::Warning
     }
     fn is_fixable(&self) -> bool {
         true
@@ -225,11 +222,14 @@ impl Rule for YamlColonsRule {
                         file,
                     )
                     .with_location(line_num, 1)
-                    .with_rule_code("yaml-colons".to_string())
+                    .with_rule_code(crate::codes::YAML_COLONS)
                     .with_help("Add a colon after the key name, e.g., `key: value`")
                     .with_context(trimmed.to_string())
-                    .with_suggestion(format!("{}: ", trimmed))
-                    .with_fix_safety(FixSafety::Safe),
+                    .with_fix(super::error::Fix::Replace {
+                        old: Some(trimmed.to_string()),
+                        new: format!("{}: ", trimmed),
+                        safety: FixSafety::Safe,
+                    }),
                 );
             }
         }
@@ -297,9 +297,6 @@ impl Rule for YamlEmptyValuesRule {
     }
     fn category(&self) -> &'static str {
         "yaml"
-    }
-    fn default_severity(&self) -> Severity {
-        Severity::Info
     }
 
     fn check(&self, _config: &FleetConfig, file: &Path, source: &str) -> Vec<LintError> {
@@ -384,7 +381,7 @@ impl Rule for YamlEmptyValuesRule {
                         file,
                     )
                     .with_location(line_num, colon_pos + 2)
-                    .with_rule_code("yaml-empty-values".to_string())
+                    .with_rule_code(crate::codes::YAML_EMPTY_VALUES)
                     .with_help(
                         "Provide a value, or remove the key if not needed.",
                     ),
@@ -486,6 +483,7 @@ fn truncate(s: &str, max: usize) -> &str {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::error::Severity;
     use std::path::PathBuf;
 
     fn check_rule(rule: &dyn Rule, source: &str) -> Vec<LintError> {
@@ -513,7 +511,7 @@ mod tests {
         let errors = check_rule(&YamlIndentationRule, source);
         assert_eq!(errors.len(), 1);
         assert!(errors[0].message.contains("3 spaces"));
-        assert_eq!(errors[0].line, Some(2));
+        assert_eq!(errors[0].line(), Some(2));
     }
 
     #[test]
@@ -741,8 +739,8 @@ mod tests {
         assert_eq!(errors.len(), 1);
         // 3 spaces → 2 spaces (round down)
         assert_eq!(errors[0].context.as_deref(), Some("   "));
-        assert_eq!(errors[0].suggestion.as_deref(), Some("  "));
-        assert_eq!(errors[0].fix_safety, Some(FixSafety::Unsafe));
+        assert_eq!(errors[0].suggestion(), Some("  "));
+        assert_eq!(errors[0].fix_safety(), Some(FixSafety::Unsafe));
     }
 
     #[test]
@@ -752,7 +750,7 @@ mod tests {
         assert_eq!(errors.len(), 1);
         // 5 spaces → 4 spaces
         assert_eq!(errors[0].context.as_deref(), Some("     "));
-        assert_eq!(errors[0].suggestion.as_deref(), Some("    "));
+        assert_eq!(errors[0].suggestion(), Some("    "));
     }
 
     #[test]
@@ -762,7 +760,7 @@ mod tests {
         assert_eq!(errors.len(), 1);
         // 1 space → 0 spaces
         assert_eq!(errors[0].context.as_deref(), Some(" "));
-        assert_eq!(errors[0].suggestion.as_deref(), Some(""));
+        assert_eq!(errors[0].suggestion(), Some(""));
     }
 
     #[test]
@@ -771,8 +769,8 @@ mod tests {
         let errors = check_rule(&YamlColonsRule, source);
         assert_eq!(errors.len(), 1);
         assert_eq!(errors[0].context.as_deref(), Some("platform"));
-        assert_eq!(errors[0].suggestion.as_deref(), Some("platform: "));
-        assert_eq!(errors[0].fix_safety, Some(FixSafety::Safe));
+        assert_eq!(errors[0].suggestion(), Some("platform: "));
+        assert_eq!(errors[0].fix_safety(), Some(FixSafety::Safe));
     }
 
     #[test]
@@ -797,17 +795,14 @@ mod tests {
         let indent = YamlIndentationRule;
         assert_eq!(indent.name(), "yaml-indentation");
         assert_eq!(indent.category(), "yaml");
-        assert_eq!(indent.default_severity(), Severity::Warning);
         assert!(indent.is_fixable());
 
         let colons = YamlColonsRule;
         assert_eq!(colons.name(), "yaml-colons");
-        assert_eq!(colons.default_severity(), Severity::Warning);
         assert!(colons.is_fixable());
 
         let empty = YamlEmptyValuesRule;
         assert_eq!(empty.name(), "yaml-empty-values");
-        assert_eq!(empty.default_severity(), Severity::Info);
         assert!(!empty.is_fixable());
     }
 }
