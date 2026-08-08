@@ -4,7 +4,9 @@ icon: lucide/settings
 
 # Configuration
 
-Create `.fleetlint.toml` in your repo root, or run `flint init` to auto-generate one.
+Create `fleetlint.toml` in your repo root, or run `flint init` to generate one
+interactively. Both spellings are read — `fleetlint.toml` and the hidden
+`.fleetlint.toml` — with the visible one winning in the same directory.
 
 ## Full example
 
@@ -21,7 +23,13 @@ warn_select_star = true              # Warn on SELECT *
 warn_trailing_semicolon = true       # Warn on trailing semicolons
 
 [files]
-include = ["**/*.yml", "**/*.yaml"]
+# `include` unset means "everything not excluded" — the usual case.
+# If you narrow scope, list DIRECTORIES, not extensions:
+#   include = ["default.yml", "fleets/**", "labels/**", "platforms/**"]
+# A non-empty include is authoritative and also scopes the cross-file rules
+# (orphaned-file, duplicate-content, case-collision), which report on
+# scripts and profiles — so an extension glob like "**/*.yml" would silently
+# switch those off for every non-YAML file.
 exclude = ["node_modules", "target", "dist"]
 
 [schema]

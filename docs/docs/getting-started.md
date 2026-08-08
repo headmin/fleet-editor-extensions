@@ -13,7 +13,19 @@ cd /path/to/your/fleet-gitops-repo
 flint init
 ```
 
-This auto-detects your directory structure and creates `.fleetlint.toml` with sensible defaults.
+This auto-detects your directory structure and creates `fleetlint.toml`. It then
+walks your top-level directories and asks whether each one should be linted —
+`[d]rill in` narrows further, one subdirectory at a time. Before writing
+anything it shows the delta ("this config puts 704 of 1156 file(s) in scope")
+and warns if you are excluding a directory that live config still references.
+
+Answers become **directory** globs (`platforms/**`), never extension globs.
+That matters: a non-empty `include` is authoritative and also scopes the
+cross-file rules, which report on scripts and profiles rather than YAML.
+
+`--no-interactive` skips the questions and writes an unnarrowed config. The
+hidden `.fleetlint.toml` spelling is still read, so existing repos keep
+working untouched.
 
 ## 2. Lint your repo
 
@@ -55,15 +67,30 @@ flint check . --format json
 
 Returns structured JSON with diagnostics per file — exit code 1 on errors, 0 on success.
 
-## 5. Set up your editor
+## 5. Generate & wire (beyond linting)
+
+flint also generates GitOps YAML from real artifacts and repairs path references:
+
+```bash
+flint gen software --from app.pkg --full        # .pkg → software stanza (url, hash, …)
+flint gen profile --from wifi.mobileconfig      # .mobileconfig → configuration_profiles entry
+flint paths . --fix               # repair broken path: refs after a reorg
+flint paths . --unwired --interactive   # wire orphaned profiles/scripts into fleets
+```
+
+See [Commands](commands.md) for the full set.
+
+## 6. Set up your editor
 
 Install the flint extension for your editor to get real-time diagnostics, completions, and hover docs. See [Editors](editors.md).
 
-## 6. Agent integration
+## 7. Agent integration
 
 ```bash
 flint setup-agent       # Install Claude Code skills
 flint help-ai           # Command reference for agents
-flint help-ai --sop lint     # Step-by-step linting SOP
-flint help-ai --sop migrate  # Migration SOP
+flint help-ai --sop lint      # Step-by-step linting SOP
+flint help-ai --sop paths     # Broken-path + unwired-artifact SOP
+flint help-ai --sop software  # Artifact-generation SOP
+flint help-ai --sop migrate   # Migration SOP
 ```

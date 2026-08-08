@@ -213,7 +213,13 @@ build_binary() {
 
     log_step "Building $BINARY for aarch64-apple-darwin"
     cd "$PROJECT_ROOT"
-    cargo build --release --target aarch64-apple-darwin -p "$BINARY"
+    # Fresh BUILD_TIMESTAMP: cargo caches build-script output across
+    # incremental builds, so without this the version string keeps the
+    # stamp from whenever cli/build.rs last ran (a July stamp survived a
+    # month of rebuilds). build.rs honors SOURCE_DATE_EPOCH and re-runs
+    # when it changes — no cargo clean needed.
+    SOURCE_DATE_EPOCH="$(date +%s)" \
+        cargo build --release --target aarch64-apple-darwin -p "$BINARY"
     log_info "Build complete"
 }
 

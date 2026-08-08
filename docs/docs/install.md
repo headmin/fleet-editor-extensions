@@ -14,16 +14,15 @@ Double-click to install. Installs to `/usr/local/bin/flint`.
 
 ## Linux
 
-```bash
-curl -fsSL https://raw.githubusercontent.com/headmin/fleet-editor-extensions/main/scripts/install.sh | sh
-```
+!!! warning "Build from source for now"
 
-The script auto-detects your platform (x64/arm64), downloads the latest release tar.gz, and installs to `/usr/local/bin`.
+    No published release carries a Linux binary yet, so `install.sh` fails
+    with a 404 on Linux. Use [Build from source](#build-from-source) below —
+    it is the only working Linux path today.
 
-```bash
-# Install to home directory (no sudo)
-FLINT_INSTALL_DIR=$HOME/.local/bin curl -fsSL https://raw.githubusercontent.com/headmin/fleet-editor-extensions/main/scripts/install.sh | sh
-```
+    Static x64 and arm64 binaries land in the next release; until the
+    release notes list a `flint-x.y.z-linux-*.tar.gz` asset, the installer
+    script has nothing to download.
 
 ## Manual download
 
@@ -31,8 +30,7 @@ FLINT_INSTALL_DIR=$HOME/.local/bin curl -fsSL https://raw.githubusercontent.com/
 |---|---|
 | macOS (Apple Silicon) | `flint-x.y.z.pkg` (signed & notarized) |
 | macOS (tar.gz) | `flint-x.y.z-darwin-arm64.tar.gz` |
-| Linux x64 | `flint-x.y.z-linux-x64.tar.gz` |
-| Linux ARM64 | `flint-x.y.z-linux-arm64.tar.gz` |
+| Linux x64 / ARM64 | *not published yet — build from source* |
 
 macOS Intel (x86_64) is not supported.
 
@@ -43,6 +41,9 @@ sudo mv flint /usr/local/bin/
 
 ## Build from source
 
+Works on macOS and Linux, and is currently the only supported way to get
+flint on Linux.
+
 ```bash
 git clone https://github.com/headmin/fleet-editor-extensions
 cd fleet-editor-extensions
@@ -50,7 +51,8 @@ cargo build --release -p flint
 sudo cp target/release/flint /usr/local/bin/
 ```
 
-Requires Rust 1.81+ (`rustup update stable`).
+Requires Rust 1.81+ (`rustup update stable`). No system libraries are
+needed — there is no OpenSSL in the dependency tree.
 
 ## Dev container
 

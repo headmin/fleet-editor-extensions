@@ -14,8 +14,10 @@ Fleet GitOps YAML linter and language server — catches configuration errors, t
 
 ## What it does
 
-- **18 lint rules** — structural validation, semantic checks, security hygiene, deprecation warnings
+- **Lint rules** — structural validation, semantic checks, security hygiene, deprecation warnings
 - **LSP server** — real-time diagnostics, completions, hover docs, go-to-definition, code actions
+- **Path tooling** — fix broken `path:` references after a reorg, and wire unwired profiles/scripts/software into fleets ([Commands](commands.md))
+- **Generators** — turn a `.pkg`, `.mobileconfig`, or `.sql` into ready GitOps YAML; generate install policies and scripts
 - **Migration reports** — JSON-based migration planning for Fleet version upgrades
 - **Agent integration** — `help-ai` progressive discovery for AI-assisted workflows
 
@@ -35,10 +37,10 @@ graph LR
 
 > [flint-0.1.4.pkg](https://github.com/headmin/fleet-editor-extensions/releases/latest/download/flint-0.1.4.pkg)
 
-**Linux** — install via script:
+**Linux** — build from source (no Linux binary is published yet):
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/headmin/fleet-editor-extensions/main/scripts/install.sh | sh
+cargo install --git https://github.com/headmin/fleet-editor-extensions --tag v0.1.4 flint
 ```
 
 Then:

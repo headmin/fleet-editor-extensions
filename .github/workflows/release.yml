@@ -1,5 +1,30 @@
 name: Build & Release
 
+# ⚠ THIS WORKFLOW DOES NOT RUN, AND HAS NOT SINCE BEFORE v0.1.3.
+#
+# The `release` job below declares `needs: [..., build-macos-x64, ...]` and
+# no job by that name exists in this file — macOS Intel is unsupported, so
+# the job was deleted and the `needs:` list was not updated. GitHub rejects
+# the whole workflow at startup, which is why every run is a 0-second
+# "workflow file issue" failure rather than a job failure you would notice.
+#
+# Do NOT simply delete `build-macos-x64` from that list to "fix" it. Two
+# things have to be settled first:
+#
+#   • LINUX IS OWNED BY `release-linux.yml`. That workflow builds static
+#     musl binaries and attaches them on a tag push. The Linux jobs here
+#     still build against glibc and would upload assets with identical
+#     filenames on the same tag — a collision, and the glibc build is the
+#     one that breaks on older distros.
+#   • The macOS artifacts in a real release are built LOCALLY by
+#     `scripts/build-release.sh --op`, because signing and notarization need
+#     the Developer ID cert and a 1Password approval that CI does not have.
+#     Publishing is a manual `gh release create`. This workflow's macOS jobs
+#     produce UNSIGNED binaries.
+#
+# So the choice is: strip this down to VSIX-only, or retire it. Until then
+# it is inert, and inert is safer than half-repaired.
+
 on:
   push:
     tags:

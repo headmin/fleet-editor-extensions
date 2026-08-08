@@ -54,8 +54,8 @@ These require a suffix — append the CA name (e.g., `$FLEET_VAR_DIGICERT_DATA_M
 ```yaml
 # In Fleet GitOps YAML
 controls:
-  macos_settings:
-    custom_settings:
+  apple_settings:
+    configuration_profiles:
       - path: ../platforms/macos/configuration-profiles/wifi.mobileconfig
 ```
 

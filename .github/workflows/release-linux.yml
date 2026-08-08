@@ -1,5 +1,27 @@
 name: Build Linux Binaries
 
+# Produces STATICALLY LINKED Linux binaries and attaches them to the release
+# for the tag that triggered the run.
+#
+# Two bugs this file used to have, both of which shipped:
+#
+# 1. It built against glibc on `ubuntu-latest`. The binary then carries a
+#    `GLIBC_2.xx` floor equal to whatever the runner image happened to be,
+#    and dies with "version `GLIBC_2.39' not found" on any older distro —
+#    Ubuntu 22.04, Debian 12, RHEL 9, and every slim container image. Now it
+#    targets musl, which links libc statically: no OS dependency at all.
+#
+# 2. The upload job was gated on `github.event.inputs.upload_to_release`,
+#    which is empty on a TAG PUSH — the exact event a release uses. So every
+#    tagged run went green, uploaded its artifacts to the 90-day workflow
+#    artifact store, and attached NOTHING to the release. v0.1.3 and v0.1.4
+#    both shipped with no Linux asset while this workflow reported success,
+#    which is why `install.sh` 404s on linux-x64.
+#
+# The `Verify static linking` step is the control: a dynamically linked
+# binary is indistinguishable from a static one until it reaches a user's
+# older distro, so the build fails here instead.
+
 on:
   push:
     tags:
@@ -7,11 +29,11 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Version override (e.g., 0.1.2)"
+        description: "Version override (e.g., 0.2.0)"
         required: false
         type: string
       upload_to_release:
-        description: "Upload to existing release tag (e.g., v0.1.2)"
+        description: "Attach to this existing release tag (e.g., v0.2.0). Leave blank to build artifacts only."
         required: false
         type: string
 
@@ -22,75 +44,39 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  build-linux-x64:
+  # The real gate. Runs once, natively, against the normal toolchain — the
+  # cross-compiled jobs below only need to produce artifacts.
+  test:
     runs-on: ubuntu-latest
-    outputs:
-      version: ${{ steps.version.outputs.version }}
-
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache cargo
-        uses: actions/cache@v4
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/cache@v4
         with:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: ${{ runner.os }}-x64-cargo-${{ hashFiles('Cargo.lock') }}
-
-      - name: Get version
-        id: version
-        run: |
-          if [ -n "${{ github.event.inputs.version }}" ]; then
-            VERSION="${{ github.event.inputs.version }}"
-          else
-            VERSION=$(grep '^version' Cargo.toml | head -n1 | cut -d'"' -f2)
-          fi
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
-          echo "Building version: $VERSION"
-
+          key: ${{ runner.os }}-test-cargo-${{ hashFiles('**/Cargo.toml') }}
       - name: Run tests
         run: cargo test --workspace --release
 
-      - name: Build binary
-        run: |
-          cargo build --release -p ${{ env.BINARY_NAME }}
-          mkdir -p dist
-          cp target/release/${{ env.BINARY_NAME }} dist/
-          strip dist/${{ env.BINARY_NAME }}
-
-      - name: Test binary
-        run: ./dist/${{ env.BINARY_NAME }} --version
-
-      - name: Create distribution archive
-        working-directory: dist
-        run: |
-          VERSION="${{ steps.version.outputs.version }}"
-          ARCHIVE="${{ env.BINARY_NAME }}-${VERSION}-linux-x64.tar.gz"
-
-          sha256sum ${{ env.BINARY_NAME }} > ${{ env.BINARY_NAME }}.sha256
-          tar -czf "$ARCHIVE" ${{ env.BINARY_NAME }}
-          sha256sum "$ARCHIVE" > "${ARCHIVE}.sha256"
-
-          echo "=== Distribution ==="
-          ls -la
-
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ env.BINARY_NAME }}-linux-x64
-          path: |
-            dist/*.tar.gz
-            dist/*.tar.gz.sha256
-          retention-days: 90
-
-  build-linux-arm64:
+  build:
+    needs: test
     runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-musl
+            arch: x64
+            # The runner is x86_64, so this artifact can be executed here.
+            runnable: true
+          - target: aarch64-unknown-linux-musl
+            arch: arm64
+            runnable: false
 
     steps:
       - name: Checkout repository
@@ -99,12 +85,17 @@ jobs:
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: aarch64-unknown-linux-gnu
+          targets: ${{ matrix.target }}
 
-      - name: Install cross-compilation tools
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y gcc-aarch64-linux-gnu
+      # `cross` runs the build in a container that carries the matching musl
+      # toolchain. Needed because rustls pulls in `ring`, which compiles C and
+      # assembly and therefore needs a real cross compiler, not just a rustup
+      # target. (No OpenSSL anywhere in the tree — ureq is configured with
+      # rustls — so there is nothing else to vendor.)
+      - name: Install cross
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cross
 
       - name: Cache cargo
         uses: actions/cache@v4
@@ -112,8 +103,7 @@ jobs:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-            target
-          key: ${{ runner.os }}-arm64-cargo-${{ hashFiles('Cargo.lock') }}
+          key: ${{ runner.os }}-${{ matrix.arch }}-cargo-${{ hashFiles('**/Cargo.toml') }}
 
       - name: Get version
         id: version
@@ -124,43 +114,94 @@ jobs:
             VERSION=$(grep '^version' Cargo.toml | head -n1 | cut -d'"' -f2)
           fi
           echo "version=$VERSION" >> $GITHUB_OUTPUT
-          echo "Building version: $VERSION"
+          echo "Building version: $VERSION for ${{ matrix.target }}"
 
       - name: Build binary
-        env:
-          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
         run: |
-          cargo build --release -p ${{ env.BINARY_NAME }} --target aarch64-unknown-linux-gnu
+          cross build --release -p "${BINARY_NAME}" --target ${{ matrix.target }}
           mkdir -p dist
-          cp target/aarch64-unknown-linux-gnu/release/${{ env.BINARY_NAME }} dist/
-          aarch64-linux-gnu-strip dist/${{ env.BINARY_NAME }} || echo "Strip failed, continuing..."
+          cp "target/${{ matrix.target }}/release/${BINARY_NAME}" dist/
+
+      # THE CONTROL. A glibc-linked binary builds, passes --version on the
+      # runner, and only fails on the user's machine. Assert the property we
+      # actually care about instead of trusting the target triple.
+      - name: Verify static linking
+        run: |
+          cd dist
+          FILE_OUT=$(file "${BINARY_NAME}")
+          LDD_OUT=$(ldd "${BINARY_NAME}" 2>&1 || true)
+          echo "=== file ===";  echo "$FILE_OUT"
+          echo "=== ldd  ===";  echo "$LDD_OUT"
+
+          # Assert the NEGATIVE, not a positive spelling. `file` describes a
+          # static musl binary as either "statically linked" or "static-pie
+          # linked" depending on whether the toolchain defaults to PIE — the
+          # two musl targets here disagree, so matching one string passes a
+          # genuinely static binary on one arch and fails it on the other.
+          # "Carries no dynamic dependencies" is the property we actually
+          # care about and it has one spelling.
+          if echo "$FILE_OUT" | grep -q "dynamically linked"; then
+            echo "::error::${BINARY_NAME} is dynamically linked — it would fail on any distro older than the runner. Refusing to publish."
+            exit 1
+          fi
+          if echo "$FILE_OUT" | grep -q "interpreter"; then
+            echo "::error::${BINARY_NAME} requests an ELF interpreter, so it is not self-contained."
+            exit 1
+          fi
+          # ldd on a static binary prints "statically linked" or "not a
+          # dynamic executable"; on a dynamic one it lists "lib... => ...".
+          if echo "$LDD_OUT" | grep -q "=>"; then
+            echo "::error::${BINARY_NAME} reports shared library dependencies:"
+            echo "$LDD_OUT"
+            exit 1
+          fi
+          echo "OK: no dynamic dependencies, no ELF interpreter."
+
+      - name: Smoke-test binary
+        if: matrix.runnable
+        run: |
+          ./dist/${BINARY_NAME} --version
+          ./dist/${BINARY_NAME} --help > /dev/null
+          # Lint a throwaway repo end to end, so a binary that starts but
+          # cannot actually run a check never ships.
+          mkdir -p /tmp/smoke && cd /tmp/smoke
+          printf 'org_settings:\n  org_info:\n    org_name: Smoke\n' > default.yml
+          "$GITHUB_WORKSPACE/dist/${BINARY_NAME}" check . --format json > /dev/null
+          echo "OK: check ran against a real file."
+
+      - name: Strip binary
+        run: |
+          # Only after the checks above — stripping a broken binary would
+          # hide nothing useful, but running the checks on the shipped bytes
+          # is the point.
+          strip dist/${BINARY_NAME} || echo "strip unavailable for this target, continuing"
 
       - name: Create distribution archive
         working-directory: dist
         run: |
           VERSION="${{ steps.version.outputs.version }}"
-          ARCHIVE="${{ env.BINARY_NAME }}-${VERSION}-linux-arm64.tar.gz"
-
-          sha256sum ${{ env.BINARY_NAME }} > ${{ env.BINARY_NAME }}.sha256
-          tar -czf "$ARCHIVE" ${{ env.BINARY_NAME }}
+          ARCHIVE="${BINARY_NAME}-${VERSION}-linux-${{ matrix.arch }}.tar.gz"
+          tar -czf "$ARCHIVE" "${BINARY_NAME}"
           sha256sum "$ARCHIVE" > "${ARCHIVE}.sha256"
-
-          echo "=== Distribution ==="
+          rm -f "${BINARY_NAME}"
           ls -la
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ env.BINARY_NAME }}-linux-arm64
+          name: ${{ env.BINARY_NAME }}-linux-${{ matrix.arch }}
           path: |
             dist/*.tar.gz
             dist/*.tar.gz.sha256
           retention-days: 90
 
   upload-to-release:
-    needs: [build-linux-x64, build-linux-arm64]
+    needs: build
     runs-on: ubuntu-latest
-    if: github.event.inputs.upload_to_release != ''
+    # Attach on a tag push (the release path), or when a manual run names a
+    # tag explicitly. The old condition checked only the manual input, so the
+    # tag-push path — the one that matters — never uploaded anything.
+    if: startsWith(github.ref, 'refs/tags/') || github.event.inputs.upload_to_release != ''
     permissions:
       contents: write
 
@@ -177,6 +218,8 @@ jobs:
       - name: Upload to GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ github.event.inputs.upload_to_release }}
+          tag_name: ${{ github.event.inputs.upload_to_release || github.ref_name }}
           files: dist/*
-          fail_on_unmatched_files: false
+          # Deliberately strict: a silently-empty upload is how the Linux
+          # assets went missing for two releases running.
+          fail_on_unmatched_files: true

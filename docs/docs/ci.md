@@ -4,6 +4,13 @@ icon: lucide/git-branch
 
 # CI/CD integration
 
+!!! warning "Linux runners: build from source for now"
+
+    CI almost always runs on Linux, and no published release carries a Linux
+    binary yet — `install.sh` fails there with a 404. Until the release notes
+    list a `flint-x.y.z-linux-*.tar.gz` asset, build flint in the job. The
+    examples below do that.
+
 ## GitHub Actions
 
 ```yaml
@@ -16,12 +23,28 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      # Build flint from a pinned tag. Cargo's cache makes this cheap after
+      # the first run; pinning keeps a new flint release from changing your
+      # pipeline's verdict without you choosing it.
       - name: Install flint
         run: |
-          curl -fsSL https://raw.githubusercontent.com/headmin/fleet-editor-extensions/main/scripts/install.sh | sh
+          cargo install \
+            --git https://github.com/headmin/fleet-editor-extensions \
+            --tag v0.1.4 flint
 
       - name: Lint
         run: flint check . --format json
+```
+
+Once Linux binaries ship, this collapses back to a download:
+
+```yaml
+      - name: Install flint
+        run: |
+          curl -fsSL https://raw.githubusercontent.com/headmin/fleet-editor-extensions/main/scripts/install.sh | sh
 ```
 
 ## Pre-commit hook
@@ -40,9 +63,9 @@ repos:
 
 ```yaml
 lint:
-  image: ubuntu:latest
+  image: rust:latest
   script:
-    - curl -fsSL https://raw.githubusercontent.com/headmin/fleet-editor-extensions/main/scripts/install.sh | sh
+    - cargo install --git https://github.com/headmin/fleet-editor-extensions --tag v0.1.4 flint
     - flint check . --format json
 ```
 
