@@ -1,11 +1,11 @@
 # ============================================================================
 # Fleet Maintained Apps — slug registry for completion and validation
-# Auto-generated from fleet/ee/maintained-apps/outputs/
-# (1141 apps, 2026-08-07, fleet main @ 3c8df41762)
+# Auto-generated from fleet/ee/maintained-apps/outputs/apps.json
+# (1145 apps, 2026-08-09, fleet 1b3288426f)
 # Slug format: {name}/{platform} (e.g., slack/darwin)
 #
-# To regenerate: from fleet/ee/maintained-apps/outputs/, emit one [[fma]]
-# block per directory with name = dir and platforms = its *.json basenames.
+# DO NOT EDIT BY HAND. Regenerate with:
+#   scripts/gen-fma-registry.py <path-to-fleet-checkout>
 # ============================================================================
 
 [[fma]]
@@ -3449,6 +3449,10 @@ name = "requestly"
 platforms = ["darwin","windows"]
 
 [[fma]]
+name = "resharper"
+platforms = ["windows"]
+
+[[fma]]
 name = "retcon"
 platforms = ["darwin"]
 
@@ -4265,6 +4269,18 @@ name = "visual-paradigm"
 platforms = ["darwin"]
 
 [[fma]]
+name = "visual-studio-2022-community"
+platforms = ["windows"]
+
+[[fma]]
+name = "visual-studio-2022-enterprise"
+platforms = ["windows"]
+
+[[fma]]
+name = "visual-studio-2022-professional"
+platforms = ["windows"]
+
+[[fma]]
 name = "visual-studio-code"
 platforms = ["darwin","windows"]
 
@@ -4571,4 +4587,3 @@ platforms = ["darwin","windows"]
 [[fma]]
 name = "zwift"
 platforms = ["darwin"]
-
