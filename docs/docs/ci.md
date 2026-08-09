@@ -16,7 +16,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # Static musl binary — no toolchain, no glibc floor, ~1s.
+      # Downloads a statically linked binary; no Rust toolchain needed and
+      # no minimum glibc version, so the runner image does not matter.
       # Pin with FLINT_VERSION so a new release cannot change your
       # pipeline's verdict without you choosing it.
       - name: Install flint
