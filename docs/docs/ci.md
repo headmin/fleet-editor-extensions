@@ -4,13 +4,6 @@ icon: lucide/git-branch
 
 # CI/CD integration
 
-!!! warning "Linux runners: build from source for now"
-
-    CI almost always runs on Linux, and no published release carries a Linux
-    binary yet — `install.sh` fails there with a 404. Until the release notes
-    list a `flint-x.y.z-linux-*.tar.gz` asset, build flint in the job. The
-    examples below do that.
-
 ## GitHub Actions
 
 ```yaml
@@ -23,17 +16,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      # Build flint from a pinned tag. Cargo's cache makes this cheap after
-      # the first run; pinning keeps a new flint release from changing your
+      # Static musl binary — no toolchain, no glibc floor, ~1s.
+      # Pin with FLINT_VERSION so a new release cannot change your
       # pipeline's verdict without you choosing it.
       - name: Install flint
         run: |
-          cargo install \
-            --git https://github.com/headmin/fleet-editor-extensions \
-            --tag v0.1.4 flint
+          FLINT_VERSION=0.2.0 curl -fsSL https://raw.githubusercontent.com/headmin/fleet-editor-extensions/main/scripts/install.sh | sh
 
       # `--format github` emits workflow commands, which GitHub renders as
       # inline annotations on the PR diff. No token, no `gh`, no API call.
@@ -45,14 +33,6 @@ Unlike `--git` (which posts one markdown comment), `--format github` needs no
 credentials and works on every event — pushes and merge queues included, not
 just `pull_request`.
 
-Once Linux binaries ship, this collapses back to a download:
-
-```yaml
-      - name: Install flint
-        run: |
-          curl -fsSL https://raw.githubusercontent.com/headmin/fleet-editor-extensions/main/scripts/install.sh | sh
-```
-
 ## Pre-commit hook
 
 Add to `.pre-commit-config.yaml`:
@@ -60,18 +40,20 @@ Add to `.pre-commit-config.yaml`:
 ```yaml
 repos:
   - repo: https://github.com/headmin/fleet-editor-extensions
-    rev: v0.1.1
+    rev: v0.2.0
     hooks:
-      - id: flint-check
+      - id: flint
 ```
 
 ## GitLab CI
 
 ```yaml
 lint:
-  image: rust:latest
+  image: ubuntu:latest
   script:
-    - cargo install --git https://github.com/headmin/fleet-editor-extensions --tag v0.1.4 flint
+    # ubuntu:latest ships neither curl nor wget.
+    - apt-get update && apt-get install -y curl ca-certificates
+    - FLINT_VERSION=0.2.0 curl -fsSL https://raw.githubusercontent.com/headmin/fleet-editor-extensions/main/scripts/install.sh | sh
     - flint check . --format json
 ```
 
@@ -85,7 +67,7 @@ flint check . --format json
 
 ```json
 {
-  "version": "0.1.1",
+  "version": "0.2.0",
   "files": [...],
   "summary": {
     "files_linted": 121,

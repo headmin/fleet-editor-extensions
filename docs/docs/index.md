@@ -35,12 +35,12 @@ graph LR
 
 **macOS** — download the signed & notarized PKG:
 
-> [flint-0.1.4.pkg](https://github.com/headmin/fleet-editor-extensions/releases/latest/download/flint-0.1.4.pkg)
+> [flint-0.2.0.pkg](https://github.com/headmin/fleet-editor-extensions/releases/latest/download/flint-0.2.0.pkg)
 
-**Linux** — build from source (no Linux binary is published yet):
+**Linux** — statically linked, runs on any distribution:
 
 ```bash
-cargo install --git https://github.com/headmin/fleet-editor-extensions --tag v0.1.4 flint
+curl -fsSL https://raw.githubusercontent.com/headmin/fleet-editor-extensions/main/scripts/install.sh | sh
 ```
 
 Then:
@@ -60,8 +60,8 @@ flint init
 
 | Editor | Install |
 |--------|---------|
-| **VS Code** | Download [flint-0.1.4.vsix](https://github.com/headmin/fleet-editor-extensions/releases/latest/download/flint-0.1.4.vsix) → `Extensions: Install from VSIX` |
-| **Zed** | Download [flint-zed-0.1.4.zip](https://github.com/headmin/fleet-editor-extensions/releases/latest/download/flint-zed-0.1.4.zip) → install `flint` binary to PATH |
+| **VS Code** | Download [flint-0.2.0.vsix](https://github.com/headmin/fleet-editor-extensions/releases/latest/download/flint-0.2.0.vsix) → `Extensions: Install from VSIX` |
+| **Zed** | Download [flint-zed-0.2.0.zip](https://github.com/headmin/fleet-editor-extensions/releases/latest/download/flint-zed-0.2.0.zip) → install `flint` binary to PATH |
 | **Sublime Text** | Install `flint` binary, add [LSP-flint](editors.md) config |
 | **Neovim** | Install `flint` binary, configure as LSP with `cmd = {"flint", "lsp"}` |
 

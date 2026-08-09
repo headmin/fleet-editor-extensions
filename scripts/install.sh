@@ -7,7 +7,7 @@ set -eu
 #   curl -fsSL https://raw.githubusercontent.com/headmin/fleet-editor-extensions/main/scripts/install.sh | sh
 #
 # Options (via env vars):
-#   FLINT_VERSION=0.1.1                Pin to a specific version (default: latest)
+#   FLINT_VERSION=0.2.0                Pin to a specific version (default: latest)
 #   FLINT_INSTALL_DIR=/usr/local/bin   Install location (default: /usr/local/bin)
 
 REPO="headmin/fleet-editor-extensions"

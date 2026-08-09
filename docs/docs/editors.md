@@ -11,7 +11,7 @@ All editors use `flint lsp` as a language server over stdio. Install flint first
 Download the `.vsix` from [releases](https://github.com/headmin/fleet-editor-extensions/releases) and install:
 
 ```bash
-code --install-extension flint-0.1.1.vsix
+code --install-extension flint-0.2.0.vsix
 ```
 
 The extension activates automatically for Fleet GitOps YAML files.

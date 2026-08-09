@@ -16,7 +16,7 @@ Output:
 
 ```json
 {
-  "version": "0.1.1",
+  "version": "0.2.0",
   "target_version": "4.85.0",
   "summary": {
     "files_scanned": 121,
