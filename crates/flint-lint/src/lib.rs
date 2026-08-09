@@ -34,6 +34,7 @@ pub mod workspace;
 
 // -- implementation details (reachable only via the re-exports below) ---
 mod config;
+pub mod deprecated_conflict;
 mod deprecation_rule;
 mod engine;
 mod init;

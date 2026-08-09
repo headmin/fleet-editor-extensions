@@ -282,7 +282,7 @@ fn classify(path: &Path) -> (&'static str, bool) {
         Some("json") => ("controls.apple_settings.configuration_profiles", false),
         _ if lower.contains("/software/") => ("software.packages", false),
         _ if lower.contains("/policies/") => ("policies", false),
-        _ if lower.contains("/queries/") || lower.contains("/reports/") => ("queries", false),
+        _ if lower.contains("/queries/") || lower.contains("/reports/") => ("reports", false),
         _ => ("(wire manually)", true),
     }
 }

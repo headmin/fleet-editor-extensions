@@ -31,6 +31,22 @@ pub(crate) fn append_label_block(item: &mut String, key: &str, raw: &str, stub: 
     }
 }
 
+/// The section path to write into, matched to the spelling `source` already
+/// uses.
+///
+/// `classify` returns current Fleet key names. A repository mid-migration
+/// still has `controls.macos_settings.custom_settings`, and adding
+/// `controls.apple_settings.configuration_profiles` next to it produces a
+/// file `fleetctl gitops` refuses to parse. Falls back to the modern name
+/// when the file has neither, so new sections are never created deprecated.
+fn section_for(source: &str, modern: &'static str) -> String {
+    match serde_yaml::from_str::<serde_yaml::Value>(source) {
+        Ok(doc) => linter::deprecated_conflict::section_path_for(&doc, modern),
+        // Unparseable file: keep the modern name rather than guessing.
+        Err(_) => modern.to_string(),
+    }
+}
+
 /// Interactively insert a generated entry into chosen fleet/team files found
 /// under `root`. `entry(fleet_dir)` produces the YAML item (paths relative to
 /// that fleet).
@@ -238,7 +254,11 @@ pub(crate) fn interactive_unwired(
             continue;
         }
 
-        let keys: Vec<&str> = g.section.split('.').collect();
+        // Resolved per FILE below: a fleet file that still uses the
+        // deprecated spelling must not gain the modern key beside it. Fleet
+        // rejects a document carrying both ("cannot specify both … use only
+        // …"), and writing the modern name into an unmigrated file is exactly
+        // how this command used to produce one.
         // Per-path label targeting only makes sense where Fleet accepts it.
         let labels_ok = g.section.ends_with("configuration_profiles")
             || g.section.ends_with("custom_settings")
@@ -273,6 +293,8 @@ pub(crate) fn interactive_unwired(
                         let dir = f.parent().unwrap_or(&root);
                         let glob = format!("- paths: {}/*.{}", rel_to(dir, &g.dir_abs), g.ext);
                         let mut s = std::fs::read_to_string(f)?;
+                        let section = section_for(&s, g.section);
+                        let keys: Vec<&str> = section.split('.').collect();
                         s = insert_under(&s, &keys, &glob, "wired by flint paths --unwired");
                         std::fs::write(f, s)?;
                         let r = f
@@ -291,6 +313,8 @@ pub(crate) fn interactive_unwired(
             }
 
             let mut src = std::fs::read_to_string(fleet)?;
+            let section = section_for(&src, g.section);
+            let keys: Vec<&str> = section.split('.').collect();
 
             // Glob covers the whole dir with one rule; per-file lets each entry
             // carry its own labels_* (globs can't be label-scoped).

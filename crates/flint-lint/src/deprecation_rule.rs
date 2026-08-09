@@ -191,6 +191,12 @@ impl Rule for DeprecationRule {
         // 1. Check file path for directory deprecations
         errors.extend(self.check_directory(file));
 
+        // 1b. A deprecated key AND its replacement together is an apply
+        // failure, not a style issue — Fleet cannot choose between them and
+        // refuses to parse the file. Version-independent: it has nothing to
+        // do with how far along the deprecation window is.
+        errors.extend(super::deprecated_conflict::check(source, file));
+
         // 2. Parse YAML and walk keys
         let yaml_value: serde_yaml::Value = match serde_yaml::from_str(source) {
             Ok(v) => v,
