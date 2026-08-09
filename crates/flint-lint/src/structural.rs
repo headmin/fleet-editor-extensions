@@ -10,7 +10,7 @@ use super::error::{LintError, Span};
 use super::fleet_config::FleetConfig;
 use super::rules::Rule;
 use super::structure::{
-    schema_for_path, SchemaNode, APP_STORE_ITEM_SCHEMA, FMA_ITEM_SCHEMA, KEY_REGISTRY,
+    schema_for, SchemaNode, APP_STORE_ITEM_SCHEMA, FMA_ITEM_SCHEMA, KEY_REGISTRY,
     PACKAGE_ITEM_SCHEMA, SOFTWARE_LIST_SCHEMA,
 };
 use std::path::Path;
@@ -53,7 +53,7 @@ impl Rule for StructuralValidationRule {
             return errors;
         }
 
-        let schema = schema_for_path(file);
+        let schema = schema_for(file, &yaml_value);
         validate_node(&yaml_value, schema, "", source, file, &mut errors);
 
         errors
@@ -646,6 +646,64 @@ org_settings:
         let errors = check(bad, "default.yml");
         assert_eq!(errors.len(), 1, "{:?}", errors);
         assert!(errors[0].message.contains("cpu_usage"));
+    }
+
+    // A fleet file outside `fleets/` used to be validated against
+    // DEFAULT_SCHEMA, which has no top-level `name:`, so it reported
+    // "Key 'name' is not valid at 'name'. It requires wrapper 'controls'" on
+    // perfectly valid config. Pre-dates v0.2.0 — v0.1.4 does it too. Matters
+    // because `flint check <path>` on an arbitrary file is a supported entry
+    // point; a pre-commit hook passes exactly that.
+
+    #[test]
+    fn a_fleet_file_is_recognised_outside_the_fleets_directory() {
+        let yaml = "name: Team\nsoftware:\n  fleet_maintained_apps:\n    - slug: slack/darwin\n";
+        for path in [
+            "fleets/team.yml",     // the conventional home
+            "team.yml",            // repo root
+            "somewhere/team.yml",  // any other directory
+            "/tmp/scratch/t.yml",  // absolute, outside a repo
+        ] {
+            let errors = check(yaml, path);
+            assert!(
+                errors.is_empty(),
+                "same content flagged at {path}: {errors:?}"
+            );
+        }
+    }
+
+    /// THE CONTROL. The global config has no top-level `name:`, so it must
+    /// keep DEFAULT_SCHEMA — otherwise `org_settings:` starts reading as an
+    /// unknown key and flint blocks every default.yml.
+    #[test]
+    fn the_global_config_still_uses_the_default_schema() {
+        let yaml = "org_settings:\n  org_info:\n    org_name: E\ncontrols:\n  scripts: []\n";
+        for path in ["default.yml", "somewhere/default.yml"] {
+            assert!(check(yaml, path).is_empty(), "{path}");
+        }
+        // And a key that is genuinely invalid at the top level still fires,
+        // proving the schema is being applied rather than skipped.
+        let bad = "org_settings: {}\nnot_a_real_top_level_key: 1\n";
+        assert!(!check(bad, "default.yml").is_empty());
+    }
+
+    /// A path that DOES carry a signal keeps it — content must not override
+    /// an explicit `policies/` or `labels/` directory.
+    #[test]
+    fn an_explicit_path_signal_wins_over_content() {
+        // A policy fragment list, in a policies/ dir: still POLICY_SCHEMA.
+        let policies = "- name: p\n  query: \"SELECT 1;\"\n  platform: darwin\n";
+        assert!(check(policies, "platforms/macos/policies/p.yml").is_empty());
+    }
+
+    /// Fleet errors on a document carrying both, so flint leaves that case to
+    /// the path rather than guessing which one it is.
+    #[test]
+    fn name_plus_org_settings_does_not_switch_schema() {
+        let yaml = "name: T\norg_settings:\n  org_info:\n    org_name: E\n";
+        // Under DEFAULT_SCHEMA `name` is not a top-level key, so this still
+        // reports — which is the honest outcome for a file Fleet rejects.
+        assert!(!check(yaml, "somewhere/x.yml").is_empty());
     }
 
     // Issue #14: certificate SAN attribute (Fleet 4.86).

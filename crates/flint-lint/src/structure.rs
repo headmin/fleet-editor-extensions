@@ -1322,6 +1322,38 @@ pub(crate) static KEY_REGISTRY: Lazy<KeyRegistry> = Lazy::new(|| {
 // ---------------------------------------------------------------------------
 
 /// Determine which schema to use based on a file path.
+/// The schema to validate `doc` against, using the path first and the
+/// document's own shape to settle what the path leaves ambiguous.
+///
+/// [`schema_for_path`] recognises a fleet file only by a `fleets/` or
+/// `teams/` path component; anything else falls through to `DEFAULT_SCHEMA`,
+/// which has no top-level `name:`. So the same fleet file reported
+/// "Key 'name' is not valid at 'name'" purely because of where it sat —
+/// and `flint check <path>` on an arbitrary file is a supported entry point,
+/// which is exactly what a pre-commit hook passes.
+///
+/// The tie-breaker is Fleet's own discriminator, not a guess:
+/// `GitOpsFromFile` treats a document with a top-level `name:` as a fleet
+/// spec and one with `org_settings:` as the global config
+/// (pkg/spec/gitops.go:533-544). Both together is an error Fleet raises
+/// itself, so that case is left to the path.
+///
+/// Only applied where the path chose `DEFAULT_SCHEMA` — a path that DID
+/// carry a signal keeps it.
+pub(crate) fn schema_for(path: &std::path::Path, doc: &serde_yaml::Value) -> &'static SchemaNode {
+    let by_path = schema_for_path(path);
+    if !std::ptr::eq(by_path, &DEFAULT_SCHEMA as &SchemaNode) {
+        return by_path;
+    }
+    if let serde_yaml::Value::Mapping(map) = doc {
+        let has = |k: &str| map.contains_key(serde_yaml::Value::from(k));
+        if has("name") && !has("org_settings") {
+            return &FLEET_SCHEMA;
+        }
+    }
+    by_path
+}
+
 pub(crate) fn schema_for_path(path: &std::path::Path) -> &'static SchemaNode {
     let path_str = path.to_string_lossy();
 
