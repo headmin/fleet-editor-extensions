@@ -310,6 +310,19 @@ flint gen profile --from wifi.mobileconfig --wire   # insert into a fleet (path 
 The header includes the display name, identifier, scope, and the nested
 `PayloadType` (the meaningful one, not the `Configuration` wrapper).
 
+!!! note "Optional: Apple-schema validation via contour"
+
+    flint checks the *Fleet* side of a profile — is it referenced, is it wired
+    into a fleet, is its PayloadUUID unique — and never inspects the payload
+    itself. If [`contour`](https://github.com/macadmins/contour) is installed,
+    `gen profile` additionally validates the profile against Apple's schema
+    and prints anything it finds to **stderr**, so stdout stays
+    copy-pasteable and `flint gen profile … > entry.yml` is unaffected.
+
+    Entirely optional: with contour absent the output is byte-identical and
+    nothing is printed. Absence of findings therefore means "not checked",
+    not "no problems".
+
 Mitigate a `duplicate-payload-uuid` finding by minting a fresh UUID:
 
 ```bash

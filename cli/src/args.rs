@@ -550,6 +550,13 @@ pub(crate) enum GenKind {
 
     /// `configuration_profiles` entry from a .mobileconfig or DDM .json —
     /// or a blank profile template with no --from.
+    ///
+    /// flint checks the Fleet side of a profile (is it referenced, wired, and
+    /// its PayloadUUID unique). It does not inspect the payload. If `contour`
+    /// is installed it is also validated against Apple's schema and any
+    /// findings are printed to stderr, leaving stdout copy-pasteable.
+    /// Entirely optional — with contour absent the output is unchanged.
+    /// See https://github.com/macadmins/contour
     Profile(GenProfileArgs),
 
     /// Query stanza from a .sql file (platform inferred from the osquery

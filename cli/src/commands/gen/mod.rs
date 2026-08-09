@@ -124,14 +124,57 @@ fn run_profile(a: GenProfileArgs) -> anyhow::Result<()> {
             kind: "profile".to_string(),
             output: a.output,
         }),
-        Some(from) => profile::run(ProfileArgs {
-            path: from,
-            output: a.output,
-            full: a.full,
-            regen_uuid: a.regen_uuid,
-            wire: a.wire,
-        }),
+        Some(from) => {
+            // Validate the payload itself before emitting an entry that wires
+            // it into fleets. flint only checks the Fleet side (referenced,
+            // wired, unique UUID); `contour` checks it against Apple's schema.
+            //
+            // Optional: with contour absent this is a no-op and the generated
+            // YAML is unchanged. Findings go to STDERR precisely so stdout
+            // stays byte-identical — `gen profile … > entry.yml` must keep
+            // producing a clean file, and gen_surface asserts that identity
+            // against the legacy command.
+            report_profile_validation(&from);
+            profile::run(ProfileArgs {
+                path: from,
+                output: a.output,
+                full: a.full,
+                regen_uuid: a.regen_uuid,
+                wire: a.wire,
+            })
+        }
     }
+}
+
+/// Print contour's verdict on `path` to stderr, if contour is installed.
+///
+/// Silent when contour is absent, when it cannot run, or when the profile is
+/// clean. Deliberately non-fatal: a schema complaint is worth seeing, but it
+/// is not a reason to refuse to generate the YAML — the author may be mid-edit
+/// and Fleet will accept the file regardless.
+fn report_profile_validation(path: &std::path::Path) {
+    use colored::Colorize;
+    let Some(report) = flint_lint::contour::validate(path) else {
+        return; // not installed, or not checked — say nothing either way
+    };
+    if !report.has_findings() {
+        return;
+    }
+    eprintln!(
+        "{} contour validated {}:",
+        "note:".bold(),
+        path.display()
+    );
+    for e in &report.errors {
+        eprintln!("  {} {e}", "error".red().bold());
+    }
+    for w in &report.warnings {
+        eprintln!("  {} {w}", "warning".yellow().bold());
+    }
+    eprintln!(
+        "  {}",
+        "(Apple-schema findings from `contour`; flint checks the Fleet side only)".dimmed()
+    );
 }
 
 fn run_query(a: GenQueryArgs) -> anyhow::Result<()> {

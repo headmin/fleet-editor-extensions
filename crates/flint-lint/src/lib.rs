@@ -15,6 +15,7 @@
 
 // -- public surface -----------------------------------------------------
 pub mod codes;
+pub mod contour;
 pub mod cross_reference;
 pub mod deprecations;
 pub mod error;
