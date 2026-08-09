@@ -252,7 +252,18 @@ impl Linter {
         // Use file path to determine the expected type, then parse accordingly.
         // This prevents labels from being misidentified as policies, software files
         // from triggering policy checks, etc.
-        let file_type = detect_file_type(file_path);
+        //
+        // The path is a heuristic, so it is corrected by CONTENT where the
+        // content is unambiguous: an agent-options fragment is recognisable
+        // whatever it is called. Naming was the only signal before, and a file
+        // referenced as `agent_options: path: ./lib/ao.yml` was linted as a
+        // fleet config and reported "Key 'config' … requires wrapper
+        // 'agent_options'" — a blocking error on config `fleetctl gitops`
+        // accepts.
+        let mut file_type = detect_file_type(file_path);
+        if file_type != FileType::AgentOptions && looks_like_agent_options(content) {
+            file_type = FileType::AgentOptions;
+        }
 
         // Agent-options lib files and opaque non-YAML assets are not fleet
         // configs and nothing in the ruleset applies — return early with just
@@ -722,6 +733,53 @@ pub(crate) enum FileType {
     Software,     // */software/*.yml
     AgentOptions, // agent-options*.yml
     NonYaml,      // profiles, scripts, icons, declarations, commands — not YAML to lint
+}
+
+/// Whether a document is an agent-options fragment, judged by its top-level
+/// keys alone.
+///
+/// Fleet's own top-level GitOps keys are `name`, `settings`, `org_settings`,
+/// `agent_options`, `controls`, `policies`, `reports`, `queries`, `software`,
+/// `labels` and `custom_host_vitals` (pkg/spec/gitops.go). None of them is a
+/// child of `agent_options`, so the two sets do not overlap and a document
+/// made only of agent-options children cannot be a fleet config.
+///
+/// Requires at least one DISTINCTIVE key: `path` alone is shared with plenty
+/// of other fragments and would misclassify them.
+fn looks_like_agent_options(content: &str) -> bool {
+    /// Children of `agent_options` — server/fleet/agent_options.go, mirrored
+    /// by KEY_REGISTRY's `agent_options` entries.
+    const CHILDREN: &[&str] = &[
+        "config",
+        "overrides",
+        "command_line_flags",
+        "update_channels",
+        "script_execution_timeout",
+        "extensions",
+        "path",
+    ];
+    /// `path` is excluded: on its own it identifies nothing.
+    const DISTINCTIVE: &[&str] = &[
+        "config",
+        "overrides",
+        "command_line_flags",
+        "update_channels",
+        "script_execution_timeout",
+        "extensions",
+    ];
+
+    let Ok(serde_yaml::Value::Mapping(map)) = serde_yaml::from_str::<serde_yaml::Value>(content)
+    else {
+        return false;
+    };
+    if map.is_empty() {
+        return false;
+    }
+    let keys: Vec<&str> = map.keys().filter_map(|k| k.as_str()).collect();
+    if keys.len() != map.len() {
+        return false; // a non-string key: not a shape we recognise
+    }
+    keys.iter().all(|k| CHILDREN.contains(k)) && keys.iter().any(|k| DISTINCTIVE.contains(k))
 }
 
 /// Detect file type from path using directory names and file name patterns.
@@ -1212,6 +1270,83 @@ mod suppression_tests {
 
 #[cfg(test)]
 mod tests {
+
+    // --- agent-options detection by content ---------------------------------
+    //
+    // Classification was filename-only (`agent-options*`), so a file referenced
+    // as `agent_options: path: ./lib/ao.yml` was linted as a fleet config and
+    // reported a BLOCKING "Key 'config' … requires wrapper 'agent_options'".
+    // Fleet's own parser accepts that repo — verified with the oracle — so the
+    // error was flint rejecting valid config.
+
+    #[test]
+    fn agent_options_fragment_recognised_whatever_it_is_called() {
+        let src = "config:\n  options:\n    logger_plugin: filesystem\n";
+        assert!(looks_like_agent_options(src));
+        let mut report = LintReport::new();
+        // A name that carries no hint at all.
+        let linter = Linter::new();
+        let out = linter.lint_content(src, Path::new("lib/ao.yml")).unwrap();
+        report.errors.extend(out.errors);
+        assert!(
+            report.errors.is_empty(),
+            "an agent-options fragment must not be linted as a fleet config: {:?}",
+            report.errors
+        );
+    }
+
+    #[test]
+    fn every_agent_options_child_is_accepted() {
+        for k in [
+            "config",
+            "overrides",
+            "command_line_flags",
+            "update_channels",
+            "script_execution_timeout",
+            "extensions",
+        ] {
+            assert!(
+                looks_like_agent_options(&format!("{k}: x\n")),
+                "{k} should mark a fragment as agent options"
+            );
+        }
+    }
+
+    /// THE CONTROL, and the risk this carries: a real fleet config must never
+    /// be mistaken for an agent-options fragment, or its rules stop running
+    /// and flint goes quiet on files it should be checking.
+    #[test]
+    fn real_fleet_configs_are_not_mistaken_for_agent_options() {
+        for src in [
+            "name: Team\npolicies:\n  - name: p\n",
+            "org_settings:\n  org_info:\n    org_name: E\n",
+            "controls:\n  scripts: []\n",
+            "agent_options:\n  config:\n    options: {}\n", // the WRAPPER form
+            "labels:\n  - name: L\n",
+        ] {
+            assert!(
+                !looks_like_agent_options(src),
+                "misclassified as agent options: {src:?}"
+            );
+        }
+    }
+
+    /// `path:` alone identifies nothing — software, profile and policy
+    /// fragments all use it.
+    #[test]
+    fn a_lone_path_key_is_not_enough() {
+        assert!(!looks_like_agent_options("path: ../lib/x.yml\n"));
+        // but path alongside a distinctive key is fine
+        assert!(looks_like_agent_options("path: ../lib/x.yml\nconfig: {}\n"));
+    }
+
+    #[test]
+    fn non_mappings_and_empty_documents_are_not_agent_options() {
+        assert!(!looks_like_agent_options(""));
+        assert!(!looks_like_agent_options("- a\n- b\n"));
+        assert!(!looks_like_agent_options("just a string\n"));
+        assert!(!looks_like_agent_options("{}\n"));
+    }
 
     // --- duplicate-key detection ------------------------------------------
     //
