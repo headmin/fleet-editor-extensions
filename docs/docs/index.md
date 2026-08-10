@@ -43,18 +43,52 @@ graph LR
 curl -fsSL https://raw.githubusercontent.com/headmin/fleet-editor-extensions/main/scripts/install.sh | sh
 ```
 
-Then:
+### The loop: check → dry-run → fix
+
+**1. Look at your repo.** No configuration needed, nothing is written.
 
 ```bash
-# Lint a Fleet GitOps repo
+cd /path/to/your-gitops-repo
 flint check .
+```
 
-# Auto-fix safe issues
+**2. Ask the real question** — would `fleetctl gitops` accept this?
+
+```bash
+flint dry-run .
+```
+
+`PASS` means nothing flint knows about will fail the apply. Warnings are
+advisory and do not block; add `--strict` to gate on them too. The exit code
+is `0` for pass and `2` for blocked, so it drops straight into CI.
+
+**3. Fix the easy things** — typo'd keys, deprecated renames, and `path:`
+references that moved:
+
+```bash
 flint check . --fix
+```
 
-# Initialize configuration
+**4. Optional — narrow the scope**, if your repo holds directories flint
+should leave alone. `flint init` walks them, asks in or out for each, shows
+how many files each answer puts in scope, and writes `fleetlint.toml`.
+
+```bash
 flint init
 ```
+
+**5. Put it in CI.** `--format github` emits annotations on the lines they
+refer to in a pull request — no token and no `gh` required.
+
+```yaml
+- run: curl -fsSL https://raw.githubusercontent.com/headmin/fleet-editor-extensions/main/scripts/install.sh | sh
+- run: flint check . --format github
+```
+
+Everything else — [`flint gen`](commands.md#generate-yaml-flint-gen) for YAML from real
+artifacts, [`flint paths`](commands.md#path-references) for reference repair and
+wiring, [`flint fleet`](commands.md#fleet-instance-views-flint-fleet) for
+read-only instance views — is optional. `flint --help` lists it all.
 
 ## Editor support
 
