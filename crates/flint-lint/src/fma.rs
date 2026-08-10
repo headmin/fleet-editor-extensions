@@ -181,10 +181,6 @@ impl Rule for FmaSlugRule {
     fn category(&self) -> &'static str {
         "semantic"
     }
-    fn is_fixable(&self) -> bool {
-        true
-    }
-
     fn check(&self, _config: &FleetConfig, file: &Path, source: &str) -> Vec<LintError> {
         let Some(yaml) = super::yaml_utils::parse_yaml(source) else {
             return Vec::new();

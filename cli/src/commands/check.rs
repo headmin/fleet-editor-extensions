@@ -9,6 +9,41 @@ use crate::overlay::{resolve_overlay_path, run_overlay_merge, OverlayTempFile};
 use flint_lint as linter;
 use std::path::PathBuf;
 
+/// Tell the reader that some of these findings resolve themselves.
+///
+/// A finding's `help:` explains the problem; nothing in the per-finding output
+/// says `--fix` would apply a remedy, so the fixable ones are invisible unless
+/// we say so. Counts come from [`linter::LintReport::fixable_counts`], which
+/// asks the applier rather than reading the `Fix` variant, so this line can
+/// never promise more than `--fix` delivers.
+fn print_fix_hint(results: &[(PathBuf, linter::error::LintReport)]) {
+    use colored::Colorize;
+
+    let (mut safe, mut unsafe_only) = (0usize, 0usize);
+    for (_, report) in results {
+        let (s, u) = report.fixable_counts();
+        safe += s;
+        unsafe_only += u;
+    }
+    if safe == 0 && unsafe_only == 0 {
+        return;
+    }
+
+    let mut hint = String::new();
+    if safe > 0 {
+        hint.push_str(&format!("{safe} auto-fixable — run `flint check --fix`"));
+    }
+    if unsafe_only > 0 {
+        if safe > 0 {
+            hint.push_str("; ");
+        }
+        hint.push_str(&format!(
+            "{unsafe_only} more with `flint check --fix --unsafe-fixes`"
+        ));
+    }
+    println!("  {} {}", "↳".cyan(), hint);
+}
+
 pub(crate) fn run(args: CheckArgs) -> anyhow::Result<()> {
     let CheckArgs {
         paths,
@@ -211,6 +246,9 @@ pub(crate) fn run(args: CheckArgs) -> anyhow::Result<()> {
         println!("{} Linting {}...\n", "🔍".blue(), file_path.display());
         let source = std::fs::read_to_string(file_path).ok();
         print!("{}", report.render(source.as_deref()));
+        if !fix {
+            print_fix_hint(&results);
+        }
     } else {
         println!("{} Linting {} path(s)...\n", "🔍".blue(), lint_paths.len());
 
@@ -248,6 +286,9 @@ pub(crate) fn run(args: CheckArgs) -> anyhow::Result<()> {
                     .dimmed()
                 );
             }
+        }
+        if !fix {
+            print_fix_hint(&results);
         }
     }
 

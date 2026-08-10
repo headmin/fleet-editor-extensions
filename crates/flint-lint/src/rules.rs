@@ -30,10 +30,6 @@ pub trait Rule: Send + Sync {
         "general"
     }
 
-    /// Whether this rule can produce auto-fixable suggestions
-    fn is_fixable(&self) -> bool {
-        false
-    }
 }
 
 /// Collection of linting rules
@@ -186,10 +182,6 @@ impl Rule for RequiredFieldsRule {
     fn category(&self) -> &'static str {
         "structural"
     }
-    fn is_fixable(&self) -> bool {
-        true
-    }
-
     fn check(&self, config: &FleetConfig, file: &Path, _source: &str) -> Vec<LintError> {
         let mut errors = Vec::new();
 
@@ -367,10 +359,6 @@ impl Rule for TypeValidationRule {
     fn category(&self) -> &'static str {
         "structural"
     }
-    fn is_fixable(&self) -> bool {
-        true
-    }
-
     fn check(&self, config: &FleetConfig, file: &Path, _source: &str) -> Vec<LintError> {
         let mut errors = Vec::new();
 
@@ -488,10 +476,6 @@ impl Rule for SecurityRule {
     fn category(&self) -> &'static str {
         "security"
     }
-    fn is_fixable(&self) -> bool {
-        true
-    }
-
     fn check(&self, config: &FleetConfig, file: &Path, _source: &str) -> Vec<LintError> {
         let mut errors = Vec::new();
 
@@ -744,10 +728,6 @@ impl Rule for IntervalValidationRule {
     fn category(&self) -> &'static str {
         "style"
     }
-    fn is_fixable(&self) -> bool {
-        true
-    }
-
     fn check(&self, config: &FleetConfig, file: &Path, _source: &str) -> Vec<LintError> {
         let mut errors = Vec::new();
 

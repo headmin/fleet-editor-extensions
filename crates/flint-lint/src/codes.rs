@@ -171,15 +171,19 @@ pub static REGISTRY: &[RuleMeta] = &[
     meta!(STRUCTURAL_VALIDATION, "structural", Some(DOCS), true, false),
     meta!(LABEL_TARGETING, "semantic", Some(concat_url!("#policies")), false, false),
     meta!(LABEL_MEMBERSHIP, "semantic", Some(concat_url!("#labels")), false, false),
-    meta!(DATE_FORMAT, "semantic", Some(concat_url!("#macos_updates")), true, false),
+    // Not fixable: the only remedy is an example date. A value like
+    // "10/08/2026" is ambiguous between D/M and M/D, so there is nothing safe
+    // to substitute. Guarded by tests/fixable_metadata.rs.
+    meta!(DATE_FORMAT, "semantic", Some(concat_url!("#macos_updates")), false, false),
     meta!(PATCH_POLICY, "semantic", Some(concat_url!("#patch-policy")), false, false),
     meta!(POLICY_AUTOMATION_LOCATION, "semantic", Some(concat_url!("#policies")), false, false),
     meta!(HASH_FORMAT, "semantic", Some(concat_url!("#packages")), true, false),
+    // Not fixable: the closest default category is offered as text only.
     meta!(
         CATEGORIES,
         "semantic",
         Some(concat_url!("#self_service-labels-categories-and-setup_experience")),
-        true,
+        false,
         false
     ),
     meta!(FILE_EXTENSION, "semantic", Some(concat_url!("#controls")), false, false),

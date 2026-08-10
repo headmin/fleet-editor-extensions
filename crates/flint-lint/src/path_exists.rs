@@ -64,10 +64,6 @@ impl Rule for PathExistsRule {
         "structural"
     }
 
-    fn is_fixable(&self) -> bool {
-        true
-    }
-
     fn check(&self, _config: &FleetConfig, file: &Path, source: &str) -> Vec<LintError> {
         let yaml: serde_yaml::Value = match serde_yaml::from_str(source) {
             Ok(v) => v,

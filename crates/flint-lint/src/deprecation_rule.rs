@@ -181,10 +181,6 @@ impl Rule for DeprecationRule {
     fn category(&self) -> &'static str {
         "deprecation"
     }
-    fn is_fixable(&self) -> bool {
-        true
-    }
-
     fn check(&self, _config: &FleetConfig, file: &Path, source: &str) -> Vec<LintError> {
         let mut errors = Vec::new();
 
