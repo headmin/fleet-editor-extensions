@@ -496,8 +496,21 @@ pub(crate) struct PathsArgs {
     /// Limit interactive wiring to fleet/team files matching this glob
     /// (e.g. "fleets/acfg-*.yml" or "acfg-*"). Matched against each file's
     /// path and name.
-    #[arg(long, value_name = "GLOB", requires = "interactive")]
+    #[arg(long, value_name = "GLOB", requires = "unwired")]
     pub(crate) only: Option<String>,
+
+    /// With --unwired: one tab-separated record per artifact
+    /// (`path  section  wire-value`) instead of the YAML blocks, so the
+    /// report can be filtered — `flint paths --unwired --oneline | grep lisa`.
+    #[arg(long, requires = "unwired", conflicts_with = "interactive")]
+    pub(crate) oneline: bool,
+
+    /// With --unwired: emit a ready-to-run instruction per artifact for an AI
+    /// agent — the file to edit, the key to insert under, the exact line, and
+    /// the two commands that prove it worked. Pair with `--only` to scope to
+    /// one fleet file, and filter with grep to target a single artifact.
+    #[arg(long, requires = "unwired", conflicts_with_all = ["interactive", "oneline"])]
+    pub(crate) prompt: bool,
 }
 
 #[derive(Subcommand)]
