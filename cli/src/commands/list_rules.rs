@@ -3,6 +3,16 @@
 use crate::args::ListRulesArgs;
 use flint_lint as linter;
 
+/// Whether `--fix` can ever apply a fix for this rule's code.
+///
+/// Read from the code registry rather than a per-rule constant so there is one
+/// source of truth, guarded against the rules' actual behaviour by
+/// `flint-lint/tests/fixable_metadata.rs`. An unregistered name answers `no`:
+/// silence is the safe direction for a flag that promises a fix.
+fn is_fixable(rule_name: &str) -> bool {
+    linter::codes::meta(rule_name).is_some_and(|m| m.fixable)
+}
+
 pub(crate) fn run(args: ListRulesArgs) -> anyhow::Result<()> {
     let format = args.format;
     let ruleset = linter::RuleSet::default_rules();
@@ -51,7 +61,7 @@ pub(crate) fn run(args: ListRulesArgs) -> anyhow::Result<()> {
                     "name": r.name(),
                     "description": r.description(),
                     "category": r.category(),
-                    "fixable": r.is_fixable(),
+                    "fixable": is_fixable(r.name()),
                     "docs_url": linter::codes::doc_url(r.name()),
                 })
             })
@@ -85,7 +95,7 @@ pub(crate) fn run(args: ListRulesArgs) -> anyhow::Result<()> {
         );
         println!("{}", "-".repeat(90));
         for rule in ruleset.rules() {
-            let fixable = if rule.is_fixable() {
+            let fixable = if is_fixable(rule.name()) {
                 "yes".green()
             } else {
                 "no".dimmed()

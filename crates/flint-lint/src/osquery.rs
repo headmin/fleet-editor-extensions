@@ -5,7 +5,7 @@
 //!
 //! AUTO-GENERATED from the osquery upstream schema. Do not hand-edit.
 //! Regenerate via `python3 scripts/sync-osquery-schema.py`.
-//! Schema version: 5.22.1
+//! Schema version: 5.23.1
 //! Source: https://github.com/osquery/osquery-site/tree/main/src/data/osquery_schema_versions
 
 use once_cell::sync::Lazy;
@@ -17,7 +17,7 @@ pub struct OsqueryTable {
     pub description: &'static str,
 }
 
-/// 287 tables (osquery 5.22.1 + Fleet overlay).
+/// 290 tables (osquery 5.23.1 + Fleet overlay).
 pub static OSQUERY_TABLES: Lazy<HashMap<&'static str, OsqueryTable>> = Lazy::new(|| {
     let mut tables = HashMap::new();
 
@@ -290,7 +290,7 @@ pub static OSQUERY_TABLES: Lazy<HashMap<&'static str, OsqueryTable>> = Lazy::new
         OsqueryTable {
             name: "certificates",
             platforms: vec!["darwin", "linux", "windows"],
-            description: "Certificate Authorities installed in Keychains/ca-bundles. NOTE: osquery limits frequent access to keychain files on macOS. This limit is controlled by keychain_access_interval flag.",
+            description: "Certificate Authorities installed in Keychains/ca-bundles. NOTE: osquery limits frequent access to keychain files on macOS. This limit is controlled by keychain_access_interval flag. On macOS, 'path' may point to either a keychain file or a DER/PEM-encoded certificate file; non-keychain files are parsed as DER/PEM.",
         },
     );
     tables.insert(
@@ -1606,6 +1606,14 @@ pub static OSQUERY_TABLES: Lazy<HashMap<&'static str, OsqueryTable>> = Lazy::new
         },
     );
     tables.insert(
+        "process_open_handles",
+        OsqueryTable {
+            name: "process_open_handles",
+            platforms: vec!["windows"],
+            description: "Enumerate open handles for a specified process.",
+        },
+    );
+    tables.insert(
         "process_open_pipes",
         OsqueryTable {
             name: "process_open_pipes",
@@ -1755,6 +1763,14 @@ pub static OSQUERY_TABLES: Lazy<HashMap<&'static str, OsqueryTable>> = Lazy::new
             name: "secureboot",
             platforms: vec!["darwin", "linux", "windows"],
             description: "Secure Boot UEFI Settings.",
+        },
+    );
+    tables.insert(
+        "secureboot_certificates",
+        OsqueryTable {
+            name: "secureboot_certificates",
+            platforms: vec!["linux"],
+            description: "X.509 certificates from UEFI Secure Boot signature databases (db and dbx EFI variables). Useful for monitoring CA expiry and adoption of updated certificates (e.g. Microsoft UEFI CA 2023).",
         },
     );
     tables.insert(
@@ -2130,7 +2146,7 @@ pub static OSQUERY_TABLES: Lazy<HashMap<&'static str, OsqueryTable>> = Lazy::new
         OsqueryTable {
             name: "wifi_status",
             platforms: vec!["darwin"],
-            description: "macOS current WiFi status.",
+            description: "macOS current WiFi status. This table requires Full Disk Access (FDA) permission to retrieve network_name.",
         },
     );
     tables.insert(
@@ -2286,19 +2302,27 @@ pub static OSQUERY_TABLES: Lazy<HashMap<&'static str, OsqueryTable>> = Lazy::new
         },
     );
     tables.insert(
-        "yara",
-        OsqueryTable {
-            name: "yara",
-            platforms: vec!["darwin", "linux", "windows"],
-            description: "Triggers one-off YARA query for files at the specified path. Requires one of `sig_group`, `sigfile`, or `sigrule`.",
-        },
-    );
-    tables.insert(
         "yara_events",
         OsqueryTable {
             name: "yara_events",
             platforms: vec!["darwin", "linux", "windows"],
             description: "Track YARA matches for files specified in configuration data.",
+        },
+    );
+    tables.insert(
+        "yara_file",
+        OsqueryTable {
+            name: "yara_file",
+            platforms: vec!["darwin", "linux", "windows"],
+            description: "Triggers one-off YARA query for files at the specified path. Additionally requires one of `sig_group`, `sigfile`, or `sigrule`.",
+        },
+    );
+    tables.insert(
+        "yara_process",
+        OsqueryTable {
+            name: "yara_process",
+            platforms: vec!["darwin", "linux", "windows"],
+            description: "Triggers one-off YARA query for process memory of the specified pid. Additionally requires one of `sig_group`, `sigfile`, or `sigrule`.",
         },
     );
     tables.insert(

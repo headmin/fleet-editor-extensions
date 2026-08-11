@@ -1,6 +1,6 @@
-name = "flint-0.2.0.pkg"
+name = "flint-0.2.1.pkg"
 identifier = "io.declarative.flint.pkg"
-version = "0.2.0"
+version = "0.2.1"
 install_location = "/"
 
 [signing_info]

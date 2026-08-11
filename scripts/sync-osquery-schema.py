@@ -21,7 +21,7 @@ import urllib.request
 from pathlib import Path
 
 # Pin to a specific osquery schema version. Bump when Fleet bundles a newer one.
-VERSION = "5.22.1"
+VERSION = "5.23.1"
 URL_TEMPLATE = (
     "https://raw.githubusercontent.com/osquery/osquery-site/main"
     "/src/data/osquery_schema_versions/{v}.json"

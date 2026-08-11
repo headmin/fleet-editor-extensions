@@ -570,8 +570,9 @@ impl WorkspaceRule for DuplicateContentRule {
     }
 }
 
-/// Every workspace file `pf` references: `path:` values resolved relative
-/// to the referencing file's parent, `paths:` globs expanded against the
+/// Every workspace file `pf` references: each path-bearing key's value
+/// (see [`crate::yaml_utils::PATH_BEARING_KEYS`]) resolved relative to the
+/// referencing file's parent, plus `paths:` globs expanded against the
 /// workspace set. Shared by `orphaned-file` and the `must-be-referenced`
 /// pattern assertion.
 pub(crate) fn referenced_by(
@@ -580,8 +581,10 @@ pub(crate) fn referenced_by(
 ) -> std::collections::HashSet<PathBuf> {
     let base = pf.path.parent().unwrap_or(Path::new(""));
     let mut out = std::collections::HashSet::new();
-    let mut singles = Vec::new();
-    collect_string_values(&pf.yaml, "path", &mut singles);
+    // Every key Fleet resolves as a path, not just `path:` — shared with
+    // `path-exists` so a wired file cannot be invisible here while a typo in
+    // the same key goes unreported there.
+    let singles = crate::yaml_utils::collect_path_values(&pf.yaml);
     for rel in &singles {
         if rel.contains('$') || rel.contains("://") {
             continue;

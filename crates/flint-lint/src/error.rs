@@ -404,6 +404,26 @@ impl LintReport {
         self.errors.len() + self.warnings.len() + self.infos.len()
     }
 
+    /// How many findings `--fix` would actually resolve: `(safe, unsafe_only)`.
+    ///
+    /// Counted through [`crate::fix::is_applicable`] rather than by inspecting
+    /// [`Fix`] variants here, so the number can never promise more than the
+    /// applier delivers: a finding whose only remedy is a display-only
+    /// template counts as neither.
+    pub fn fixable_counts(&self) -> (usize, usize) {
+        use crate::fix::{is_applicable, ApplyMode};
+        let mut safe = 0;
+        let mut unsafe_only = 0;
+        for finding in self.errors.iter().chain(&self.warnings).chain(&self.infos) {
+            if is_applicable(finding, ApplyMode::SafeOnly) {
+                safe += 1;
+            } else if is_applicable(finding, ApplyMode::IncludeUnsafe) {
+                unsafe_only += 1;
+            }
+        }
+        (safe, unsafe_only)
+    }
+
     /// Render every finding plus the summary line, as the CLI prints it.
     ///
     /// Returns the text rather than writing it: a library that prints can

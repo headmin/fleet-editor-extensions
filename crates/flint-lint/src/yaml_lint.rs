@@ -37,10 +37,6 @@ impl Rule for YamlIndentationRule {
     fn category(&self) -> &'static str {
         "yaml"
     }
-    fn is_fixable(&self) -> bool {
-        true
-    }
-
     fn check(&self, _config: &FleetConfig, file: &Path, source: &str) -> Vec<LintError> {
         let mut errors = Vec::new();
         // Track the indent "unit" observed so far (first non-zero indent sets it).
@@ -165,10 +161,6 @@ impl Rule for YamlColonsRule {
     fn category(&self) -> &'static str {
         "yaml"
     }
-    fn is_fixable(&self) -> bool {
-        true
-    }
-
     fn check(&self, _config: &FleetConfig, file: &Path, source: &str) -> Vec<LintError> {
         let mut errors = Vec::new();
         let mut in_block_scalar = false;
@@ -773,19 +765,32 @@ mod tests {
         assert_eq!(errors[0].fix_safety(), Some(FixSafety::Safe));
     }
 
+    // Fixability now lives in codes::REGISTRY (one source, printed by
+    // `flint list-rules`), and is guarded against the rules' real behaviour by
+    // flint-lint/tests/fixable_metadata.rs. These assert the registry entries
+    // for this file's rules.
+
     #[test]
     fn colons_is_fixable() {
-        assert!(YamlColonsRule.is_fixable());
+        assert!(crate::codes::meta(YamlColonsRule.name()).unwrap().fixable);
     }
 
     #[test]
     fn indentation_is_fixable() {
-        assert!(YamlIndentationRule.is_fixable());
+        assert!(
+            crate::codes::meta(YamlIndentationRule.name())
+                .unwrap()
+                .fixable
+        );
     }
 
     #[test]
     fn empty_values_not_fixable() {
-        assert!(!YamlEmptyValuesRule.is_fixable());
+        assert!(
+            !crate::codes::meta(YamlEmptyValuesRule.name())
+                .unwrap()
+                .fixable
+        );
     }
 
     // ── Integration: rules appear in list-rules ────────────────
@@ -795,14 +800,11 @@ mod tests {
         let indent = YamlIndentationRule;
         assert_eq!(indent.name(), "yaml-indentation");
         assert_eq!(indent.category(), "yaml");
-        assert!(indent.is_fixable());
 
         let colons = YamlColonsRule;
         assert_eq!(colons.name(), "yaml-colons");
-        assert!(colons.is_fixable());
 
         let empty = YamlEmptyValuesRule;
         assert_eq!(empty.name(), "yaml-empty-values");
-        assert!(!empty.is_fixable());
     }
 }

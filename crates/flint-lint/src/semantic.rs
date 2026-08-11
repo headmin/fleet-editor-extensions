@@ -520,10 +520,6 @@ impl Rule for DateFormatRule {
     fn category(&self) -> &'static str {
         "semantic"
     }
-    fn is_fixable(&self) -> bool {
-        true
-    }
-
     fn check(&self, _config: &FleetConfig, file: &Path, source: &str) -> Vec<LintError> {
         let yaml = match parse_yaml(source) {
             Some(v) => v,
@@ -827,10 +823,6 @@ impl Rule for HashFormatRule {
     fn category(&self) -> &'static str {
         "semantic"
     }
-    fn is_fixable(&self) -> bool {
-        true
-    }
-
     fn check(&self, _config: &FleetConfig, file: &Path, source: &str) -> Vec<LintError> {
         let yaml = match parse_yaml(source) {
             Some(v) => v,
@@ -939,10 +931,6 @@ impl Rule for CategoriesRule {
     fn category(&self) -> &'static str {
         "semantic"
     }
-    fn is_fixable(&self) -> bool {
-        true
-    }
-
     fn check(&self, _config: &FleetConfig, file: &Path, source: &str) -> Vec<LintError> {
         let yaml = match parse_yaml(source) {
             Some(v) => v,
@@ -1101,10 +1089,6 @@ impl Rule for SecretHygieneRule {
     fn category(&self) -> &'static str {
         "security"
     }
-    fn is_fixable(&self) -> bool {
-        true
-    }
-
     fn check(&self, _config: &FleetConfig, file: &Path, source: &str) -> Vec<LintError> {
         let yaml = match parse_yaml(source) {
             Some(v) => v,

@@ -87,6 +87,16 @@ fn edit_for(error: &LintError, mode: ApplyMode) -> Option<Edit> {
     }
 }
 
+/// Whether `error` carries a fix that [`apply_fixes`] would actually apply
+/// under `mode`.
+///
+/// Derived from [`edit_for`], so a caller counting "how many findings will
+/// `--fix` resolve?" cannot drift from what the applier does. Display-only
+/// templates (`old: None`) and `Candidates` answer `false`.
+pub fn is_applicable(error: &LintError, mode: ApplyMode) -> bool {
+    edit_for(error, mode).is_some()
+}
+
 /// Apply every auto-applicable fix in `errors` to `source`.
 /// Returns the new source and the number of fixes applied.
 pub fn apply_fixes<'a, I>(source: &str, errors: I, mode: ApplyMode) -> (String, usize)

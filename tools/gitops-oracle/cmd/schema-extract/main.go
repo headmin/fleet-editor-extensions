@@ -34,7 +34,7 @@
 //
 //	go run ./cmd/schema-extract > fleet-gitops-keys.json
 //
-// The Fleet version comes from this module's own go.mod pin (v4.89.2 — the
+// The Fleet version comes from this module's own go.mod pin (v4.90.0 — the
 // version the target server runs), so the oracle, the Tier 2 harness and
 // this extractor all describe one Fleet.
 package main

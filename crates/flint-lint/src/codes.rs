@@ -159,11 +159,17 @@ macro_rules! meta {
 pub static REGISTRY: &[RuleMeta] = &[
     // Core rules — doc URLs merged from the rules' own docs_url() impls and
     // the LSP's former doc_url_for_code table (rule's own wins on conflict).
-    meta!(REQUIRED_FIELDS, "structural", Some(concat_url!("#gitops")), true, false),
+    // Not fixable: reports a field that is absent. Nothing can be
+    // substituted for a missing `query:` without inventing config.
+    meta!(REQUIRED_FIELDS, "structural", Some(concat_url!("#gitops")), false, false),
     meta!(PLATFORM_COMPATIBILITY, "semantic", Some(concat_url!("#policies")), false, false),
     meta!(TYPE_VALIDATION, "structural", Some(concat_url!("#policies")), true, false),
-    meta!(SECURITY, "security", Some(concat_url!("#policies")), true, false),
-    meta!(INTERVAL_VALIDATION, "style", Some(concat_url!("#reports")), true, false),
+    // Not fixable: SecurityRule emits no `with_fix` anywhere; its remedies
+    // are judgement calls about the query, offered as help text.
+    meta!(SECURITY, "security", Some(concat_url!("#policies")), false, false),
+    // Not fixable: the right interval depends on intent, so the rule only
+    // states the accepted range.
+    meta!(INTERVAL_VALIDATION, "style", Some(concat_url!("#reports")), false, false),
     meta!(DUPLICATE_NAMES, "structural", Some(concat_url!("#gitops")), false, false),
     meta!(QUERY_SYNTAX, "semantic", Some(concat_url!("#reports")), false, false),
     meta!(QUERY_LENGTH, "semantic", Some(concat_url!("#reports")), false, false),
@@ -171,19 +177,26 @@ pub static REGISTRY: &[RuleMeta] = &[
     meta!(STRUCTURAL_VALIDATION, "structural", Some(DOCS), true, false),
     meta!(LABEL_TARGETING, "semantic", Some(concat_url!("#policies")), false, false),
     meta!(LABEL_MEMBERSHIP, "semantic", Some(concat_url!("#labels")), false, false),
-    meta!(DATE_FORMAT, "semantic", Some(concat_url!("#macos_updates")), true, false),
+    // Not fixable: the only remedy is an example date. A value like
+    // "10/08/2026" is ambiguous between D/M and M/D, so there is nothing safe
+    // to substitute. Guarded by tests/fixable_metadata.rs.
+    meta!(DATE_FORMAT, "semantic", Some(concat_url!("#macos_updates")), false, false),
     meta!(PATCH_POLICY, "semantic", Some(concat_url!("#patch-policy")), false, false),
     meta!(POLICY_AUTOMATION_LOCATION, "semantic", Some(concat_url!("#policies")), false, false),
     meta!(HASH_FORMAT, "semantic", Some(concat_url!("#packages")), true, false),
+    // Not fixable: the closest default category is offered as text only.
     meta!(
         CATEGORIES,
         "semantic",
         Some(concat_url!("#self_service-labels-categories-and-setup_experience")),
-        true,
+        false,
         false
     ),
     meta!(FILE_EXTENSION, "semantic", Some(concat_url!("#controls")), false, false),
-    meta!(SECRET_HYGIENE, "security", Some(concat_url!("#policies")), true, false),
+    // Not fixable: the only remedy is `with_suggestion`, which mints a
+    // display-only `$VAR` placeholder the applier always skips. Naming the
+    // real variable is the author's call.
+    meta!(SECRET_HYGIENE, "security", Some(concat_url!("#policies")), false, false),
     meta!(PATH_REFERENCE, "semantic", None, false, false),
     meta!(SHEBANG_SYNTAX, "semantic", None, false, false),
     meta!(WEBHOOK_ENDPOINT_VALID, "semantic", None, false, false),

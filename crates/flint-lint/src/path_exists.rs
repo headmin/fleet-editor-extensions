@@ -20,7 +20,7 @@
 use super::error::{Fix, FixSafety, LintError};
 use super::fleet_config::FleetConfig;
 use super::rules::Rule;
-use super::yaml_utils::{find_path_value_line, walk_mappings};
+use super::yaml_utils::{collect_path_values, find_path_value_line};
 use std::collections::HashMap;
 use std::path::{Component, Path, PathBuf};
 
@@ -64,10 +64,6 @@ impl Rule for PathExistsRule {
         "structural"
     }
 
-    fn is_fixable(&self) -> bool {
-        true
-    }
-
     fn check(&self, _config: &FleetConfig, file: &Path, source: &str) -> Vec<LintError> {
         let yaml: serde_yaml::Value = match serde_yaml::from_str(source) {
             Ok(v) => v,
@@ -80,23 +76,12 @@ impl Rule for PathExistsRule {
         // built it is cached on the rule for every later file.
         let mut index: Option<std::sync::Arc<BasenameIndex>> = None;
         let build_index = |f: &Path| self.cached_index(f);
-        walk_mappings(&yaml, &mut |map| {
-            for key in PATH_KEYS {
-                if let Some(serde_yaml::Value::String(path_val)) =
-                    map.get(serde_yaml::Value::String(key.to_string()))
-                {
-                    check_path(file, path_val, source, &mut index, &build_index, &mut errors);
-                }
-            }
-        });
+        for path_val in collect_path_values(&yaml) {
+            check_path(file, &path_val, source, &mut index, &build_index, &mut errors);
+        }
         errors
     }
 }
-
-/// Keys whose string value is a single relative file reference we can resolve.
-/// `path` is the common one; `package_path` is the policy `install_software`
-/// automation's reference to a software package YAML.
-const PATH_KEYS: [&str; 2] = ["path", "package_path"];
 
 /// Check a single `path:` value: skip forms we cannot verify, then flag it if
 /// the target is missing and attach a suggestion when the file has moved.

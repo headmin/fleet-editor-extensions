@@ -28,10 +28,6 @@ impl Rule for StructuralValidationRule {
     fn category(&self) -> &'static str {
         "structural"
     }
-    fn is_fixable(&self) -> bool {
-        true
-    }
-
     fn check(&self, _config: &FleetConfig, file: &Path, source: &str) -> Vec<LintError> {
         let yaml_value: serde_yaml::Value = match serde_yaml::from_str(source) {
             Ok(v) => v,
