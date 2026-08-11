@@ -117,6 +117,22 @@ const NEVER_FIXABLE: &[&str] = &[
     codes::DATE_FORMAT,
     // Only remedy is naming the closest default category, offered as text.
     codes::CATEGORIES,
+    // The four below were found by auditing the flag in the *other*
+    // direction — for each code the registry marks fixable, does a rule
+    // actually emit a fix? These four did not, which is the very defect this
+    // file guards against, so an incomplete hand-written list was the same
+    // trap one level up. Verified by reading each rule: `rules.rs` has
+    // exactly two `with_fix` sites and both are inside `TypeValidationRule`,
+    // and `SecretHygieneRule` has none.
+    //
+    // Reports an absent field; nothing can stand in for a missing `query:`.
+    codes::REQUIRED_FIELDS,
+    // Remedies are judgement calls about the query, offered as help text.
+    codes::SECURITY,
+    // The right interval depends on intent.
+    codes::INTERVAL_VALIDATION,
+    // Only remedy is a display-only `$VAR` placeholder the applier skips.
+    codes::SECRET_HYGIENE,
 ];
 
 #[test]
