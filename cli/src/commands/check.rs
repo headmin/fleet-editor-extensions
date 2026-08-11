@@ -241,6 +241,15 @@ pub(crate) fn run(args: CheckArgs) -> anyhow::Result<()> {
         );
         print!("{}", body);
         markdown_body = Some(body);
+    } else if single_file && results.is_empty() {
+        // The one file asked for was filtered out by `[files]`. Indexing
+        // `results[0]` here used to panic with "index out of bounds", which
+        // read as a crash rather than the scoping decision it actually is.
+        println!(
+            "{} {} is not in scope for this repo's `[files]` configuration — nothing to check.",
+            "•".dimmed(),
+            lint_paths[0].display()
+        );
     } else if single_file {
         let (file_path, report) = &results[0];
         println!("{} Linting {}...\n", "🔍".blue(), file_path.display());

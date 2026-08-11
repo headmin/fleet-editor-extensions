@@ -94,6 +94,20 @@ pub struct FleetLintConfig {
     /// serde and reset on clone — see the manual `Clone` impl).
     #[serde(skip)]
     compiled: once_cell::sync::OnceCell<CompiledGlobs>,
+
+    /// Directory the config was loaded from, i.e. the repo root the
+    /// `[files]` globs are written against.
+    ///
+    /// `include = ["fleets/**"]` is relative to the config file, but callers
+    /// hand us whatever path the user typed — and an editor or CI job hands
+    /// us an ABSOLUTE one. Without a base to strip, an absolute path matches
+    /// no relative glob, the file is silently judged out of scope, and
+    /// `flint check /abs/path/to/fleets/x.yml` reports nothing for a file
+    /// that is plainly in scope. Set on every load-from-disk path; `None`
+    /// for a config parsed from a string, where there is nothing to be
+    /// relative to.
+    #[serde(skip)]
+    base_dir: Option<PathBuf>,
 }
 
 /// Clone resets the compiled-glob cache: clones are routinely mutated
@@ -112,6 +126,10 @@ impl Clone for FleetLintConfig {
             patterns: self.patterns.clone(),
             placeholders: self.placeholders.clone(),
             compiled: once_cell::sync::OnceCell::new(),
+            // Carried, unlike `compiled`: the base directory describes where
+            // the globs are anchored, and a clone that forgot it would stop
+            // matching absolute paths.
+            base_dir: self.base_dir.clone(),
         }
     }
 }
@@ -572,7 +590,11 @@ impl FleetLintConfig {
         let content = std::fs::read_to_string(path)
             .map_err(|e| ConfigError::ReadError(path.to_path_buf(), e.to_string()))?;
 
-        Self::parse(&content)
+        let mut config = Self::parse(&content)?;
+        // The `[files]` globs are written relative to this directory; remember
+        // it so an absolute path can be matched against them.
+        config.base_dir = path.parent().map(|p| p.to_path_buf());
+        Ok(config)
     }
 
     /// Parse configuration from a TOML string.
@@ -716,7 +738,22 @@ impl FleetLintConfig {
 
     /// Check if a file path should be linted based on include/exclude patterns.
     pub fn should_lint_file(&self, file_path: &Path) -> bool {
-        let raw = file_path.to_string_lossy();
+        // An absolute path matches no relative glob, so re-express it against
+        // the directory the config came from. Editors and CI hand us absolute
+        // paths; without this a scoped `include` silently rejects every one of
+        // them. Falls through unchanged when the file is outside the config's
+        // tree, which is a genuine out-of-scope answer rather than a miss.
+        let relativized = self
+            .base_dir
+            .as_deref()
+            .filter(|_| file_path.is_absolute())
+            .and_then(|base| file_path.strip_prefix(base).ok())
+            .map(|rel| rel.to_string_lossy().into_owned());
+
+        let raw = match relativized {
+            Some(ref rel) => std::borrow::Cow::Borrowed(rel.as_str()),
+            None => file_path.to_string_lossy(),
+        };
         // Normalize a leading "./" so anchored globs (e.g. "fleets/**/*.yml")
         // match paths produced by a `.` directory walk, which arrive as
         // "./fleets/…". Without this, a narrowing `include` silently misses.
@@ -1250,6 +1287,52 @@ exclude = ["**/node_modules/**"]
         let mut clone = config.clone();
         clone.files.exclude.push("fleets/**".to_string());
         assert!(!clone.should_lint_file(Path::new("fleets/a.yml")));
+    }
+
+    /// An absolute path must be matched against the relative `[files]` globs,
+    /// which are written against the config's own directory. Editors and CI
+    /// hand flint absolute paths; before this, every one of them matched no
+    /// `include` glob, so a scoped repo judged the file out of scope and
+    /// `flint check /abs/path/fleets/x.yml` printed nothing for a file that is
+    /// plainly in scope — and the CLI then panicked indexing the empty result.
+    #[test]
+    fn absolute_paths_match_relative_include_globs() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let root = dir.path();
+        std::fs::write(
+            root.join("fleetlint.toml"),
+            "[files]\ninclude = [\"fleets/**\"]\nexclude = [\"tools/**\"]\n",
+        )
+        .unwrap();
+        let config = FleetLintConfig::from_file(&root.join("fleetlint.toml")).unwrap();
+
+        // In scope, named absolutely — the case that used to fail.
+        assert!(config.should_lint_file(&root.join("fleets/a.yml")));
+        // Excluded, named absolutely: still excluded, and for the right reason.
+        assert!(!config.should_lint_file(&root.join("tools/t.yml")));
+        // Outside `include`, named absolutely.
+        assert!(!config.should_lint_file(&root.join("other/o.yml")));
+        // The relative forms keep behaving exactly as before.
+        assert!(config.should_lint_file(Path::new("fleets/a.yml")));
+        assert!(config.should_lint_file(Path::new("./fleets/a.yml")));
+        assert!(!config.should_lint_file(Path::new("tools/t.yml")));
+    }
+
+    /// A path outside the config's tree cannot be relativized. It should fall
+    /// through as out of scope rather than being silently accepted.
+    #[test]
+    fn absolute_path_outside_the_config_tree_is_out_of_scope() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let root = dir.path();
+        std::fs::write(
+            root.join("fleetlint.toml"),
+            "[files]\ninclude = [\"fleets/**\"]\n",
+        )
+        .unwrap();
+        let config = FleetLintConfig::from_file(&root.join("fleetlint.toml")).unwrap();
+
+        let elsewhere = dir.path().parent().unwrap().join("somewhere-else/fleets/a.yml");
+        assert!(!config.should_lint_file(&elsewhere));
     }
 
     #[test]
