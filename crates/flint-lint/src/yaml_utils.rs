@@ -11,6 +11,75 @@ pub(crate) fn parse_yaml(source: &str) -> Option<Value> {
     serde_yaml::from_str(source).ok()
 }
 
+/// Keys whose string value Fleet resolves as a repo-relative file path.
+///
+/// Derived from fleet v4.89.2 `pkg/spec/gitops.go` — every field passed through
+/// `absPathFrom()` at apply time, in `ResolveFilePathsAbs` (the
+/// `controls.macos_setup` / `setup_experience` fields) and
+/// `reanchorOrgSettingsPaths` (the `org_settings` ones). Both spellings of the
+/// renamed keys are listed, because Fleet still accepts the old ones.
+///
+/// `bootstrap_package` / `macos_bootstrap_package` are deliberately absent:
+/// Fleet never anchors them, because they carry a URL. Treating them as paths
+/// would invent an error for every correct config.
+pub(crate) const PATH_BEARING_KEYS: &[&str] = &[
+    // Section items and package references — the original two cases.
+    "path",
+    "package_path",
+    // controls.setup_experience (a.k.a. controls.macos_setup)
+    "apple_setup_assistant",
+    "macos_setup_assistant",
+    "macos_script",
+    // org_settings
+    "end_user_license_agreement",
+    "org_logo_path_light_mode",
+    "org_logo_path_dark_mode",
+];
+
+/// Path-bearing only inside the setup-experience section.
+///
+/// `script` is the pre-rename spelling of `macos_script`. Unlike the names in
+/// [`PATH_BEARING_KEYS`] it is far too generic to match document-wide, so it is
+/// honoured only where Fleet defines it.
+const SETUP_SCOPED_PATH_KEYS: &[&str] = &["script"];
+
+/// True for the mapping that holds the setup-experience fields, under either
+/// the current name or the pre-rename one.
+fn is_setup_section(dotted: &str) -> bool {
+    dotted.ends_with("setup_experience") || dotted.ends_with("macos_setup")
+}
+
+/// True for any key that names a file. Used when locating a value in the raw
+/// source, where the enclosing section is not known — so the setup-scoped
+/// `script` is accepted here too; the value has already been collected by
+/// [`collect_path_values`], which did apply the scope.
+fn is_path_key(key: &str) -> bool {
+    PATH_BEARING_KEYS.contains(&key) || SETUP_SCOPED_PATH_KEYS.contains(&key)
+}
+
+/// Every value in `doc` that Fleet will resolve as a repo-relative file path.
+///
+/// THE shared answer to "which strings in this document name a file?", used by
+/// `path-exists` (does the target exist?) and by `workspace::referenced_by`
+/// (which files are wired?). Keeping one list means a key cannot be visible to
+/// one and invisible to the other — the split that made live ADE enrollment
+/// profiles report as orphaned while a typo in the same key went unreported.
+pub(crate) fn collect_path_values(doc: &Value) -> Vec<String> {
+    let mut out = Vec::new();
+    walk_mappings_with_path(doc, &mut |dotted, map| {
+        let scoped = is_setup_section(dotted);
+        let keys = PATH_BEARING_KEYS
+            .iter()
+            .chain(SETUP_SCOPED_PATH_KEYS.iter().filter(|_| scoped));
+        for key in keys {
+            if let Some(Value::String(s)) = map.get(Value::String((*key).to_string())) {
+                out.push(s.clone());
+            }
+        }
+    });
+    out
+}
+
 /// Depth-first visit of every mapping in the tree (mappings inside sequences
 /// included). THE shared recursive walker — rules that only need to inspect
 /// each mapping (e.g. "does it have a `path:` key?") use this instead of
@@ -66,13 +135,15 @@ pub(crate) fn walk_mappings_with_path(value: &Value, visit: &mut impl FnMut(&str
 /// Locate a specific `path:` value in the source text, spanning the value.
 pub(crate) fn find_path_value_line(source: &str, path_value: &str) -> Option<Span> {
     for (line_idx, line) in source.lines().enumerate() {
+        // Match `<key>: <value>` or `- <key>: <value>` for any key that names a
+        // file. Keyed on the whole key, not a prefix, so `package_path:` is not
+        // mistaken for `path:`.
         let trimmed = line.trim_start();
-        // Match `path: <value>` or `- path: <value>` patterns
-        let after_path = trimmed
-            .strip_prefix("path:")
-            .or_else(|| trimmed.strip_prefix("- path:"));
-
-        if let Some(rest) = after_path {
+        let trimmed = trimmed.strip_prefix("- ").unwrap_or(trimmed).trim_start();
+        if let Some((key, rest)) = trimmed.split_once(':') {
+            if !is_path_key(key.trim()) {
+                continue;
+            }
             let rest = rest.trim();
             // Strip optional quotes
             let unquoted = rest
@@ -337,5 +408,72 @@ mod span_tests {
         assert!(find_key_span(src, "platform", 0).is_none());
         assert!(find_value_span(src, "platform", "darwin").is_none());
         assert!(find_value_span(src, "name", "Other").is_none());
+    }
+
+    /// `apple_setup_assistant` was invisible to both `path-exists` and
+    /// `workspace::referenced_by`, which collected only `path`/`paths`. Live
+    /// ADE enrollment profiles were reported as orphaned, and a typo in the
+    /// key was never reported at all — it surfaced at `fleetctl gitops` time,
+    /// on the one profile that cannot be re-applied after enrollment.
+    #[test]
+    fn collects_every_key_fleet_resolves_as_a_path() {
+        let src = r#"
+controls:
+  setup_experience:
+    apple_setup_assistant: ./enroll/default.dep.json
+    macos_script: ./scripts/setup.sh
+    script: ./scripts/old-spelling.sh
+    bootstrap_package: https://example.com/pkg.pkg
+  apple_settings:
+    configuration_profiles:
+      - path: ./profiles/wifi.mobileconfig
+software:
+  packages:
+    - package_path: ./software/app.yml
+"#;
+        let found = collect_path_values(&parse_yaml(src).unwrap());
+
+        for expected in [
+            "./enroll/default.dep.json",
+            "./scripts/setup.sh",
+            "./scripts/old-spelling.sh",
+            "./profiles/wifi.mobileconfig",
+            "./software/app.yml",
+        ] {
+            assert!(found.iter().any(|v| v == expected), "missed {expected}");
+        }
+
+        // Fleet never anchors bootstrap_package — it is a URL. Collecting it
+        // would make `path-exists` invent an error for a correct config.
+        assert!(
+            !found.iter().any(|v| v.contains("example.com")),
+            "bootstrap_package is a URL and must not be treated as a path"
+        );
+    }
+
+    /// `script` is honoured only where Fleet defines it. The bare name is too
+    /// generic to match document-wide.
+    #[test]
+    fn bare_script_key_is_scoped_to_the_setup_section() {
+        let outside = r#"
+policies:
+  - name: P
+    script: not-a-setup-path
+"#;
+        let found = collect_path_values(&parse_yaml(outside).unwrap());
+        assert!(
+            found.is_empty(),
+            "`script` outside the setup section must be ignored, got {found:?}"
+        );
+    }
+
+    /// The span helper keys on the whole key, so `package_path:` is not
+    /// mistaken for `path:`.
+    #[test]
+    fn finds_the_value_span_for_a_non_path_key() {
+        let src = "controls:\n  setup_experience:\n    apple_setup_assistant: ./a.dep.json\n";
+        let span = find_path_value_line(src, "./a.dep.json").expect("span");
+        assert_eq!(span.line, 3);
+        assert_eq!(span.len, "./a.dep.json".len());
     }
 }
