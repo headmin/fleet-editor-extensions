@@ -159,6 +159,11 @@ fn os_settings() -> SchemaNode {
     mapping(vec![
         ("custom_settings", array(profile_item())),
         ("configuration_profiles", array(profile_item())), // rename of custom_settings
+        // Apple DDM asset (com.apple.asset) declarations — fleet/app.go
+        // (MacOSSettings.Assets), added in Fleet v4.90.0. Same
+        // `[]MDMProfileSpec` shape as the profiles above, so it accepts the
+        // same `path:` and label-scoping entries.
+        ("assets", array(profile_item())),
         // Hidden managed local admin account for Windows Autopilot/OOBE —
         // fleet/app.go (ManagedLocalAccountSettings), windows_settings only
         // in Fleet; shared here because flint uses one schema per *_settings.
@@ -317,6 +322,9 @@ fn controls_schema() -> SchemaNode {
         ("enable_turn_on_windows_mdm_manually", boolean_leaf()),
         ("windows_migration_enabled", boolean_leaf()),
         ("enable_disk_encryption", boolean_leaf()),
+        // Host display-name template — fleet/app.go (HostNameTemplate), added
+        // in Fleet v4.90.0. Takes a `$FLEET_VAR_…` expression, not a path.
+        ("name_template", leaf()),
         ("enable_recovery_lock_password", boolean_leaf()),
         // Per fleet/server/fleet/app.go:243 (AppleRequireHardwareAttestation)
         // and pkg/spec/gitops.go:187. Verifies devices are genuine Apple
@@ -708,6 +716,32 @@ fn team_settings_strict() -> SchemaNode {
         ("secrets", array(mapping(vec![("secret", leaf())]))),
         ("integrations", integrations_strict()),
         ("webhook_settings", webhook_settings_per_fleet()),
+        ("mdm", fleet_mdm_schema()),
+    ])
+}
+
+/// The `mdm:` block inside a fleet's `team_settings:` / `settings:`.
+///
+/// Fleet has accepted this all along — `TeamSpec.MDM` in the GitOps parser —
+/// but flint modelled `mdm` only under `org_settings`, so a fleet file that
+/// used it got a BLOCKING "belongs under 'org_settings'" for valid YAML.
+/// Children are exactly the 12 the schema oracle reports at
+/// `team_settings.mdm` (fleet v4.90.0), and they reuse the `controls`
+/// builders because Fleet reuses the same types.
+fn fleet_mdm_schema() -> SchemaNode {
+    mapping(vec![
+        ("enable_disk_encryption", boolean_leaf()),
+        ("enable_recovery_lock_password", boolean_leaf()),
+        ("windows_require_bitlocker_pin", boolean_leaf()),
+        ("name_template", leaf()),
+        ("macos_updates", macos_updates()),
+        ("ios_updates", macos_updates()),
+        ("ipados_updates", macos_updates()),
+        ("windows_updates", windows_updates()),
+        ("macos_settings", os_settings()),
+        ("windows_settings", os_settings()),
+        ("android_settings", android_settings_schema()),
+        ("macos_setup", macos_setup()),
     ])
 }
 
@@ -868,6 +902,7 @@ pub(crate) static KEY_REGISTRY: Lazy<KeyRegistry> = Lazy::new(|| {
     reg.register("enable_turn_on_windows_mdm_manually", "controls");
     reg.register("windows_migration_enabled", "controls");
     reg.register("enable_disk_encryption", "controls");
+    reg.register("name_template", "controls");
     reg.register("enable_recovery_lock_password", "controls");
     reg.register("apple_require_hardware_attestation", "controls");
     reg.register("volume_purchasing_program", "controls");
@@ -891,6 +926,10 @@ pub(crate) static KEY_REGISTRY: Lazy<KeyRegistry> = Lazy::new(|| {
     reg.register("configuration_profiles", "controls.apple_settings");
     reg.register("custom_settings", "controls.windows_settings");
     reg.register("configuration_profiles", "controls.windows_settings");
+    // Apple DDM assets — macOS only in Fleet, registered under both spellings
+    // of the Apple section (Fleet v4.90.0).
+    reg.register("assets", "controls.macos_settings");
+    reg.register("assets", "controls.apple_settings");
 
     // controls.android_settings children
     reg.register("custom_settings", "controls.android_settings");
@@ -1134,6 +1173,33 @@ pub(crate) static KEY_REGISTRY: Lazy<KeyRegistry> = Lazy::new(|| {
     reg.register("secrets", "settings");
     reg.register("integrations", "settings");
     reg.register("webhook_settings", "settings");
+
+    // A fleet's own `mdm:` block, under both spellings of the section. Fleet
+    // has always accepted it (`TeamSpec.MDM`); flint knew it only under
+    // `org_settings`, so valid YAML drew a blocking "belongs under
+    // 'org_settings'". Children per the schema oracle at fleet v4.90.0.
+    for (section, mdm) in [
+        ("team_settings", "team_settings.mdm"),
+        ("settings", "settings.mdm"),
+    ] {
+        reg.register("mdm", section);
+        for child in [
+            "enable_disk_encryption",
+            "enable_recovery_lock_password",
+            "windows_require_bitlocker_pin",
+            "name_template",
+            "macos_updates",
+            "ios_updates",
+            "ipados_updates",
+            "windows_updates",
+            "macos_settings",
+            "windows_settings",
+            "android_settings",
+            "macos_setup",
+        ] {
+            reg.register(child, mdm);
+        }
+    }
 
     // reports fields (alias for queries)
     reg.register("name", "reports[]");

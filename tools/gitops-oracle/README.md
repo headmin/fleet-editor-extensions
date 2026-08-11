@@ -125,7 +125,7 @@ strings manufactures disagreements.
 `go.mod` pins a published Fleet version:
 
 ```
-require github.com/fleetdm/fleet/v4 v4.89.2
+require github.com/fleetdm/fleet/v4 v4.90.0
 ```
 
 No `replace`, no local checkout, no machine-specific path — `go build` works
@@ -140,7 +140,7 @@ config?"* — linking `main` validates against behavior your deployment does not
 have yet. That is not hypothetical: during one session the local checkout
 advanced 12 commits mid-work and picked up
 `settings.webhook_settings.host_activities_webhook`, a key that does not exist
-for a 4.89.2 server. Findings derived from it would be true for future Fleet
+for a 4.90.0 server. Findings derived from it would be true for future Fleet
 and wrong for production.
 
 Check what you run:
