@@ -27,7 +27,7 @@ pub(crate) fn run(what: FleetKind) -> Result<()> {
 
 /// GET-only Fleet API client. The absence of any other verb is the
 /// read-only guarantee.
-struct FleetClient {
+pub(crate) struct FleetClient {
     base: String,
     token: String,
 }
@@ -54,7 +54,7 @@ impl FleetClient {
 
     /// Resolve connection settings: `.env` → shared `[fleet]` config
     /// (repo, then user level) → `FLEET_URL`/`FLEET_API_TOKEN` env vars.
-    fn from_environment() -> Result<Self> {
+    pub(crate) fn from_environment() -> Result<Self> {
         load_dotenv();
 
         let cwd = std::env::current_dir().unwrap_or_else(|_| ".".into());
@@ -228,7 +228,7 @@ fn teams(client: &FleetClient, json: bool) -> Result<()> {
 /// Deliberately excluded: anything secret. The file is meant to be committed,
 /// so it carries label NAMES, a bare hostname, and a timestamp. No token, no
 /// full URL, no host data.
-fn snapshot(
+pub(crate) fn snapshot(
     client: &FleetClient,
     out: Option<std::path::PathBuf>,
     to_stdout: bool,

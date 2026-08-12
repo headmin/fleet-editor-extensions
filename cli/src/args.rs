@@ -233,6 +233,21 @@ pub(crate) struct DryRunArgs {
     /// Emit the verdict as JSON.
     #[arg(long)]
     pub(crate) json: bool,
+
+    /// Refresh `.fleet-snapshot.json` from the Fleet server before linting.
+    ///
+    /// A snapshot can prove something EXISTS on the server; it cannot prove
+    /// something is absent, only that it was absent when captured. So a
+    /// package uploaded after the last capture is reported as missing and
+    /// blocks the run. This re-reads server state first, so "not uploaded"
+    /// means now rather than whenever the file was last written.
+    ///
+    /// Opt-in on purpose: dry-run is otherwise offline and deterministic.
+    /// Needs Fleet credentials; if the refresh fails the existing snapshot is
+    /// used and the reason is printed, so a network blip degrades the answer
+    /// instead of failing the run.
+    #[arg(long)]
+    pub(crate) refresh_snapshot: bool,
 }
 
 #[derive(Args)]

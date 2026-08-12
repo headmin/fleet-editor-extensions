@@ -11,6 +11,7 @@ pub(crate) fn run(args: DryRunArgs) -> anyhow::Result<()> {
         strict,
         exclude,
         json,
+        refresh_snapshot,
     } = args;
 
     use colored::Colorize;
@@ -21,6 +22,10 @@ pub(crate) fn run(args: DryRunArgs) -> anyhow::Result<()> {
             "dry-run expects a repo directory (got {}). Use `flint check <file>` for a single file.",
             path.display()
         );
+    }
+
+    if refresh_snapshot {
+        refresh_snapshot_before_lint(&path, json);
     }
 
     let mut linter = Linter::from_path(&path);
@@ -113,4 +118,45 @@ pub(crate) fn run(args: DryRunArgs) -> anyhow::Result<()> {
     }
 
     Ok(())
+}
+
+/// Re-read server state into `.fleet-snapshot.json` before the lint runs.
+///
+/// A snapshot is evidence of presence, not of absence: it can prove a hash was
+/// on the server when captured, but "absent from the snapshot" only ever means
+/// "absent at capture time". Upload a package and re-run, and the finding is a
+/// confident block on a condition that is no longer true. Refreshing first
+/// makes "not uploaded" a statement about now.
+///
+/// Deliberately fail-soft. Dry-run's contract is an offline, deterministic
+/// answer; adding a network call must not turn an unreachable server into a
+/// failed run. On any error the previous snapshot stands and the reason is
+/// printed, so the result is visibly based on older evidence rather than
+/// silently so.
+fn refresh_snapshot_before_lint(path: &std::path::Path, quiet: bool) {
+    use colored::Colorize;
+
+    let out = path.join(linter::snapshot::SNAPSHOT_FILE_NAME);
+    let result = crate::commands::fleet::FleetClient::from_environment()
+        .and_then(|client| crate::commands::fleet::snapshot(&client, Some(out), false));
+
+    match result {
+        Ok(()) => {
+            if !quiet {
+                println!(
+                    "{} refreshed {} from the Fleet server\n",
+                    "✓".green(),
+                    linter::snapshot::SNAPSHOT_FILE_NAME
+                );
+            }
+        }
+        Err(e) => {
+            eprintln!(
+                "{} could not refresh {}: {e}\n  Continuing with the existing snapshot — \
+                 findings about server state reflect its capture time, not now.",
+                "!".yellow(),
+                linter::snapshot::SNAPSHOT_FILE_NAME
+            );
+        }
+    }
 }
