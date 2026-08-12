@@ -502,6 +502,21 @@ pub struct FleetConnectionConfig {
     /// strictness. Default: 30 (`snapshot::DEFAULT_MAX_AGE_DAYS`).
     #[serde(default)]
     pub snapshot_max_age_days: Option<u64>,
+
+    /// Re-read server state into `.fleet-snapshot.json` before `flint dry-run`,
+    /// as if `--refresh-snapshot` had been passed.
+    ///
+    /// A snapshot proves PRESENCE soundly; absence only ever means "absent at
+    /// capture time". Upload a package and the next dry-run still blocks on it
+    /// — with a snapshot the freshness check considers perfectly current, so
+    /// `snapshot_max_age_days` cannot help. Only re-reading the server can.
+    ///
+    /// Off by default: dry-run is otherwise offline and deterministic, which
+    /// is what makes it safe in CI. Turn it on in a repo whose authors are
+    /// uploading installers as they work, and leave it off where the run must
+    /// not depend on the network.
+    #[serde(default)]
+    pub refresh_snapshot: bool,
 }
 
 impl FleetConnectionConfig {

@@ -24,7 +24,14 @@ pub(crate) fn run(args: DryRunArgs) -> anyhow::Result<()> {
         );
     }
 
-    if refresh_snapshot {
+    // `--refresh-snapshot`, or `[fleet] refresh_snapshot = true` for a repo
+    // that always wants it. The flag can only turn the behaviour ON: a repo
+    // opting in has decided its dry-run depends on the server, and a silent
+    // per-run opt-out would make an offline answer look like a live one.
+    let config_opt_in = linter::FleetLintConfig::find_and_load(&path)
+        .map(|(_, c)| c.fleet.refresh_snapshot)
+        .unwrap_or(false);
+    if refresh_snapshot || config_opt_in {
         refresh_snapshot_before_lint(&path, json);
     }
 
