@@ -662,7 +662,38 @@ impl FleetLintConfig {
                 if config_path.exists() {
                     match Self::from_file(&config_path) {
                         Ok(config) => return Some((config_path, config)),
-                        Err(_) => return None, // Config exists but is invalid
+                        // The workspace denies printing from the library, and
+                        // rightly so. This one site is the exception: the
+                        // failure has to reach a human, there is no error
+                        // channel out of an `Option`-returning discovery walk,
+                        // and staying silent is what caused the bug — a config
+                        // that fails to parse looks exactly like no config, so
+                        // scoping vanishes without a word. Plumbing the error
+                        // up to every caller is the cleaner fix; this is the
+                        // one that stops shipping the hazard today.
+                        #[allow(clippy::print_stderr)]
+                        Err(e) => {
+                            // A config that fails to parse used to be
+                            // discarded silently, which is indistinguishable
+                            // from having no config at all: `[files]` stops
+                            // narrowing, and flint quietly lints the whole
+                            // repo — including the files the author wrote the
+                            // config to keep out. A typo'd section name is
+                            // enough to trigger it. Say so loudly and carry on
+                            // with defaults, because the alternative (failing
+                            // the run) would break every hook and editor on a
+                            // one-character mistake.
+                            eprintln!(
+                                "warning: {} could not be parsed, so it is being IGNORED.",
+                                config_path.display()
+                            );
+                            eprintln!("  {e}");
+                            eprintln!(
+                                "  No [files] scoping and no rule settings are in effect — \
+flint is linting with defaults. Fix the file or move it aside."
+                            );
+                            return None;
+                        }
                     }
                 }
             }

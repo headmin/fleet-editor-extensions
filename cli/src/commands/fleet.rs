@@ -14,8 +14,14 @@ use colored::Colorize;
 use flint_lint::FleetLintConfig;
 
 pub(crate) fn run(what: FleetKind) -> Result<()> {
+    // Doctor runs BEFORE the client is built: constructing it is one of the
+    // steps that can hang, so it has to be timed rather than awaited.
+    if matches!(what, FleetKind::Doctor) {
+        return doctor();
+    }
     let client = FleetClient::from_environment()?;
     match what {
+        FleetKind::Doctor => unreachable!("handled above, before the client exists"),
         FleetKind::Status => status(&client),
         FleetKind::Software { team, available, json } => software(&client, team, available, json),
         FleetKind::Fma { json } => fma(&client, json),
@@ -466,6 +472,117 @@ fn utc_now_rfc3339() -> String {
         (rem % 3600) / 60,
         rem % 60
     )
+}
+
+/// Step-by-step connection diagnosis.
+///
+/// Exists because a hang gives you nothing to go on. The language server does
+/// this same sequence while starting, and when one step blocks the editor just
+/// sits at `initialize` with no message. Printing each step as it finishes
+/// turns "it hangs" into "it hangs on step 4", without asking anyone to attach
+/// a sampler.
+///
+/// Every line is flushed immediately — buffered output would defeat the whole
+/// purpose, since the interesting case is the step that never returns.
+fn doctor() -> Result<()> {
+    use colored::Colorize;
+    use std::io::Write;
+    use std::time::Instant;
+
+    fn step(n: u8, what: &str) -> Instant {
+        print!("  {n}. {what} … ");
+        let _ = std::io::stdout().flush();
+        Instant::now()
+    }
+    fn done(t: Instant, outcome: &str) {
+        println!("{outcome} {}", format!("({} ms)", t.elapsed().as_millis()).dimmed());
+        let _ = std::io::stdout().flush();
+    }
+
+    let cwd = std::env::current_dir().unwrap_or_default();
+    println!("{} connection diagnosis — {}\n", "🩺".blue(), cwd.display());
+
+    let t = step(1, "locating a config file");
+    match FleetLintConfig::find_and_load(&cwd) {
+        Some((path, _)) => done(t, &format!("{} {}", "found".green(), path.display())),
+        None => done(
+            t,
+            &format!(
+                "{} — using defaults (if a config exists here it failed to parse; the \
+                 warning above says why)",
+                "none".yellow()
+            ),
+        ),
+    }
+
+    let t = step(2, "reading [fleet] settings");
+    let fleet_cfg = FleetLintConfig::resolve_fleet_connection(&cwd);
+    done(
+        t,
+        &format!(
+            "gitops_validation={} live_completions={}",
+            fleet_cfg.gitops_validation, fleet_cfg.live_completions
+        ),
+    );
+
+    if !fleet_cfg.gitops_validation && !fleet_cfg.live_completions {
+        println!(
+            "\n{} both server-backed features are off, so the language server \
+             never opens a connection. Nothing further to check.",
+            "✓".green()
+        );
+        return Ok(());
+    }
+
+    // Steps 3 and 4 are the ones that shell out to `op` for an `op://` value.
+    // A slow result here is the answer: the same call runs during LSP startup.
+    let t = step(3, "resolving the Fleet URL");
+    let url = fleet_cfg.resolved_url();
+    match &url {
+        Some(u) => done(t, &format!("{} {u}", "ok".green())),
+        None => {
+            done(t, &format!("{}", "not set".red()));
+            println!(
+                "\n{} no Fleet URL. Set `[fleet] url`, or FLEET_URL in the environment.",
+                "✗".red()
+            );
+            return Ok(());
+        }
+    }
+
+    let t = step(4, "resolving the API token");
+    let token = fleet_cfg.resolved_token();
+    match &token {
+        Some(_) => done(t, &format!("{} (value not shown)", "ok".green())),
+        None => {
+            done(t, &format!("{}", "not set".red()));
+            println!(
+                "\n{} no API token. Set `[fleet] token`, or FLEET_API_TOKEN.",
+                "✗".red()
+            );
+            return Ok(());
+        }
+    }
+
+    let t = step(5, "contacting the server");
+    match FleetClient::from_environment() {
+        Ok(client) => match client.get("/api/v1/fleet/version", &[]) {
+            Ok(v) => {
+                let ver = v["version"].as_str().unwrap_or("unknown");
+                done(t, &format!("{} Fleet {ver}", "ok".green()));
+                println!("\n{} all steps completed.", "✓".green());
+            }
+            Err(e) => {
+                done(t, &format!("{}", "failed".red()));
+                println!("\n{} reachable but the request failed: {e}", "✗".red());
+            }
+        },
+        Err(e) => {
+            done(t, &format!("{}", "failed".red()));
+            println!("\n{} could not build a client: {e}", "✗".red());
+        }
+    }
+    Ok(())
 }
 
 #[cfg(test)]

@@ -12,6 +12,7 @@ pub(crate) fn run(args: DryRunArgs) -> anyhow::Result<()> {
         exclude,
         json,
         refresh_snapshot,
+        assume_uploaded,
     } = args;
 
     use colored::Colorize;
@@ -48,8 +49,16 @@ pub(crate) fn run(args: DryRunArgs) -> anyhow::Result<()> {
     // and advisory warnings. Each entry: (file, &LintError).
     let mut blocking: Vec<(&PathBuf, &linter::error::LintError)> = Vec::new();
     let mut advisory = 0usize;
+    let mut assumed = 0usize;
     for (f, report) in &results {
         for e in &report.errors {
+            // --assume-uploaded drops exactly the finding that exists only
+            // because a snapshot was consulted. Counted, not silently
+            // dropped: a PASS that rests on an assumption has to say so.
+            if assume_uploaded && e.message == linter::snapshot::HASH_NOT_UPLOADED {
+                assumed += 1;
+                continue;
+            }
             blocking.push((f, e));
         }
         for w in &report.warnings {
@@ -97,6 +106,17 @@ pub(crate) fn run(args: DryRunArgs) -> anyhow::Result<()> {
                 String::new()
             }
         );
+        if assumed > 0 {
+            // The verdict is conditional, so say what it rests on. Without
+            // this the run is indistinguishable from one where the packages
+            // really were on the server.
+            println!(
+                "  {} assuming {assumed} package(s) are uploaded (--assume-uploaded). \
+                 `fleetctl gitops` will still fail if they are not — \
+                 `flint dry-run --refresh-snapshot` checks for real.",
+                "!".yellow()
+            );
+        }
     } else {
         println!(
             "{} Local dry-run: {} — {} issue(s) would block `fleetctl gitops`:\n",

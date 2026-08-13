@@ -248,6 +248,20 @@ pub(crate) struct DryRunArgs {
     /// instead of failing the run.
     #[arg(long)]
     pub(crate) refresh_snapshot: bool,
+
+    /// Treat every software package as already uploaded to the server.
+    ///
+    /// Drops the one finding that exists only because a `.fleet-snapshot.json`
+    /// was consulted — "hash is not uploaded". Useful while the installer is
+    /// mid-upload, or when the snapshot is older than the work in progress and
+    /// refreshing is not possible.
+    ///
+    /// It suppresses evidence rather than supplying it: if the package really
+    /// is absent, `fleetctl gitops` still fails with "package not found with
+    /// hash". Prefer `--refresh-snapshot`, which answers the question instead
+    /// of skipping it.
+    #[arg(long, conflicts_with = "refresh_snapshot")]
+    pub(crate) assume_uploaded: bool,
 }
 
 #[derive(Args)]
@@ -778,6 +792,17 @@ pub(crate) enum FmaKind {
 pub(crate) enum FleetKind {
     /// Check the connection: server version and license tier.
     Status,
+
+    /// Walk the connection setup one step at a time, timing each.
+    ///
+    /// `status` answers "does it work?"; this answers "where does it stop?".
+    /// It repeats the steps the language server performs while starting —
+    /// find the config, parse it, read the feature flags, resolve `url` and
+    /// `token` (which may shell out to `op`), then reach the server — and
+    /// prints each result as it completes. If a step blocks, the last line
+    /// printed names it, so a hung editor does not need a process sampler to
+    /// diagnose.
+    Doctor,
 
     /// Software titles on the instance (name, version, install status).
     Software {

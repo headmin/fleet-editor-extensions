@@ -1097,6 +1097,10 @@ impl Rule for SecretHygieneRule {
 
         let mut errors = Vec::new();
 
+        // A credential can hide anywhere a URL is accepted, not just in the
+        // named credential fields below, so this scans the whole document.
+        check_url_credentials(&yaml, file, &mut errors);
+
         // integrations.jira[].api_token
         check_secret_field(
             &yaml,
@@ -1795,7 +1799,7 @@ impl Rule for SoftwareSourceRule {
                 }
                 let (line, col) = find_line_containing(source, hash);
                 let mut err = LintError::error(
-                    "software package hash is not uploaded to the Fleet server".to_string(),
+                    crate::snapshot::HASH_NOT_UPLOADED.to_string(),
                     file,
                 )
                 .with_rule_code(crate::codes::SOFTWARE_SOURCE)
@@ -1919,6 +1923,74 @@ impl Rule for CalendarEventCoercionRule {
             })
             .collect()
     }
+}
+
+/// Query-string parameters whose value is a credential.
+///
+/// Fleet resolves `$VAR` and `op://` itself, so those are references rather
+/// than secrets; anything else here is the literal token, committed to git.
+const CREDENTIAL_PARAMS: &[&str] = &[
+    "token",
+    "access_token",
+    "api_key",
+    "apikey",
+    "key",
+    "secret",
+    "password",
+    "passwd",
+    "sig",
+    "signature",
+];
+
+/// Flag a credential embedded in a URL's query string.
+///
+/// `check_secret_field` only inspects named credential FIELDS
+/// (`api_token:` and friends). A token riding in a URL is invisible to it, so
+/// a real repo shipped
+/// `macos_bootstrap_package: "https://…/bootstrap?token=<literal>"` past a
+/// clean lint. The value is a live credential in version control, which is
+/// worse than the field case it already covers, because nothing about the key
+/// name suggests a secret is present.
+fn check_url_credentials(yaml: &serde_yaml::Value, file: &Path, errors: &mut Vec<LintError>) {
+    crate::yaml_utils::walk_mappings(yaml, &mut |map| {
+        for (k, v) in map {
+            let (Some(key), Some(value)) = (k.as_str(), v.as_str()) else {
+                continue;
+            };
+            if !value.contains("://") {
+                continue;
+            }
+            let Some((_, query)) = value.split_once('?') else {
+                continue;
+            };
+            for pair in query.split('&') {
+                let Some((name, val)) = pair.split_once('=') else {
+                    continue;
+                };
+                let name_l = name.trim().to_ascii_lowercase();
+                if !CREDENTIAL_PARAMS.contains(&name_l.as_str()) {
+                    continue;
+                }
+                // A reference is not a secret — Fleet resolves it at apply time.
+                let val = val.trim();
+                if val.is_empty() || val.starts_with('$') || val.starts_with("op://") {
+                    continue;
+                }
+                errors.push(
+                    LintError::warning(
+                        format!("`{key}` embeds a credential in its URL (`{name_l}=…`)"),
+                        file,
+                    )
+                    .with_context(value.to_string())
+                    .with_help(
+                        "The literal token is committed to git. Move it to an environment \
+                         variable ($VAR) or a 1Password reference (op://…), and rotate the \
+                         value that was committed.",
+                    ),
+                );
+            }
+        }
+    });
 }
 
 fn check_secret_field(
@@ -3152,4 +3224,36 @@ mod tests {
         assert!(messages.iter().any(|m| m.contains("'A'")));
         assert!(messages.iter().any(|m| m.contains("'B'")));
     }
+    /// A credential in a URL query string is invisible to the named-field
+    /// checks, so a real repo shipped a live bootstrap token past a clean
+    /// lint. References must stay silent — Fleet resolves them at apply time,
+    /// so flagging one would be a false positive in every repo that does the
+    /// right thing.
+    #[test]
+    fn url_query_credentials_are_flagged_but_references_are_not() {
+        let src = concat!(
+            "name: T\n",
+            "controls:\n",
+            "  setup_experience:\n",
+            "    macos_bootstrap_package: \"https://x.example.com/bootstrap?token=abc123\"\n",
+            "software:\n",
+            "  packages:\n",
+            "    - url: https://cdn.example.com/app.pkg\n",
+            "    - url: \"https://cdn.example.com/a.pkg?api_key=$FLEET_SECRET_CDN\"\n",
+            "    - url: \"https://cdn.example.com/b.pkg?sig=op://vault/item/cred\"\n",
+        );
+        let yaml: serde_yaml::Value = serde_yaml::from_str(src).unwrap();
+        let mut errors = Vec::new();
+        check_url_credentials(&yaml, Path::new("fleets/t.yml"), &mut errors);
+
+        assert_eq!(
+            errors.len(),
+            1,
+            "expected only the literal token to flag, got: {:?}",
+            errors.iter().map(|e| e.message.clone()).collect::<Vec<_>>()
+        );
+        assert!(errors[0].message.contains("macos_bootstrap_package"));
+        assert!(errors[0].message.contains("token"));
+    }
+
 }

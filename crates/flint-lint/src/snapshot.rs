@@ -34,6 +34,13 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 /// Snapshot filename, looked up beside the config file (either spelling).
+/// Message of the one finding that exists ONLY because a snapshot was
+/// consulted: the hash is absent from the server's installer list.
+///
+/// Named so `dry-run --assume-uploaded` can suppress exactly this finding
+/// rather than pattern-matching a prose string that could drift.
+pub const HASH_NOT_UPLOADED: &str = "software package hash is not uploaded to the Fleet server";
+
 pub const SNAPSHOT_FILE_NAME: &str = ".fleet-snapshot.json";
 
 /// Default age past which a snapshot stops gating, in days.
