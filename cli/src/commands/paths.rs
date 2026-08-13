@@ -15,6 +15,8 @@ pub(crate) fn run(args: PathsArgs) -> anyhow::Result<()> {
         interactive,
         label_stubs,
         only,
+        oneline,
+        prompt,
     } = args;
 
     use colored::Colorize;
@@ -25,6 +27,10 @@ pub(crate) fn run(args: PathsArgs) -> anyhow::Result<()> {
     if unwired {
         if interactive {
             interactive_unwired(&path, label_stubs.as_deref(), only.as_deref())?;
+        } else if oneline {
+            report_unwired_oneline(&path);
+        } else if prompt {
+            report_unwired_prompt(&path, only.as_deref());
         } else {
             report_unwired(&path);
         }
@@ -134,6 +140,140 @@ pub(crate) fn run(args: PathsArgs) -> anyhow::Result<()> {
 }
 
 /// Report artifacts that exist on disk but no fleet config references, grouped
+/// Resolve the scan root the same way every unwired reporter does.
+fn unwired_root(path: &std::path::Path) -> PathBuf {
+    if path.is_dir() {
+        path.to_path_buf()
+    } else {
+        path.parent().map(|p| p.to_path_buf()).unwrap_or_default()
+    }
+}
+
+/// One tab-separated record per artifact: `rel <TAB> section <TAB> wire`.
+///
+/// The grouped report is built for a reader — 270 lines of YAML for a repo
+/// this size — which makes "is THIS file wired?" hard to answer. One line per
+/// artifact makes the report a filter target:
+///
+/// ```text
+/// flint paths --unwired --oneline | grep lisa
+/// ```
+///
+/// Tabs, not spaces, so `cut -f2` works regardless of path length. No colour
+/// and no header: every line is data, so a non-empty exit means "still
+/// orphaned" and an empty one means "wired".
+fn report_unwired_oneline(path: &std::path::Path) {
+    use linter::unwired::find_unwired;
+
+    for a in find_unwired(&unwired_root(path)).artifacts {
+        println!("{}\t{}\t{}", a.rel, a.section, a.wire);
+    }
+}
+
+/// Emit a self-contained instruction per artifact, sized for a small model.
+///
+/// The grouped report tells a human where an artifact *could* go and leaves
+/// the judgement to them. A weak agent cannot make that judgement, so this
+/// removes every decision from the task: the key path, the exact line to
+/// insert, and two commands that decide whether the job is done. The negative
+/// check matters most — `flint check` passing only proves nothing broke, a
+/// bar the agent clears by doing nothing at all, whereas the grep going quiet
+/// can only happen if THIS artifact got wired.
+fn report_unwired_prompt(path: &std::path::Path, only: Option<&str>) {
+    use linter::unwired::{find_unwired, glob_match};
+
+    let root = unwired_root(path);
+    let report = find_unwired(&root);
+    if report.artifacts.is_empty() {
+        println!("No unwired artifacts. Nothing to do.");
+        return;
+    }
+
+    // Which fleet file to wire INTO is the one thing flint cannot decide — a
+    // repo with 25 fleets has 25 right answers. Naming the first one found
+    // would be worse than naming none: a weak agent complies confidently and
+    // edits the wrong fleet. So the target is only stated when `--only`
+    // narrows it to exactly one; otherwise the choice is spelled out as the
+    // single decision the caller has to make.
+    let candidates: Vec<String> = linter::unwired::config_files(&root)
+        .iter()
+        .filter_map(|p| {
+            p.strip_prefix(&root)
+                .ok()
+                .map(|r| r.to_string_lossy().replace('\\', "/"))
+        })
+        .filter(|r| match only {
+            Some(g) => glob_match(g, r) || r.ends_with(g),
+            None => true,
+        })
+        .collect();
+
+    let target = match candidates.as_slice() {
+        [one] => one.clone(),
+        [] => {
+            eprintln!(
+                "No fleet file matches {:?}. Run without --only to see the candidates.",
+                only.unwrap_or("")
+            );
+            return;
+        }
+        many => {
+            let shown: Vec<&str> = many.iter().take(6).map(String::as_str).collect();
+            let more = many.len().saturating_sub(shown.len());
+            format!(
+                "<CHOOSE ONE of {} fleet files: {}{}>",
+                many.len(),
+                shown.join(", "),
+                if more > 0 {
+                    format!(", +{more} more")
+                } else {
+                    String::new()
+                }
+            )
+        }
+    };
+    let ambiguous = candidates.len() > 1;
+    if ambiguous {
+        println!(
+            "NOTE  {} fleet files exist, so EDIT below is a choice, not an instruction.\n\
+                   Re-run with `--only <file>` to pin it and remove the decision.\n",
+            candidates.len()
+        );
+    }
+
+    for (i, a) in report.artifacts.iter().enumerate() {
+        let key = a.section;
+        let line = if a.single_only {
+            // No list form: the section takes one file, written as `key: value`.
+            format!("{}: {}", key.rsplit('.').next().unwrap_or(key), a.wire)
+        } else {
+            format!("- path: {}", a.wire)
+        };
+        let name = a
+            .rel
+            .rsplit('/')
+            .next()
+            .and_then(|f| f.split('.').next())
+            .unwrap_or(&a.rel);
+
+        println!("TASK {}/{}  Wire 1 orphaned artifact into a Fleet GitOps fleet file.", i + 1, report.artifacts.len());
+        println!();
+        println!("EDIT    {target}");
+        println!("UNDER   {key}");
+        println!("INSERT  {line}");
+        println!();
+        println!("RULES");
+        println!("1. Add the INSERT text under the key path UNDER.");
+        println!("2. Create that nesting only if it is absent. Two-space indent.");
+        println!("3. Change nothing else in the file.");
+        println!();
+        println!("DONE WHEN");
+        println!("  flint check {target}   prints no error");
+        println!("  flint paths --unwired --oneline | grep {name}   prints nothing");
+        println!();
+    }
+}
+
 /// by directory, with copy-paste `paths:` glob and `path:` constructs suggested
 /// per type. Paths are written as a fleet file (e.g. `fleets/x.yml`) would.
 fn report_unwired(path: &std::path::Path) {

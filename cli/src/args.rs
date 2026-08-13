@@ -233,6 +233,35 @@ pub(crate) struct DryRunArgs {
     /// Emit the verdict as JSON.
     #[arg(long)]
     pub(crate) json: bool,
+
+    /// Refresh `.fleet-snapshot.json` from the Fleet server before linting.
+    ///
+    /// A snapshot can prove something EXISTS on the server; it cannot prove
+    /// something is absent, only that it was absent when captured. So a
+    /// package uploaded after the last capture is reported as missing and
+    /// blocks the run. This re-reads server state first, so "not uploaded"
+    /// means now rather than whenever the file was last written.
+    ///
+    /// Opt-in on purpose: dry-run is otherwise offline and deterministic.
+    /// Needs Fleet credentials; if the refresh fails the existing snapshot is
+    /// used and the reason is printed, so a network blip degrades the answer
+    /// instead of failing the run.
+    #[arg(long)]
+    pub(crate) refresh_snapshot: bool,
+
+    /// Treat every software package as already uploaded to the server.
+    ///
+    /// Drops the one finding that exists only because a `.fleet-snapshot.json`
+    /// was consulted — "hash is not uploaded". Useful while the installer is
+    /// mid-upload, or when the snapshot is older than the work in progress and
+    /// refreshing is not possible.
+    ///
+    /// It suppresses evidence rather than supplying it: if the package really
+    /// is absent, `fleetctl gitops` still fails with "package not found with
+    /// hash". Prefer `--refresh-snapshot`, which answers the question instead
+    /// of skipping it.
+    #[arg(long, conflicts_with = "refresh_snapshot")]
+    pub(crate) assume_uploaded: bool,
 }
 
 #[derive(Args)]
@@ -496,8 +525,21 @@ pub(crate) struct PathsArgs {
     /// Limit interactive wiring to fleet/team files matching this glob
     /// (e.g. "fleets/acfg-*.yml" or "acfg-*"). Matched against each file's
     /// path and name.
-    #[arg(long, value_name = "GLOB", requires = "interactive")]
+    #[arg(long, value_name = "GLOB", requires = "unwired")]
     pub(crate) only: Option<String>,
+
+    /// With --unwired: one tab-separated record per artifact
+    /// (`path  section  wire-value`) instead of the YAML blocks, so the
+    /// report can be filtered — `flint paths --unwired --oneline | grep lisa`.
+    #[arg(long, requires = "unwired", conflicts_with = "interactive")]
+    pub(crate) oneline: bool,
+
+    /// With --unwired: emit a ready-to-run instruction per artifact for an AI
+    /// agent — the file to edit, the key to insert under, the exact line, and
+    /// the two commands that prove it worked. Pair with `--only` to scope to
+    /// one fleet file, and filter with grep to target a single artifact.
+    #[arg(long, requires = "unwired", conflicts_with_all = ["interactive", "oneline"])]
+    pub(crate) prompt: bool,
 }
 
 #[derive(Subcommand)]
@@ -750,6 +792,17 @@ pub(crate) enum FmaKind {
 pub(crate) enum FleetKind {
     /// Check the connection: server version and license tier.
     Status,
+
+    /// Walk the connection setup one step at a time, timing each.
+    ///
+    /// `status` answers "does it work?"; this answers "where does it stop?".
+    /// It repeats the steps the language server performs while starting —
+    /// find the config, parse it, read the feature flags, resolve `url` and
+    /// `token` (which may shell out to `op`), then reach the server — and
+    /// prints each result as it completes. If a step blocks, the last line
+    /// printed names it, so a hung editor does not need a process sampler to
+    /// diagnose.
+    Doctor,
 
     /// Software titles on the instance (name, version, install status).
     Software {
