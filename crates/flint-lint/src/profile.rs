@@ -967,8 +967,9 @@ pub fn looks_like_declaration(bytes: &[u8]) -> bool {
 /// Reporting on the profile rather than on each referencing fleet is what makes
 /// the finding appear once instead of once per fleet, lets orphaned artifacts be
 /// checked at all, and gives editors somewhere to jump to.
-#[cfg(test)]
-pub(crate) fn scan_and_report(path: &Path) -> Vec<LintError> {
+/// Scan one profile or DDM declaration on disk. The repo-wide pass reads the
+/// bytes itself; this is the entry point for checking a single file directly.
+pub fn scan_and_report(path: &Path) -> Vec<LintError> {
     match std::fs::read(path) {
         Ok(bytes) => scan_bytes_and_report(path, &bytes),
         Err(_) => vec![LintError::warning(

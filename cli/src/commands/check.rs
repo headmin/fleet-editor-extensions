@@ -197,6 +197,18 @@ pub(crate) fn run(args: CheckArgs) -> anyhow::Result<()> {
 
     for p in &lint_paths {
         if p.is_file() {
+            // A profile or DDM declaration is not YAML and is normally judged
+            // by the repo-wide pass through the fleet that references it.
+            // Pointed at one directly — from an editor, or while authoring
+            // it — run the profile scan on that file alone.
+            if is_profile_artifact(p) {
+                let mut report = linter::error::LintReport::new();
+                for e in linter::profile::scan_and_report(p) {
+                    report.add(e);
+                }
+                results.push((p.clone(), report));
+                continue;
+            }
             if !linter.config().should_lint_file(p) {
                 skipped_by_config += 1;
                 continue;
@@ -399,6 +411,17 @@ pub(crate) fn run(args: CheckArgs) -> anyhow::Result<()> {
     }
 
     Ok(())
+}
+
+/// A `.mobileconfig`, or a `.json` that carries a DDM `Type`.
+fn is_profile_artifact(p: &std::path::Path) -> bool {
+    match p.extension().and_then(|e| e.to_str()) {
+        Some("mobileconfig") => true,
+        Some("json") => std::fs::read(p)
+            .map(|b| linter::profile::looks_like_declaration(&b))
+            .unwrap_or(false),
+        _ => false,
+    }
 }
 
 /// How many files must carry the identical finding before it is indexed.

@@ -172,14 +172,14 @@ fn check_path(
         if let Ok(target) = std::fs::read_to_string(&resolved) {
             if super::yaml_utils::is_effectively_empty(&target, is_yaml) {
                 let span = find_path_value_line(source, path_val);
-                let mut err = LintError::error(
+                let mut err = LintError::warning(
                     format!("path reference points to an empty file (no usable content): {path_val}"),
                     file,
                 )
                 .with_context(path_val.to_string())
                 .with_rule_code(crate::codes::PATH_EMPTY)
                 .with_help(
-                    "The referenced file is empty (blank/whitespace, or comment-only for YAML), which `fleetctl gitops` rejects. Provide real content — a software file needs `hash_sha256:` (regenerate with `flint pkg --yml`); a script needs its commands; a profile needs its payload.",
+                    "The referenced file is empty (blank/whitespace, or comment-only for YAML). Fleet's parser ACCEPTS this and applies nothing from it — an empty software file contributes zero packages, an empty script installs nothing — so the apply succeeds and the intent is silently lost. Provide real content: a software file needs `hash_sha256:` or `url:` (regenerate with `flint gen software`); a script needs its commands. (An unparseable profile is `profile-well-formed`'s finding.)",
                 );
                 if let Some(s) = span {
                     err = err.with_span(s);
@@ -759,7 +759,11 @@ mod tests {
             .filter(|e| e.rule_code == Some("path-empty"))
             .collect();
         assert_eq!(empty.len(), 1, "got: {errors:?}");
-        assert_eq!(empty[0].severity, Severity::Error);
+        // Warning, not error: Fleet's parser accepts an empty software file and
+        // applies nothing from it — verified against its own parser at
+        // playground cb61a82, where an error here was the one blocking claim
+        // Fleet did not share. The apply succeeds; the intent is silently lost.
+        assert_eq!(empty[0].severity, Severity::Warning);
         assert!(empty[0].message.contains("empty file"));
     }
 

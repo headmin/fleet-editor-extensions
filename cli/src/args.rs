@@ -263,6 +263,12 @@ pub(crate) struct HistoryArgs {
     #[arg(long)]
     pub(crate) scope_as_committed: bool,
 
+    /// Compute every commit from scratch instead of reusing the previous
+    /// result when nothing in scope changed. Reuse is output-identical by
+    /// construction; this exists to prove that, and to bisect if it is not.
+    #[arg(long)]
+    pub(crate) no_reuse: bool,
+
     /// Gate the run against a stored scorecard, for CI.
     ///
     /// Compares this replay to the baseline at PATH and exits 2 if rule

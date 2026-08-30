@@ -42,6 +42,7 @@ pub(crate) fn run(args: HistoryArgs) -> Result<()> {
         scope_as_committed,
         gate,
         update_baseline,
+        no_reuse,
         json,
     } = args;
 
@@ -74,11 +75,14 @@ pub(crate) fn run(args: HistoryArgs) -> Result<()> {
         replay(
             &root,
             &commits,
-            oracle.as_deref(),
-            scope.as_deref(),
-            gate.as_deref(),
-            update_baseline,
-            json,
+            ReplayOptions {
+                oracle: oracle.as_deref(),
+                scope: scope.as_deref(),
+                gate: gate.as_deref(),
+                update_baseline,
+                no_reuse,
+                json,
+            },
         )
     }
 }
@@ -171,22 +175,55 @@ struct RedWindow {
     commits: usize,
 }
 
-fn replay(
-    root: &Path,
-    commits: &[CommitRef],
-    oracle: Option<&Path>,
-    scope: Option<&Path>,
-    gate: Option<&Path>,
+/// Everything a replay does beyond replaying: what to compare against, how to
+/// scope, whether to gate, and how to report.
+struct ReplayOptions<'a> {
+    oracle: Option<&'a Path>,
+    scope: Option<&'a Path>,
+    gate: Option<&'a Path>,
     update_baseline: bool,
+    no_reuse: bool,
     json: bool,
-) -> Result<()> {
+}
+
+fn replay(root: &Path, commits: &[CommitRef], opts: ReplayOptions<'_>) -> Result<()> {
+    let ReplayOptions {
+        oracle,
+        scope,
+        gate,
+        update_baseline,
+        no_reuse,
+        json,
+    } = opts;
     let skip: BTreeSet<&str> = NON_REPLAYABLE.iter().map(|(c, _)| *c).collect();
     let mut replayed = Vec::with_capacity(commits.len());
     let mut diff = Diff::default();
 
+    // A commit that changes nothing in scope has, for our purposes, the same
+    // tree as its predecessor, so its result is the predecessor's result.
+    // Only possible when a scope config bounds "in scope" — without include
+    // globs every path counts and nothing can be skipped. On the reference
+    // repo this is 12 of 358 commits: a first census said 56, but it ran
+    // `git diff-tree` on merge commits without `-m`, which prints nothing and
+    // so made every merge look like it touched nothing.
+    let roots = if no_reuse { None } else { scope.and_then(scope_roots) };
+    let mut last: Option<Reused> = None;
+    let mut reused = 0usize;
+
     for (i, c) in commits.iter().enumerate() {
         if !json {
             eprint!("\r  replaying {}/{} {}", i + 1, commits.len(), c.short);
+        }
+        if let (Some(prev), Some(rs)) = (last.as_ref(), roots.as_deref()) {
+            if unchanged_in_scope(root, &prev.sha, &c.sha, rs) {
+                reused += 1;
+                if let Some(v) = prev.verdicts.as_ref().filter(|_| oracle.is_some()) {
+                    diff.absorb(c, &prev.flint_blocking, &v.blocking, &v.no_opinion);
+                }
+                replayed.push(Replayed { commit: c.clone(), codes: prev.codes.clone() });
+                last = Some(Reused { sha: c.sha.clone(), ..prev.clone() });
+                continue;
+            }
         }
         // Explicitly NOT a dot-prefixed name. `TempDir::new()` produces
         // `.tmpXXXX`, and the oracle's file walk skips dot-directories —
@@ -230,20 +267,36 @@ fn replay(
             }
         }
 
+        let mut verdicts = None;
         if let Some(bin) = oracle {
             // One unreadable tree must not abort a 358-commit run — but it is
             // recorded and reported, never silently dropped.
             match run_oracle(bin, dir.path()) {
-                Ok(Some(v)) => diff.absorb(c, &flint_blocking, &v.blocking, &v.no_opinion),
+                Ok(Some(v)) => {
+                    diff.absorb(c, &flint_blocking, &v.blocking, &v.no_opinion);
+                    verdicts = Some(v);
+                }
                 Ok(None) => diff.no_input += 1,
                 Err(e) => diff.errors.push((c.short.clone(), e.to_string())),
             }
         }
 
+        last = Some(Reused {
+            sha: c.sha.clone(),
+            codes: codes.clone(),
+            flint_blocking,
+            verdicts,
+        });
         replayed.push(Replayed {
             commit: c.clone(),
             codes,
         });
+    }
+    if !json && reused > 0 {
+        println!(
+            "  {}",
+            format!("{reused} commit(s) reused the previous result — no in-scope change").dimmed()
+        );
     }
     if !json {
         eprint!("\r{}\r", " ".repeat(60));
@@ -266,7 +319,7 @@ fn replay(
 
     let windows = red_windows(&replayed);
     if json {
-        print_replay_json(commits, &replayed, &windows, oracle.map(|_| &diff), scope);
+        print_replay_json(commits, &replayed, &windows, oracle.map(|_| &diff), scope, reused);
     } else {
         print_replay_human(commits, &replayed, &windows);
         if oracle.is_some() {
@@ -397,6 +450,7 @@ fn print_replay_json(
     windows: &BTreeMap<String, Vec<RedWindow>>,
     diff: Option<&Diff>,
     scope: Option<&Path>,
+    reused: usize,
 ) {
     let codes: Vec<serde_json::Value> = windows
         .iter()
@@ -426,6 +480,7 @@ fn print_replay_json(
             "summary": describe_scope(c),
         })),
         "commits_replayed": commits.len(),
+        "commits_reused_unchanged_in_scope": reused,
         "commits_with_findings": replayed.iter().filter(|r| !r.codes.is_empty()).count(),
         "not_replayed": NON_REPLAYABLE.iter()
             .map(|(c, w)| serde_json::json!({"code": c, "reason": w}))
@@ -436,12 +491,52 @@ fn print_replay_json(
     println!("{}", serde_json::to_string_pretty(&doc).unwrap_or_default());
 }
 
-/// A one-line summary of what a scope config excludes, so an exempted path is
-/// visible in the report rather than silently absent from it.
-fn describe_scope(cfg: &Path) -> String {
-    let Ok(text) = std::fs::read_to_string(cfg) else {
-        return "unreadable".to_string();
-    };
+/// The last fully-computed commit, kept so a successor that changed nothing in
+/// scope can inherit it instead of being re-linted.
+#[derive(Clone)]
+struct Reused {
+    sha: String,
+    codes: BTreeSet<String>,
+    flint_blocking: BTreeMap<String, BTreeSet<String>>,
+    verdicts: Option<OracleVerdicts>,
+}
+
+/// Whether `a` and `b` have identical trees under every scope root — the only
+/// paths whose contents can affect the lint. `git diff-tree --quiet` exits 0
+/// on no difference, 1 on a difference; anything else is treated as "changed"
+/// so a git hiccup can never cause a result to be wrongly reused.
+fn unchanged_in_scope(repo: &Path, a: &str, b: &str, roots: &[String]) -> bool {
+    let mut cmd = Command::new("git");
+    cmd.args(["diff-tree", "--quiet", a, b, "--"]).args(roots).current_dir(repo);
+    matches!(cmd.status().map(|s| s.code()), Ok(Some(0)))
+}
+
+/// The literal directory (or file) prefix of each `[files] include` glob —
+/// `platforms/macos/**/*.yml` → `platforms/macos`. `None` when the config has
+/// no include globs: then everything is in scope and nothing can be skipped.
+fn scope_roots(cfg: &Path) -> Option<Vec<String>> {
+    let text = std::fs::read_to_string(cfg).ok()?;
+    let (include, _) = scope_globs(&text);
+    if include.is_empty() {
+        return None;
+    }
+    let mut roots: Vec<String> = include.iter().map(|g| leading_literal(g)).collect();
+    roots.sort();
+    roots.dedup();
+    Some(roots)
+}
+
+/// The path prefix before the first glob metacharacter, whole segments only.
+fn leading_literal(glob: &str) -> String {
+    let segs: Vec<&str> = glob
+        .split('/')
+        .take_while(|seg| !seg.contains(['*', '?', '[', '{']))
+        .collect();
+    if segs.is_empty() { ".".to_string() } else { segs.join("/") }
+}
+
+/// `[files] include` and `exclude` globs from a scope config's text.
+fn scope_globs(text: &str) -> (Vec<String>, Vec<String>) {
     let globs = |key: &str| -> Vec<String> {
         let Some(rest) = text.split_once(&format!("{key} =")) else {
             return Vec::new();
@@ -457,8 +552,16 @@ fn describe_scope(cfg: &Path) -> String {
             })
             .collect()
     };
-    let inc = globs("include");
-    let exc = globs("exclude");
+    (globs("include"), globs("exclude"))
+}
+
+/// A one-line summary of what a scope config excludes, so an exempted path is
+/// visible in the report rather than silently absent from it.
+fn describe_scope(cfg: &Path) -> String {
+    let Ok(text) = std::fs::read_to_string(cfg) else {
+        return "unreadable".to_string();
+    };
+    let (inc, exc) = scope_globs(&text);
     match (inc.is_empty(), exc.is_empty()) {
         (true, true) => "no [files] scoping".to_string(),
         (false, true) => format!("include: {}", inc.join(", ")),
@@ -541,6 +644,7 @@ struct OracleOut {
 /// Run the oracle over a materialised tree and return each file's blocking
 /// messages, keyed by the same repo-relative path flint findings use.
 /// Fleet's verdicts on one tree: what it blocked, and what it declined to judge.
+#[derive(Clone)]
 pub(crate) struct OracleVerdicts {
     pub(crate) blocking: BTreeMap<String, Vec<String>>,
     /// Paths Fleet's parser has no opinion on. Excluded from the diff on BOTH
@@ -1080,9 +1184,110 @@ const FIX_WORDS: &[&str] = &[
 ];
 
 /// One remediation commit that supports a finding.
+#[derive(Clone)]
 struct Evidence {
     short: String,
     subject: String,
+}
+
+/// A directory whose files fix commits kept having to wire into configs —
+/// the `must-be-referenced` shape.
+struct WiringCandidate {
+    /// Repo-relative directory the added references point into.
+    target_dir: String,
+    /// Repo-relative directory of the configs that gained the references.
+    referrer_dir: String,
+    evidence: Vec<Evidence>,
+}
+
+/// A file deleted in separate fix commits — re-added in between, so something
+/// keeps putting it back. The `forbid-file` shape.
+struct ForbidCandidate {
+    basename: String,
+    evidence: Vec<Evidence>,
+}
+
+/// `+ path:` / `+ - path:` lines in a diff, as (target dir, referrer dir),
+/// both repo-relative. The value is relative to the referrer, as Fleet reads
+/// it, so it is resolved against the `+++ b/` file's directory.
+fn wiring_added(diff: &str) -> BTreeSet<(String, String)> {
+    let mut out = BTreeSet::new();
+    let mut referrer_dir = String::new();
+    for line in diff.lines() {
+        if let Some(rest) = line.strip_prefix("+++ b/") {
+            referrer_dir = rest.rsplit_once('/').map(|(d, _)| d.to_string()).unwrap_or_default();
+            continue;
+        }
+        if !line.starts_with('+') || line.starts_with("+++") {
+            continue;
+        }
+        let body = line[1..].trim_start().trim_start_matches("- ").trim_start();
+        let Some(value) = body.strip_prefix("path:") else { continue };
+        let value = value.trim().trim_matches(['"', '\'']);
+        if value.is_empty() || value.contains('$') || value.contains("://") || value.contains('*') {
+            continue;
+        }
+        // Resolve `../platforms/x/y.sh` against the referrer's directory.
+        let mut segs: Vec<&str> = referrer_dir.split('/').filter(|s| !s.is_empty()).collect();
+        for seg in value.split('/') {
+            match seg {
+                ".." => {
+                    segs.pop();
+                }
+                "." | "" => {}
+                s => segs.push(s),
+            }
+        }
+        segs.pop(); // the file itself; we want its directory
+        if segs.is_empty() {
+            continue;
+        }
+        out.insert((segs.join("/"), referrer_dir.clone()));
+    }
+    out
+}
+
+/// Basenames of files a commit deleted, from `--name-status` output.
+fn deleted_basenames(status: &str) -> BTreeSet<String> {
+    status
+        .lines()
+        .filter_map(|l| {
+            let mut cols = l.split('\t');
+            (cols.next()? == "D").then(|| cols.next())?
+        })
+        .filter_map(|p| p.rsplit('/').next().map(str::to_string))
+        .collect()
+}
+
+fn wiring_toml(w: &WiringCandidate) -> String {
+    let cites: Vec<&str> = w.evidence.iter().map(|e| e.short.as_str()).collect();
+    format!(
+        "[[patterns]]\n\
+         files = \"{}/**\"\n\
+         assert = \"must-be-referenced\"\n\
+         by = \"{}/*.yml\"\n\
+         severity = \"warn\"\n\
+         why = \"Files here were left unwired and had to be added to a fleet by hand in {} \
+         separate fix commits ({}). A file nothing references is never applied.\"\n",
+        w.target_dir,
+        w.referrer_dir,
+        w.evidence.len(),
+        cites.join(", ")
+    )
+}
+
+fn forbid_toml(f: &ForbidCandidate) -> String {
+    let cites: Vec<&str> = f.evidence.iter().map(|e| e.short.as_str()).collect();
+    format!(
+        "[[patterns]]\n\
+         files = \"**/{}\"\n\
+         assert = \"forbid-file\"\n\
+         severity = \"warn\"\n\
+         why = \"Deleted in {} separate fix commits ({}) — it keeps coming back.\"\n",
+        f.basename,
+        f.evidence.len(),
+        cites.join(", ")
+    )
 }
 
 /// Where remediation concentrated: one YAML key in one area, with how the fix
@@ -1117,6 +1322,8 @@ impl Churn {
 
 fn suggest(root: &Path, commits: &[CommitRef], min_occurrences: usize, json: bool) -> Result<()> {
     let mut by_key: BTreeMap<(String, String), (Vec<Evidence>, Vec<Evidence>)> = BTreeMap::new();
+    let mut wiring: BTreeMap<(String, String), Vec<Evidence>> = BTreeMap::new();
+    let mut forbid: BTreeMap<String, Vec<Evidence>> = BTreeMap::new();
 
     for c in commits {
         if !is_fix_shaped(&c.subject) {
@@ -1139,6 +1346,27 @@ fn suggest(root: &Path, commits: &[CommitRef], min_occurrences: usize, json: boo
                 slot.1.push(ev);
             }
         }
+        // A fix that ADDS a `path:` reference into a directory is someone
+        // discovering a file there had to be wired — the unregistered-script
+        // class seen from the commit side. Group by (target dir, referrer dir).
+        for (target_dir, referrer_dir) in wiring_added(&diff) {
+            wiring
+                .entry((target_dir, referrer_dir))
+                .or_default()
+                .push(Evidence { short: c.short.clone(), subject: c.subject.clone() });
+        }
+        // The SAME file deleted in two separate fix commits was re-added in
+        // between: something keeps putting it back. Deletions of different
+        // files that merely share an extension are obsolete payloads, not a
+        // forbidden kind, and are deliberately not counted.
+        let status = git(root, &["show", "--format=", "--name-status", "--no-color", &c.sha])
+            .unwrap_or_default();
+        for basename in deleted_basenames(&status) {
+            forbid
+                .entry(basename)
+                .or_default()
+                .push(Evidence { short: c.short.clone(), subject: c.subject.clone() });
+        }
     }
 
     let mut churn: Vec<Churn> = by_key
@@ -1158,10 +1386,28 @@ fn suggest(root: &Path, commits: &[CommitRef], min_occurrences: usize, json: boo
         .iter()
         .partition(|c| c.is_guardrail_shaped(min_occurrences));
 
+    // Distinct commits, not distinct lines: one fix wiring eight scripts is
+    // one occurrence of the lesson.
+    let distinct = |ev: &Vec<Evidence>| {
+        ev.iter().map(|e| e.short.as_str()).collect::<BTreeSet<_>>().len()
+    };
+    let mut wiring: Vec<WiringCandidate> = wiring
+        .into_iter()
+        .filter(|(_, ev)| distinct(ev) >= min_occurrences)
+        .map(|((target_dir, referrer_dir), evidence)| WiringCandidate { target_dir, referrer_dir, evidence })
+        .collect();
+    wiring.sort_by(|a, b| b.evidence.len().cmp(&a.evidence.len()));
+    let mut forbid: Vec<ForbidCandidate> = forbid
+        .into_iter()
+        .filter(|(_, ev)| distinct(ev) >= min_occurrences)
+        .map(|(basename, evidence)| ForbidCandidate { basename, evidence })
+        .collect();
+    forbid.sort_by(|a, b| b.evidence.len().cmp(&a.evidence.len()));
+
     if json {
-        print_suggest_json(&candidates, &hotspots, min_occurrences);
+        print_suggest_json(&candidates, &hotspots, &wiring, &forbid, min_occurrences);
     } else {
-        print_suggest_human(&candidates, &hotspots, min_occurrences);
+        print_suggest_human(&candidates, &hotspots, &wiring, &forbid, min_occurrences);
     }
     Ok(())
 }
@@ -1244,7 +1490,13 @@ fn pattern_toml(c: &Churn) -> String {
     )
 }
 
-fn print_suggest_human(candidates: &[&Churn], hotspots: &[&Churn], min_occurrences: usize) {
+fn print_suggest_human(
+    candidates: &[&Churn],
+    hotspots: &[&Churn],
+    wiring: &[WiringCandidate],
+    forbid: &[ForbidCandidate],
+    min_occurrences: usize,
+) {
     println!(
         "\n{} mined from remediation commits\n",
         "flint history --suggest-patterns".bold()
@@ -1304,6 +1556,40 @@ fn print_suggest_human(candidates: &[&Churn], hotspots: &[&Churn], min_occurrenc
         }
     }
 
+    if !wiring.is_empty() {
+        println!("\n{}", "Files that kept needing to be wired".bold());
+        for w in wiring {
+            println!(
+                "  {} → referenced from {}  {}",
+                format!("{}/**", w.target_dir).bold(),
+                w.referrer_dir.dimmed(),
+                format!("×{} fix commits", w.evidence.len()).red()
+            );
+            for e in &w.evidence {
+                println!("      {} {}", e.short.dimmed(), truncate(&e.subject, 60).dimmed());
+            }
+            println!();
+            for line in wiring_toml(w).lines() {
+                println!("      {}", format!("# {line}").dimmed());
+            }
+            println!();
+        }
+    }
+    if !forbid.is_empty() {
+        println!("\n{}", "Files that keep coming back".bold());
+        for f in forbid {
+            println!("  {}  {}", f.basename.bold(), format!("deleted ×{}", f.evidence.len()).red());
+            for e in &f.evidence {
+                println!("      {} {}", e.short.dimmed(), truncate(&e.subject, 60).dimmed());
+            }
+            println!();
+            for line in forbid_toml(f).lines() {
+                println!("      {}", format!("# {line}").dimmed());
+            }
+            println!();
+        }
+    }
+
     println!("\n{}", "What this cannot express".dimmed());
     for limit in [
         "\"this script is registered in THIS fleet\" — relational",
@@ -1320,7 +1606,13 @@ fn print_suggest_human(candidates: &[&Churn], hotspots: &[&Churn], min_occurrenc
     );
 }
 
-fn print_suggest_json(candidates: &[&Churn], hotspots: &[&Churn], min_occurrences: usize) {
+fn print_suggest_json(
+    candidates: &[&Churn],
+    hotspots: &[&Churn],
+    wiring: &[WiringCandidate],
+    forbid: &[ForbidCandidate],
+    min_occurrences: usize,
+) {
     let ev = |list: &[Evidence]| {
         list.iter()
             .map(|e| serde_json::json!({"commit": e.short, "subject": e.subject}))
@@ -1371,6 +1663,27 @@ fn print_suggest_json(candidates: &[&Churn], hotspots: &[&Churn], min_occurrence
             "temporal constraints (path resolves after the merge)"
         ],
         "candidates": items,
+        "wiring_candidates": wiring.iter().map(|w| serde_json::json!({
+            "id": format!("must-be-referenced/{}", w.target_dir),
+            "status": "suggestion",
+            "requires_review": true,
+            "assert": "must-be-referenced",
+            "files": format!("{}/**", w.target_dir),
+            "by": format!("{}/*.yml", w.referrer_dir),
+            "occurrences": w.evidence.len(),
+            "evidence": ev(&w.evidence),
+            "pattern_toml": wiring_toml(w),
+        })).collect::<Vec<_>>(),
+        "forbid_candidates": forbid.iter().map(|f| serde_json::json!({
+            "id": format!("forbid-file/{}", f.basename),
+            "status": "suggestion",
+            "requires_review": true,
+            "assert": "forbid-file",
+            "files": format!("**/{}", f.basename),
+            "occurrences": f.evidence.len(),
+            "evidence": ev(&f.evidence),
+            "pattern_toml": forbid_toml(f),
+        })).collect::<Vec<_>>(),
         "hotspots": spots,
     });
     println!("{}", serde_json::to_string_pretty(&doc).unwrap_or_default());
@@ -1773,6 +2086,66 @@ mod tests {
         assert_eq!(rel(base, Path::new("/tmp/flint-history-abc/fleets/a.yml")), "fleets/a.yml");
         // A path already relative, or outside the base, is passed through.
         assert_eq!(rel(base, Path::new("fleets/a.yml")), "fleets/a.yml");
+    }
+
+    #[test]
+    fn scope_roots_are_the_literal_prefixes_of_include_globs() {
+        assert_eq!(leading_literal("fleets/**"), "fleets");
+        assert_eq!(leading_literal("platforms/macos/**/*.yml"), "platforms/macos");
+        assert_eq!(leading_literal("default.yml"), "default.yml");
+        assert_eq!(leading_literal("*.yml"), ".", "a glob with no literal prefix is the whole tree");
+        let (inc, exc) = scope_globs(
+            "[files]\ninclude = [\n  \"default.yml\",\n  \"fleets/**\",\n  \"platforms/**\",\n]\nexclude = [\"tools-scripts/**\"]\n",
+        );
+        assert_eq!(inc, vec!["default.yml", "fleets/**", "platforms/**"]);
+        assert_eq!(exc, vec!["tools-scripts/**"]);
+    }
+
+    /// Without include globs everything is in scope, so no commit may be
+    /// skipped — the conservative default.
+    #[test]
+    fn no_include_globs_means_no_roots() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let cfg = tmp.path().join("fleetlint.toml");
+        std::fs::write(&cfg, "[rules]\nwarn = []\n").unwrap();
+        assert!(scope_roots(&cfg).is_none());
+        std::fs::write(&cfg, "[files]\ninclude = [\"fleets/**\", \"fleets/*.yml\", \"default.yml\"]\n").unwrap();
+        assert_eq!(scope_roots(&cfg).unwrap(), vec!["default.yml", "fleets"]);
+    }
+
+    /// A fix adding `- path: ../platforms/macos/base/scripts/x.sh` to a fleet
+    /// file is evidence that base/scripts files need wiring.
+    #[test]
+    fn wiring_added_resolves_the_target_against_the_referrer() {
+        let diff = "+++ b/fleets/ABC-ACME.yml\n@@ -1 +1,2 @@\n+    - path: ../platforms/macos/base/scripts/set-wifi.sh\n+  other: 1\n-    - path: ../platforms/macos/site/gone.sh\n";
+        let got = wiring_added(diff);
+        assert_eq!(got.len(), 1, "removed refs do not count: {got:?}");
+        assert!(got.contains(&("platforms/macos/base/scripts".to_string(), "fleets".to_string())));
+    }
+
+    #[test]
+    fn wiring_added_skips_globs_and_variables() {
+        let diff = "+++ b/fleets/a.yml\n+  - paths: ../x/*.yml\n+  - path: ${VAR}/y.sh\n+  - path: https://x/y\n";
+        assert!(wiring_added(diff).is_empty());
+    }
+
+    /// Only exact-file recurrence is a forbid signal; extensions are not.
+    #[test]
+    fn deleted_basenames_are_exact_files() {
+        let status = "D\tplatforms/a/.DS_Store\nM\tfleets/a.yml\nD\tplatforms/b/old.mobileconfig\n";
+        let got = deleted_basenames(status);
+        assert_eq!(got, [".DS_Store".to_string(), "old.mobileconfig".to_string()].into());
+    }
+
+    #[test]
+    fn suggested_wiring_and_forbid_patterns_carry_evidence() {
+        let ev = vec![Evidence { short: "b92ff1c".into(), subject: "s".into() }, Evidence { short: "d777926".into(), subject: "s".into() }];
+        let w = WiringCandidate { target_dir: "platforms/macos/base/scripts".into(), referrer_dir: "fleets".into(), evidence: ev.clone() };
+        let t = wiring_toml(&w);
+        assert!(t.contains("assert = \"must-be-referenced\"") && t.contains("by = \"fleets/*.yml\"") && t.contains("b92ff1c, d777926"), "{t}");
+        let f = ForbidCandidate { basename: ".DS_Store".into(), evidence: ev };
+        let t = forbid_toml(&f);
+        assert!(t.contains("assert = \"forbid-file\"") && t.contains("files = \"**/.DS_Store\""), "{t}");
     }
 
     #[test]
