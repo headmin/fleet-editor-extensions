@@ -278,6 +278,16 @@ impl Linter {
         // those — see SOFTWARE_RULES and the filter in the rule loop below.
         let software_only = matches!(file_type, FileType::Software);
 
+        // A fragment that does not parse cannot be applied — fleetctl fails
+        // the whole run on it — so every file kind gets the same verdict.
+        // This used to be checked only for fleet configs: a policy or label
+        // file with a stray `: ` in a value linted clean, dry-run passed, and
+        // the apply failed.
+        if let Some(err) = yaml_syntax_error(content, file_path) {
+            report.add(err);
+            return Ok(report);
+        }
+
         let fleet_config: FleetConfig = match file_type {
             FileType::Software => FleetConfig::default(),
             FileType::Labels => {
@@ -317,40 +327,10 @@ impl Linter {
                 }
             }
             FileType::FleetConfig => {
-                // default.yml, fleets/*.yml, teams/*.yml — full fleet config
-                match serde_yaml::from_str(content) {
-                    Ok(config) => config,
-                    Err(_) => {
-                        // Last resort: try parsing as generic YAML for a parse error
-                        match serde_yaml::from_str::<serde_yaml::Value>(content) {
-                            Ok(_) => FleetConfig::default(),
-                            Err(e) => {
-                                let err_msg = e.to_string();
-
-                                // Fleet's Go YAML parser accepts duplicate keys
-                                // (e.g. multiple `path:` under `packages:` or
-                                // `configuration_profiles:`). serde_yaml rejects
-                                // them but this is valid Fleet GitOps YAML — skip.
-                                if err_msg.contains("duplicate entry") {
-                                    FleetConfig::default()
-                                } else {
-                                    let mut err = LintError::error(
-                                        format!("YAML parse error: {}", e),
-                                        file_path,
-                                    )
-                                    .with_rule_code(crate::codes::YAML_SYNTAX);
-
-                                    if let Some(location) = e.location() {
-                                        err = err.with_location(location.line(), location.column());
-                                    }
-
-                                    report.add(err);
-                                    return Ok(report);
-                                }
-                            }
-                        }
-                    }
-                }
+                // default.yml, fleets/*.yml, teams/*.yml — full fleet config.
+                // Syntax was checked above; a typed-parse failure here is a
+                // shape the rules report themselves.
+                serde_yaml::from_str(content).unwrap_or_default()
             }
         };
 
@@ -719,6 +699,23 @@ impl Default for Linter {
     fn default() -> Self {
         Self::new()
     }
+}
+
+/// The syntax error in `content` if it is not YAML at all — the verdict
+/// `fleetctl gitops` would give. Duplicate keys are NOT a syntax error here:
+/// Fleet's Go parser accepts them (several `path:` under one `packages:` is
+/// common in the wild) and serde_yaml does not.
+fn yaml_syntax_error(content: &str, file_path: &Path) -> Option<LintError> {
+    let e = serde_yaml::from_str::<serde_yaml::Value>(content).err()?;
+    if e.to_string().contains("duplicate entry") {
+        return None;
+    }
+    let mut err = LintError::error(format!("YAML parse error: {}", e), file_path)
+        .with_rule_code(crate::codes::YAML_SYNTAX);
+    if let Some(location) = e.location() {
+        err = err.with_location(location.line(), location.column());
+    }
+    Some(err)
 }
 
 /// File type classification based on path.
@@ -1953,6 +1950,57 @@ config:
         assert!(
             has_required_fields_error,
             "Linter::new() ignores .fleetlint.toml — required-fields should still fire"
+        );
+    }
+    /// A fragment that is not YAML fails `fleetctl gitops` outright. Only
+    /// fleet configs used to get the `yaml-syntax` verdict; a policy or label
+    /// file with a stray `: ` inside a value linted clean and dry-run PASSED.
+    #[test]
+    fn a_policy_fragment_that_is_not_yaml_is_an_error() {
+        let linter = Linter::new();
+        let r = linter
+            .lint_content(
+                "- name: Zoom patch (install_software: true)\n  type: patch\n",
+                std::path::Path::new("platforms/all/policies/patch/zoom.yml"),
+            )
+            .unwrap();
+        assert!(
+            r.errors.iter().any(|e| e.rule_code == Some(crate::codes::YAML_SYNTAX)),
+            "got: {:?}",
+            r.errors
+        );
+    }
+
+    #[test]
+    fn label_and_software_fragments_that_are_not_yaml_are_errors_too() {
+        let linter = Linter::new();
+        for path in ["lib/labels/a.yml", "platforms/all/software/x.yml", "platforms/all/queries/q.yml"] {
+            let r = linter
+                .lint_content("- name: a: b\n  query: x\n", std::path::Path::new(path))
+                .unwrap();
+            assert!(
+                r.errors.iter().any(|e| e.rule_code == Some(crate::codes::YAML_SYNTAX)),
+                "{path}: {:?}",
+                r.errors
+            );
+        }
+    }
+
+    /// Fleet's Go parser accepts duplicate keys; serde_yaml does not. That is
+    /// not a syntax error for our purposes — the file applies.
+    #[test]
+    fn duplicate_keys_are_not_a_syntax_error() {
+        let linter = Linter::new();
+        let r = linter
+            .lint_content(
+                "software:\n  packages:\n    path: ./a.yml\n    path: ./b.yml\n",
+                std::path::Path::new("fleets/x.yml"),
+            )
+            .unwrap();
+        assert!(
+            !r.errors.iter().any(|e| e.rule_code == Some(crate::codes::YAML_SYNTAX)),
+            "got: {:?}",
+            r.errors
         );
     }
 }

@@ -469,7 +469,7 @@ pub(crate) fn check_team_membership(files: &[ParsedFile]) -> Vec<(PathBuf, LintE
                 // SHA256 … not found on team". A repo that wants it softer can
                 // downgrade it via `[rules] warn`.
                 let mut err = LintError::error(
-                    format!("fleet '{team_name}': policy '{pol_name}' auto-installs {missing}, but this fleet's software list doesn't include it"),
+                    format!("fleet '{team_name}': policy '{pol_name}' {missing}, but this fleet's software list doesn't include it"),
                     &f.path,
                 )
                 .with_rule_code(crate::codes::INSTALL_SOFTWARE_TEAM)
@@ -486,7 +486,9 @@ pub(crate) fn check_team_membership(files: &[ParsedFile]) -> Vec<(PathBuf, LintE
     out
 }
 
-fn is_team_file(path: &Path) -> bool {
+/// Whether `path` is a fleet/team config by placement — directly inside a
+/// `fleets/` or `teams/` directory.
+pub fn is_team_file(path: &Path) -> bool {
     matches!(
         path.parent().and_then(|p| p.file_name()).and_then(|n| n.to_str()),
         Some("fleets") | Some("teams")
@@ -624,8 +626,9 @@ fn push_policies(yaml: &Value, path: &Path, out: &mut Vec<(Value, PathBuf)>) {
     }
 }
 
-/// If a policy's `install_software` references a package not in the team's sets,
-/// return a short human description of what's missing; else `None`.
+/// If a policy needs software the team does not list, return the verb phrase
+/// naming what it needs ("auto-installs a package with hash …", "is a patch
+/// policy for Fleet-maintained app …"); else `None`.
 fn unresolved_install(
     policy: &Value,
     policy_path: &Path,
@@ -634,13 +637,25 @@ fn unresolved_install(
     slugs: &HashSet<String>,
     app_ids: &HashSet<String>,
 ) -> Option<String> {
+    // A patch policy is bound to its Fleet-maintained app whether or not it
+    // installs it — fleetctl refuses the apply: "<slug> is specified in the
+    // patch policy, but it isn't specified under software.fleet_maintained_apps".
+    // Checked before `install_software`, so the plain form is covered too;
+    // this used to look only at policies that install something, and a team
+    // whose fleet_maintained_apps list was trimmed linted clean and failed
+    // with one such error per patch policy.
+    if policy.get("type").and_then(|v| v.as_str()) == Some("patch") {
+        if let Some(s) = policy.get("fleet_maintained_app_slug").and_then(|v| v.as_str()) {
+            if !slugs.contains(s) {
+                return Some(format!("is a patch policy for Fleet-maintained app '{s}'"));
+            }
+        }
+    }
     let is = policy.get("install_software")?;
     match is {
-        // Patch policy: `install_software: true` installs the policy's FMA.
-        Value::Bool(true) => {
-            let s = policy.get("fleet_maintained_app_slug").and_then(|v| v.as_str())?;
-            (!slugs.contains(s)).then(|| format!("Fleet-maintained app '{s}'"))
-        }
+        // `install_software: true` installs the patch policy's own FMA, which
+        // the check above already resolved.
+        Value::Bool(true) => None,
         Value::Mapping(_) => {
             if let Some(z) = is.get("package_path").and_then(|v| v.as_str()) {
                 // Resolved relative to the POLICY file, not the fleet.
@@ -652,17 +667,17 @@ fn unresolved_install(
                 if req.is_empty() || req.iter().any(|h| hashes.contains(h)) {
                     return None;
                 }
-                return Some(format!("the package at {z} (its hash is not in this fleet's software)"));
+                return Some(format!("auto-installs the package at {z} (its hash is not in this fleet's software)"));
             }
             if let Some(h) = is.get("hash_sha256").and_then(|v| v.as_str()) {
                 return (!hashes.contains(&h.to_lowercase()))
-                    .then(|| format!("a package with hash {h}"));
+                    .then(|| format!("auto-installs a package with hash {h}"));
             }
             if let Some(s) = is.get("fleet_maintained_app_slug").and_then(|v| v.as_str()) {
-                return (!slugs.contains(s)).then(|| format!("Fleet-maintained app '{s}'"));
+                return (!slugs.contains(s)).then(|| format!("auto-installs Fleet-maintained app '{s}'"));
             }
             if let Some(a) = is.get("app_store_id").and_then(|v| v.as_str()) {
-                return (!app_ids.contains(a)).then(|| format!("App Store app '{a}'"));
+                return (!app_ids.contains(a)).then(|| format!("auto-installs App Store app '{a}'"));
             }
             None
         }
@@ -1036,6 +1051,60 @@ mod tests {
         assert_eq!(err.severity, crate::error::Severity::Error);
         assert!(err.message.contains("ABC - XX"));
         assert!(err.message.contains("Corp-Fonts is installed"));
+    }
+
+    /// Fleet rejects EVERY patch policy whose app the team does not list —
+    /// "<slug> is specified in the patch policy, but it isn't specified under
+    /// software.fleet_maintained_apps" — not only the ones that install it.
+    /// The incident: a team's fleet_maintained_apps list was trimmed and the
+    /// dry-run failed with 44 of these, one per patch policy, after a clean lint.
+    #[test]
+    fn plain_patch_policy_needs_its_fma_in_the_team() {
+        let files = vec![
+            parsed(
+                "platforms/all/policies/patch/zoom.yml",
+                "- name: Zoom patch\n  type: patch\n  fleet_maintained_app_slug: zoom/darwin\n",
+            ),
+            parsed(
+                "fleets/ABC-A.yml",
+                "name: ABC - A\npolicies:\n  - paths: ../platforms/all/policies/patch/*.yml\nsoftware:\n  fleet_maintained_apps:\n    - slug: slack/darwin\n",
+            ),
+        ];
+        let findings = check_team_membership(&files);
+        assert_eq!(findings.len(), 1, "got: {findings:?}");
+        let (path, err) = &findings[0];
+        assert!(path.ends_with("fleets/ABC-A.yml"));
+        assert_eq!(err.rule_code, Some("install-software-team"));
+        assert_eq!(err.severity, crate::error::Severity::Error);
+        assert!(err.message.contains("is a patch policy for"), "got: {}", err.message);
+        assert!(err.message.contains("zoom/darwin"));
+    }
+
+    /// The same policy with `install_software: true` reports once, not twice,
+    /// and a team that lists the app is silent in both forms.
+    #[test]
+    fn patch_policy_whose_fma_is_listed_is_silent() {
+        for body in [
+            "- name: Zoom patch\n  type: patch\n  fleet_maintained_app_slug: zoom/darwin\n",
+            "- name: Zoom patch\n  type: patch\n  fleet_maintained_app_slug: zoom/darwin\n  install_software: true\n",
+        ] {
+            let listed = vec![
+                parsed("platforms/all/policies/patch/zoom.yml", body),
+                parsed(
+                    "fleets/ABC-A.yml",
+                    "name: ABC - A\npolicies:\n  - paths: ../platforms/all/policies/patch/*.yml\nsoftware:\n  fleet_maintained_apps:\n    - slug: zoom/darwin\n",
+                ),
+            ];
+            assert!(check_team_membership(&listed).is_empty(), "body: {body}");
+            let missing = vec![
+                parsed("platforms/all/policies/patch/zoom.yml", body),
+                parsed(
+                    "fleets/ABC-A.yml",
+                    "name: ABC - A\npolicies:\n  - paths: ../platforms/all/policies/patch/*.yml\nsoftware:\n  fleet_maintained_apps: []\n",
+                ),
+            ];
+            assert_eq!(check_team_membership(&missing).len(), 1, "body: {body}");
+        }
     }
 
     /// The ABC-ALPHA scenario: same policy, but the fleet DOES include the
