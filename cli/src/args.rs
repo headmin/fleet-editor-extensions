@@ -40,6 +40,21 @@ pub(crate) enum Commands {
         action: HooksAction,
     },
 
+    /// Replay today's rules against past commits, and mine remediation
+    /// commits for conventions no rule encodes yet.
+    ///
+    /// Default mode is a replay: for each first-parent commit it reconstructs
+    /// the tree and runs the engine, then reports "red windows" — the runs of
+    /// commits in which a rule would have fired, and the commit that closed
+    /// each one. A code with two or more CLOSED windows is a repeat failure,
+    /// which is prioritisation evidence rather than a judgement call.
+    ///
+    /// `--suggest-patterns` switches to archaeology: it mines commits that
+    /// look like remediation and proposes `[[patterns]]` guardrails for
+    /// conventions that recurred. That output is heuristic, is emitted
+    /// commented out, and is never written to your config.
+    History(HistoryArgs),
+
     /// Start language server (called by editor extensions, not directly)
     #[command(hide = true)]
     Lsp(LspArgs),
@@ -213,6 +228,71 @@ pub(crate) struct CheckArgs {
     /// `--exclude '**/tools-scripts/fleet-templates/**'`.
     #[arg(long, value_name = "GLOB")]
     pub(crate) exclude: Vec<String>,
+}
+
+#[derive(Args)]
+pub(crate) struct HistoryArgs {
+    /// Repo directory (default: current directory)
+    #[arg(default_value = ".")]
+    pub(crate) path: PathBuf,
+
+    /// Replay from this ref (exclusive) up to HEAD, instead of the last
+    /// `--max` commits.
+    #[arg(long, value_name = "REF")]
+    pub(crate) since: Option<String>,
+
+    /// Maximum first-parent commits to examine.
+    #[arg(long, default_value_t = 200, value_name = "N")]
+    pub(crate) max: usize,
+
+    /// Mine remediation commits for candidate `[[patterns]]` guardrails
+    /// instead of replaying the rules.
+    #[arg(long)]
+    pub(crate) suggest_patterns: bool,
+
+    /// With --suggest-patterns: how many times a convention must have been
+    /// repaired by hand before it is proposed. One repair is an anecdote.
+    #[arg(long, default_value_t = 2, value_name = "N", requires = "suggest_patterns")]
+    pub(crate) min_occurrences: usize,
+
+    /// Path to the `gitops-oracle` binary. When given, each replayed tree is
+    /// also put through Fleet's own parser and the two verdicts are diffed,
+    /// so the report measures correctness rather than self-consistency.
+    ///
+    /// Dev/CI only — the oracle is not shipped with flint.
+    #[arg(long, value_name = "PATH", conflicts_with = "suggest_patterns")]
+    pub(crate) oracle: Option<PathBuf>,
+
+    /// Replay each tree under ITS OWN committed `.fleetlint.toml` instead of
+    /// today's.
+    ///
+    /// The default applies the current config to every tree, because "today's
+    /// rules against yesterday's trees" should hold scope fixed too: a
+    /// directory the repo has since declared out of scope would otherwise
+    /// pollute the whole history. Use this to ask the different question,
+    /// "what would flint have said at the time".
+    #[arg(long)]
+    pub(crate) scope_as_committed: bool,
+
+    /// Gate the run against a stored scorecard, for CI.
+    ///
+    /// Compares this replay to the baseline at PATH and exits 2 if rule
+    /// quality regressed: a rule that newly claims blocking where Fleet
+    /// accepts, or a Fleet complaint flint has newly gone silent on. Writes
+    /// the file and passes if it does not exist yet.
+    ///
+    /// Only new KEYS gate. Counts move with the range replayed, so they are
+    /// reported and never failed on.
+    #[arg(long, value_name = "PATH", conflicts_with = "suggest_patterns")]
+    pub(crate) gate: Option<PathBuf>,
+
+    /// Overwrite the --gate baseline with this run instead of comparing.
+    #[arg(long, requires = "gate")]
+    pub(crate) update_baseline: bool,
+
+    /// Emit JSON — the form an agent consumes.
+    #[arg(long)]
+    pub(crate) json: bool,
 }
 
 #[derive(Args)]

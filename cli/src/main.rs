@@ -37,6 +37,7 @@ async fn main() -> Result<()> {
         Commands::Check(a) => commands::check::run(a)?,
         Commands::DryRun(a) => commands::dry_run::run(a)?,
         Commands::Hooks { action } => commands::hooks::run(action)?,
+        Commands::History(a) => commands::history::run(a)?,
         Commands::Lsp(a) => commands::lsp::run(a).await?,
         Commands::Init(a) => commands::init::run(a)?,
         Commands::ListRules(a) => commands::list_rules::run(a)?,

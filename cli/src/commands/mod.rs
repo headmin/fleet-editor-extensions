@@ -7,6 +7,7 @@ pub(crate) mod dry_run;
 pub(crate) mod fleet;
 pub(crate) mod fma;
 pub(crate) mod gen;
+pub(crate) mod history;
 pub(crate) mod hooks;
 pub(crate) mod init;
 pub(crate) mod list_rules;
