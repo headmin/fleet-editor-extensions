@@ -1824,14 +1824,19 @@ impl Rule for SoftwareSourceRule {
                     continue;
                 }
                 let (line, col) = find_line_containing(source, hash);
+                // The message stays the exact constant — `dry-run
+                // --assume-uploaded` matches on it — so the provenance rides
+                // in the help. Without it this reads as a fact about the
+                // repo; it is a claim about the server at one moment.
                 let mut err = LintError::error(
                     crate::snapshot::HASH_NOT_UPLOADED.to_string(),
                     file,
                 )
                 .with_rule_code(crate::codes::SOFTWARE_SOURCE)
-                .with_help(
-                    "No installer with this hash exists on the server, and there is no `url:` to download one, so `fleetctl gitops` fails with 'package not found with hash'. Add a `url:`, or upload the package.",
-                );
+                .with_help(format!(
+                    "No installer with this hash exists on the server ({}), and there is no `url:` to download one, so `fleetctl gitops` fails with 'package not found with hash'. Add a `url:`, upload the package, or `flint dry-run --refresh-snapshot` if it was uploaded since.",
+                    snap.provenance_label()
+                ));
                 if let (Some(l), Some(c)) = (line, col) {
                     err = err.with_location(l, c);
                 }
@@ -1847,6 +1852,16 @@ impl Rule for SoftwareSourceRule {
             .with_help(
                 "Fleet has no installer to download for this package. Either add a `url:` (e.g. regenerate with `flint pkg --yml`), OR ensure a package with this exact hash is uploaded to the target Fleet server (the upload-and-reference-by-hash workflow). Otherwise `fleetctl gitops` fails with 'package not found with hash'.",
             );
+            // A snapshot was present but too old to trust: say so, as the
+            // label rule does. Otherwise the reader cannot tell "no snapshot"
+            // from "snapshot ignored for age", and the fix — refresh it — is
+            // invisible. Wiring is a separate question and gets no caveat: an
+            // unreferenced file was never going to gate regardless of age.
+            if is_referenced {
+                if let Some(caveat) = self.snapshot.as_deref().and_then(|s| s.freshness.caveat()) {
+                    err = err.with_help(caveat);
+                }
+            }
             if let (Some(l), Some(c)) = (line, col) {
                 err = err.with_location(l, c);
             }
@@ -1977,6 +1992,9 @@ const CREDENTIAL_PARAMS: &[&str] = &[
 /// clean lint. The value is a live credential in version control, which is
 /// worse than the field case it already covers, because nothing about the key
 /// name suggests a secret is present.
+/// Keys whose URL is expected to carry a token, current and pre-rename.
+const BOOTSTRAP_URL_KEYS: &[&str] = &["macos_bootstrap_package", "bootstrap_package"];
+
 fn check_url_credentials(yaml: &serde_yaml::Value, file: &Path, errors: &mut Vec<LintError>) {
     crate::yaml_utils::walk_mappings(yaml, &mut |map| {
         for (k, v) in map {
@@ -1984,6 +2002,15 @@ fn check_url_credentials(yaml: &serde_yaml::Value, file: &Path, errors: &mut Vec
                 continue;
             };
             if !value.contains("://") {
+                continue;
+            }
+            // Fleet's bootstrap package URL carries its token BY DESIGN — that
+            // is how Fleet serves the package to a device, not an accident of
+            // authoring. Reporting it as a leaked credential is a false
+            // positive on every correct config, and it is the wrong signal
+            // anyway: what matters is whether several fleets point at the SAME
+            // package, which `bootstrap-package-shared` reports.
+            if BOOTSTRAP_URL_KEYS.contains(&key) {
                 continue;
             }
             let Some((_, query)) = value.split_once('?') else {
@@ -2050,6 +2077,136 @@ fn check_secret_field(
 // ============================================================================
 // Tests
 // ============================================================================
+
+
+// ---------------------------------------------------------------------------
+// env-var-resolvable
+// ---------------------------------------------------------------------------
+
+/// Flags `${VAR}` references fleetctl will not be able to expand.
+///
+/// `fleetctl gitops` runs `ExpandEnvBytes` over the **raw file text before any
+/// YAML is parsed**, so a `${VAR}` inside a `#` comment expands exactly like
+/// one in a value, and a single unset name fails the WHOLE file:
+///
+/// ```text
+/// Error: failed to expand environment in file ./fleets/ABC-ZZ.yml:
+///   * environment variable "FLEET_BOOTSTRAP_TOKEN" not set; if you intended the
+///     literal string ${FLEET_BOOTSTRAP_TOKEN} then please escape it as
+///     \${FLEET_BOOTSTRAP_TOKEN}
+/// ```
+///
+/// Commenting a line out is therefore not inherently safe, which is the
+/// counter-intuitive half and why the message says so.
+///
+/// **Warning, not error, and deliberately so.** Whether a name resolves is a
+/// property of the environment flint happens to be running in, not of the repo.
+/// A developer without `FLEET_URL` set is not looking at a broken file. flint
+/// does not assert failures it cannot verify — the same reason an unwired hash
+/// stays advisory — so this reports what it can see and names the remedy.
+pub(crate) struct EnvVarResolvableRule {
+    /// Names the repo declares it supplies via `[fleet] env`.
+    pub(crate) declared: std::collections::HashSet<String>,
+}
+
+/// Prefixes Fleet resolves itself, on the server, at apply time. They are not
+/// environment expansion and must never be reported.
+const SERVER_RESOLVED_PREFIXES: &[&str] = &["FLEET_SECRET_", "FLEET_VAR_"];
+
+impl Rule for EnvVarResolvableRule {
+    fn name(&self) -> &'static str {
+        "env-var-resolvable"
+    }
+    fn description(&self) -> &'static str {
+        "Checks that every ${VAR} in gitops YAML can actually be expanded, comments included"
+    }
+    fn category(&self) -> &'static str {
+        "semantic"
+    }
+
+    fn check(&self, _config: &FleetConfig, file: &Path, source: &str) -> Vec<LintError> {
+        let mut seen = std::collections::HashSet::new();
+        let mut errors = Vec::new();
+        for (line_no, name, in_comment) in env_refs(source) {
+            if !seen.insert(name.clone()) {
+                continue;
+            }
+            if SERVER_RESOLVED_PREFIXES.iter().any(|p| name.starts_with(p))
+                || self.declared.contains(&name)
+                || std::env::var_os(&name).is_some()
+            {
+                continue;
+            }
+            let where_ = if in_comment {
+                " — and it is inside a comment, which fleetctl expands just the same"
+            } else {
+                ""
+            };
+            errors.push(
+                LintError::warning(
+                    format!("'${{{name}}}' is not set in this environment{where_}"),
+                    file,
+                )
+                .with_rule_code(crate::codes::ENV_VAR_RESOLVABLE)
+                .with_location(line_no, 1)
+                .with_help(format!(
+                    "fleetctl expands the raw file text before parsing any YAML, so one unset \
+                     name fails the WHOLE file. Provide {name} where gitops runs, declare it \
+                     under [fleet] env, or escape the literal as \\${{{name}}}."
+                )),
+            );
+        }
+        errors
+    }
+}
+
+/// Every `$NAME` / `${NAME}` in raw text, with its 1-indexed line and whether
+/// it sits in a comment.
+///
+/// Deliberately reads raw source rather than parsed YAML: the comment case is
+/// the whole point, and a parser would have discarded it.
+fn env_refs(source: &str) -> Vec<(usize, String, bool)> {
+    let mut out = Vec::new();
+    for (idx, line) in source.lines().enumerate() {
+        let comment_at = line.find('#');
+        let bytes = line.as_bytes();
+        let mut i = 0;
+        while i < bytes.len() {
+            if bytes[i] != b'$' {
+                i += 1;
+                continue;
+            }
+            // `\$` is the documented escape for a literal — not a reference.
+            if i > 0 && bytes[i - 1] == b'\\' {
+                i += 1;
+                continue;
+            }
+            let (start, braced) = if bytes.get(i + 1) == Some(&b'{') {
+                (i + 2, true)
+            } else {
+                (i + 1, false)
+            };
+            let mut j = start;
+            while j < bytes.len()
+                && (bytes[j].is_ascii_alphanumeric()
+                    || bytes[j] == b'_'
+                    || (braced && bytes[j] == b'.'))
+            {
+                j += 1;
+            }
+            if j == start || (braced && bytes.get(j) != Some(&b'}')) {
+                i += 1;
+                continue;
+            }
+            if let Ok(name) = std::str::from_utf8(&bytes[start..j]) {
+                let in_comment = comment_at.is_some_and(|c| i > c);
+                out.push((idx + 1, name.to_string(), in_comment));
+            }
+            i = j + 1;
+        }
+    }
+    out
+}
 
 #[cfg(test)]
 mod tests {
@@ -3088,6 +3245,198 @@ mod tests {
         assert!(errs[0].message.contains("plain HTTP"));
     }
 
+    /// Fleet's bootstrap package URL carries its token by design, so reporting
+    /// it as a leaked credential is a false positive on every correct config.
+    #[test]
+    fn a_bootstrap_package_token_is_not_a_leaked_credential() {
+        let yaml: serde_yaml::Value = serde_yaml::from_str(
+            "controls:\n  setup_experience:\n    macos_bootstrap_package: \"https://x/bootstrap?token=abc123\"\n",
+        )
+        .unwrap();
+        let mut errs = Vec::new();
+        check_url_credentials(&yaml, std::path::Path::new("fleets/a.yml"), &mut errs);
+        assert!(errs.is_empty(), "by-design token must not be reported: {errs:?}");
+    }
+
+    /// Any OTHER URL keeps the check — the exemption is one key, not a hole.
+    #[test]
+    fn a_token_in_any_other_url_is_still_reported() {
+        let yaml: serde_yaml::Value =
+            serde_yaml::from_str("webhook_settings:\n  url: \"https://x/hook?token=abc123\"\n")
+                .unwrap();
+        let mut errs = Vec::new();
+        check_url_credentials(&yaml, std::path::Path::new("fleets/a.yml"), &mut errs);
+        assert_eq!(errs.len(), 1, "got: {errs:?}");
+    }
+
+    // -- snapshot provenance on software-source --
+
+    /// Writes a minimal snapshot and loads it with the given "now".
+    fn snapshot_at(fetched_at: &str, now: &str, hashes: &[&str]) -> std::sync::Arc<crate::snapshot::LoadedSnapshot> {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let path = tmp.path().join(crate::snapshot::SNAPSHOT_FILE_NAME);
+        let json = serde_json::json!({
+            "schema": 1,
+            "provenance": {"fetched_at": fetched_at, "server": "fleet.example.com", "fleet_version": "4.90.0"},
+            "software": {"hashes": hashes},
+        });
+        std::fs::write(&path, json.to_string()).unwrap();
+        let now_unix = crate::snapshot::parse_rfc3339_utc(now).unwrap();
+        let loaded = crate::snapshot::LoadedSnapshot::load(&path, 30, now_unix).unwrap();
+        // TempDir drops here; the snapshot is already in memory.
+        std::sync::Arc::new(loaded)
+    }
+
+    fn wired(path: &str) -> super::super::rules::ReferencedPaths {
+        let r: super::super::rules::ReferencedPaths = Default::default();
+        r.set([crate::util::normalize_path(std::path::Path::new(path))].into_iter().collect()).unwrap();
+        r
+    }
+
+    const SRC: &str = "- hash_sha256: 3a673c556d864348df3702a806be41bcdf44721976c7aacac41682aa159a3be2\n";
+    const FILE: &str = "platforms/macos/base/software/corp.yml";
+
+    /// "Not uploaded to the Fleet server" is a claim about one moment. The
+    /// moment must be in the finding, or a fresh worktree (no snapshot) passing
+    /// while the working copy fails looks like a repo bug.
+    #[test]
+    fn a_snapshot_backed_error_names_its_provenance() {
+        let snap = snapshot_at("2026-08-12T06:28:27Z", "2026-08-29T00:00:00Z", &["other"]);
+        let errs = lint_at(
+            &SoftwareSourceRule { snapshot: Some(snap), placeholders: Default::default(), referenced: wired(FILE) },
+            SRC, FILE,
+        );
+        assert_eq!(errs.len(), 1, "got: {errs:?}");
+        assert_eq!(errs[0].severity, Severity::Error);
+        assert_eq!(errs[0].message, crate::snapshot::HASH_NOT_UPLOADED, "constant must not change");
+        let help = errs[0].help.as_deref().unwrap_or_default();
+        assert!(help.contains("fetched 2026-08-12T06:28:27Z"), "got: {help}");
+        assert!(help.contains("fleet.example.com"), "got: {help}");
+        assert!(help.contains("Fleet 4.90.0"), "got: {help}");
+    }
+
+    /// A snapshot too old to trust is ignored for gating — and the reader
+    /// must be told, or "no snapshot" and "snapshot ignored" look identical.
+    #[test]
+    fn a_stale_snapshot_is_named_in_the_fallback_warning() {
+        let snap = snapshot_at("2026-06-01T00:00:00Z", "2026-08-29T00:00:00Z", &["other"]);
+        let errs = lint_at(
+            &SoftwareSourceRule { snapshot: Some(snap), placeholders: Default::default(), referenced: wired(FILE) },
+            SRC, FILE,
+        );
+        assert_eq!(errs.len(), 1, "got: {errs:?}");
+        assert_eq!(errs[0].severity, Severity::Warning, "stale must not gate");
+        let help = errs[0].help.as_deref().unwrap_or_default();
+        assert!(help.contains("days old"), "the caveat must be visible: {help}");
+        assert!(help.contains("refresh"), "and name the remedy: {help}");
+    }
+
+    #[test]
+    fn no_snapshot_means_no_provenance_claim() {
+        let errs = lint_at(
+            &SoftwareSourceRule { snapshot: None, placeholders: Default::default(), referenced: wired(FILE) },
+            SRC, FILE,
+        );
+        assert_eq!(errs[0].severity, Severity::Warning);
+        let help = errs[0].help.as_deref().unwrap_or_default();
+        assert!(!help.contains("days old") && !help.contains("fetched"), "got: {help}");
+    }
+
+    /// Wiring is a separate question from freshness. An unreferenced file was
+    /// never going to gate, so a stale-snapshot caveat on it is noise.
+    #[test]
+    fn an_unwired_file_gets_no_staleness_caveat() {
+        let snap = snapshot_at("2026-06-01T00:00:00Z", "2026-08-29T00:00:00Z", &["other"]);
+        let errs = lint_at(
+            &SoftwareSourceRule { snapshot: Some(snap), placeholders: Default::default(), referenced: Default::default() },
+            SRC, FILE,
+        );
+        let help = errs[0].help.as_deref().unwrap_or_default();
+        assert!(!help.contains("days old"), "got: {help}");
+    }
+
+    // -- EnvVarResolvableRule --
+
+    fn env_rule() -> EnvVarResolvableRule {
+        EnvVarResolvableRule { declared: Default::default() }
+    }
+
+    fn env_check(rule: &EnvVarResolvableRule, src: &str) -> Vec<LintError> {
+        rule.check(&FleetConfig::default(), std::path::Path::new("fleets/a.yml"), src)
+    }
+
+    /// The incident: a `${VAR}` in a COMMENT took the whole apply down, because
+    /// fleetctl expands raw text before parsing any YAML.
+    #[test]
+    fn a_variable_inside_a_comment_is_still_reported() {
+        let errs = env_check(&env_rule(), "  # macos_bootstrap_package: ${FLEET_BOOTSTRAP_TOKEN}\n");
+        assert_eq!(errs.len(), 1, "got: {errs:?}");
+        assert_eq!(errs[0].rule_code, Some("env-var-resolvable"));
+        assert!(errs[0].message.contains("FLEET_BOOTSTRAP_TOKEN"));
+        assert!(errs[0].message.contains("inside a comment"), "got: {}", errs[0].message);
+    }
+
+    /// Severity is a property of the environment flint runs in, not of the
+    /// repo — so it reports, it does not assert a failure it cannot verify.
+    #[test]
+    fn an_unresolvable_variable_is_advisory() {
+        let errs = env_check(&env_rule(), "url: ${DEFINITELY_NOT_SET_ANYWHERE_XYZ}\n");
+        assert_eq!(errs[0].severity, Severity::Warning);
+        assert!(errs[0].help.as_deref().unwrap_or_default().contains("WHOLE file"));
+    }
+
+    #[test]
+    fn a_variable_present_in_the_environment_is_silent() {
+        // PATH is set everywhere this test can run.
+        assert!(env_check(&env_rule(), "url: ${PATH}\n").is_empty());
+    }
+
+    /// `[fleet] env` is the repo declaring what it supplies to fleetctl.
+    #[test]
+    fn a_variable_declared_in_config_is_silent() {
+        let rule = EnvVarResolvableRule {
+            declared: ["FLEET_BOOTSTRAP_TOKEN".to_string()].into_iter().collect(),
+        };
+        assert!(env_check(&rule, "url: ${FLEET_BOOTSTRAP_TOKEN}\n").is_empty());
+    }
+
+    /// `$FLEET_SECRET_*` and `$FLEET_VAR_*` are resolved by Fleet on the
+    /// server, not by environment expansion.
+    #[test]
+    fn server_resolved_prefixes_are_never_reported() {
+        assert!(env_check(&env_rule(), "a: $FLEET_SECRET_ENROLL\nb: ${FLEET_VAR_X}\n").is_empty());
+    }
+
+    /// The documented remedy must not itself be reported.
+    #[test]
+    fn an_escaped_literal_is_not_a_reference() {
+        assert!(env_check(&env_rule(), "note: \\${FLEET_BOOTSTRAP_TOKEN}\n").is_empty());
+    }
+
+    #[test]
+    fn one_finding_per_variable_however_often_it_appears() {
+        let src = "a: ${NOPE_XYZ_1}\nb: ${NOPE_XYZ_1}\nc: ${NOPE_XYZ_1}\n";
+        assert_eq!(env_check(&env_rule(), src).len(), 1);
+    }
+
+    #[test]
+    fn env_refs_finds_both_spellings_and_ignores_bare_dollars() {
+        let found: Vec<String> = env_refs("a: $ONE ${TWO} $ $% end\n")
+            .into_iter()
+            .map(|(_, n, _)| n)
+            .collect();
+        assert_eq!(found, vec!["ONE".to_string(), "TWO".to_string()]);
+    }
+
+    /// Fleet's expander accepts a dotted name inside braces and fails on it,
+    /// so flint must see it too.
+    #[test]
+    fn dotted_names_in_braces_are_recognised() {
+        let errs = env_check(&env_rule(), "url: ${secrets.FLEET_URL}\n");
+        assert_eq!(errs.len(), 1, "got: {errs:?}");
+        assert!(errs[0].message.contains("secrets.FLEET_URL"));
+    }
+
     // -- SoftwareSourceRule --
 
     #[test]
@@ -3317,17 +3666,20 @@ mod tests {
         assert!(messages.iter().any(|m| m.contains("'B'")));
     }
     /// A credential in a URL query string is invisible to the named-field
-    /// checks, so a real repo shipped a live bootstrap token past a clean
-    /// lint. References must stay silent — Fleet resolves them at apply time,
-    /// so flagging one would be a false positive in every repo that does the
+    /// checks, so a real repo shipped a live token past a clean lint.
+    /// References must stay silent — Fleet resolves them at apply time, so
+    /// flagging one would be a false positive in every repo that does the
     /// right thing.
+    ///
+    /// The fixture deliberately no longer uses `macos_bootstrap_package`:
+    /// that URL carries a token by design, and is exempt. See
+    /// `a_bootstrap_package_token_is_not_a_leaked_credential`.
     #[test]
     fn url_query_credentials_are_flagged_but_references_are_not() {
         let src = concat!(
             "name: T\n",
-            "controls:\n",
-            "  setup_experience:\n",
-            "    macos_bootstrap_package: \"https://x.example.com/bootstrap?token=abc123\"\n",
+            "webhook_settings:\n",
+            "  url: \"https://x.example.com/hook?token=abc123\"\n",
             "software:\n",
             "  packages:\n",
             "    - url: https://cdn.example.com/app.pkg\n",
@@ -3344,7 +3696,7 @@ mod tests {
             "expected only the literal token to flag, got: {:?}",
             errors.iter().map(|e| e.message.clone()).collect::<Vec<_>>()
         );
-        assert!(errors[0].message.contains("macos_bootstrap_package"));
+        assert!(errors[0].message.contains("url"));
         assert!(errors[0].message.contains("token"));
     }
 

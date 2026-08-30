@@ -275,6 +275,27 @@ impl LoadedSnapshot {
 
     /// Whether the snapshot carries software data. Empty is absence of DATA,
     /// not proof the server holds nothing — same guard as labels and VPP.
+    /// Where a snapshot-derived claim came from, for the reader who has to
+    /// judge it. A finding that says "not uploaded to the Fleet server" is a
+    /// claim about server state at one moment; without the moment attached, a
+    /// fresh worktree (no snapshot) passing while the working copy fails looks
+    /// like a bug in the repo rather than a difference in what was consulted.
+    ///
+    /// Hostname only — `Provenance.server` is documented never to carry a URL
+    /// or credential, so this is safe to print.
+    pub fn provenance_label(&self) -> String {
+        let p = &self.snapshot.provenance;
+        let when = if p.fetched_at.is_empty() { "an unknown time" } else { p.fetched_at.as_str() };
+        let mut s = format!("per {SNAPSHOT_FILE_NAME} fetched {when}");
+        if !p.server.is_empty() {
+            s.push_str(&format!(" from {}", p.server));
+        }
+        if !p.fleet_version.is_empty() {
+            s.push_str(&format!(" (Fleet {})", p.fleet_version));
+        }
+        s
+    }
+
     pub fn has_software(&self) -> bool {
         !self.snapshot.software.hashes.is_empty()
     }
@@ -343,7 +364,7 @@ pub fn freshness_of(fetched_at: &str, max_age_days: u64, now_unix: i64) -> Fresh
 /// value is "how many days ago", and a whole crate for that is not worth the
 /// supply-chain surface. Accepts `YYYY-MM-DDTHH:MM:SSZ` and tolerates
 /// fractional seconds.
-fn parse_rfc3339_utc(s: &str) -> Option<i64> {
+pub(crate) fn parse_rfc3339_utc(s: &str) -> Option<i64> {
     let s = s.trim();
     if s.len() < 20 || !s.ends_with('Z') {
         return None;
@@ -386,6 +407,25 @@ mod tests {
     use super::*;
 
     const DAY: i64 = 86_400;
+
+    #[test]
+    fn provenance_label_degrades_gracefully_when_fields_are_missing() {
+        let mut snap = FleetSnapshot::default();
+        let mk = |snap: &FleetSnapshot| LoadedSnapshot {
+            snapshot: snap.clone(),
+            path: PathBuf::from("x"),
+            freshness: Freshness::Undated,
+            known_labels: HashSet::new(),
+        };
+        assert_eq!(mk(&snap).provenance_label(), format!("per {SNAPSHOT_FILE_NAME} fetched an unknown time"));
+        snap.provenance.fetched_at = "2026-08-12T06:28:27Z".into();
+        snap.provenance.server = "fleet.example.com".into();
+        snap.provenance.fleet_version = "4.90.0".into();
+        assert_eq!(
+            mk(&snap).provenance_label(),
+            format!("per {SNAPSHOT_FILE_NAME} fetched 2026-08-12T06:28:27Z from fleet.example.com (Fleet 4.90.0)")
+        );
+    }
 
     #[test]
     fn parses_rfc3339_and_epoch_alignment() {

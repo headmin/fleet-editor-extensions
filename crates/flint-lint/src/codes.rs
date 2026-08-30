@@ -44,6 +44,9 @@ pub const HASH_FORMAT: &str = "hash-format";
 pub const CATEGORIES: &str = "categories";
 pub const FILE_EXTENSION: &str = "file-extension";
 pub const SECRET_HYGIENE: &str = "secret-hygiene";
+/// A `${VAR}` fleetctl cannot resolve. It expands the RAW file text before any
+/// YAML is parsed, so one unset name fails the whole file — comments included.
+pub const ENV_VAR_RESOLVABLE: &str = "env-var-resolvable";
 pub const PATH_REFERENCE: &str = "path-reference";
 pub const SHEBANG_SYNTAX: &str = "shebang-syntax";
 pub const WEBHOOK_ENDPOINT_VALID: &str = "webhook-endpoint-valid";
@@ -96,6 +99,12 @@ pub const DUPLICATE_IDENTIFIER: &str = "duplicate-identifier";
 /// collapse server-side, the second silently winning, and one team ceases to
 /// exist.
 pub const DUPLICATE_FLEET_NAME: &str = "duplicate-fleet-name";
+/// One bootstrap package URL used by more than one fleet. Legal, and a shared
+/// fate: whoever replaces their package invalidates the token for everyone.
+pub const BOOTSTRAP_PACKAGE_SHARED: &str = "bootstrap-package-shared";
+/// One copy of a per-brand artifact disagreeing with the majority of its
+/// siblings — usually a template taken before a fix and propagated.
+pub const CROSS_FLEET_DIVERGENCE: &str = "cross-fleet-divergence";
 
 // --- Declarative patterns (ADR-010 Phase 2; [[patterns]] in .fleetlint.toml)
 pub const PATTERN_NAME_MATCHES_FILENAME: &str = "pattern/name-matches-filename";
@@ -146,6 +155,8 @@ pub const CROSS_FILE: &[&str] = &[
     PROFILE_WELL_FORMED,
     PAYLOAD_UUID_FORMAT,
     DUPLICATE_FLEET_NAME,
+    BOOTSTRAP_PACKAGE_SHARED,
+    CROSS_FLEET_DIVERGENCE,
 ];
 
 /// Registry metadata for one diagnostic code.
@@ -213,6 +224,9 @@ pub static REGISTRY: &[RuleMeta] = &[
     // display-only `$VAR` placeholder the applier always skips. Naming the
     // real variable is the author's call.
     meta!(SECRET_HYGIENE, "security", Some(concat_url!("#policies")), false, false),
+    // Not fixable: the remedy is to provide the variable or escape the literal,
+    // and which one is meant is the author's call.
+    meta!(ENV_VAR_RESOLVABLE, "semantic", None, false, false),
     meta!(PATH_REFERENCE, "semantic", None, false, false),
     meta!(SHEBANG_SYNTAX, "semantic", None, false, false),
     meta!(WEBHOOK_ENDPOINT_VALID, "semantic", None, false, false),
@@ -252,6 +266,12 @@ pub static REGISTRY: &[RuleMeta] = &[
     // Not fixable: which of the two fleets should be renamed is the author's
     // call, and renaming the wrong one silently retires a different team.
     meta!(DUPLICATE_FLEET_NAME, "cross-file", None, false, false),
+    // Not fixable: which fleet should get its own package is an operational
+    // decision, not a mechanical substitution.
+    meta!(BOOTSTRAP_PACKAGE_SHARED, "cross-file", None, false, false),
+    // Not fixable: which side is stale is exactly the judgement being asked
+    // for, and the majority is not automatically right.
+    meta!(CROSS_FLEET_DIVERGENCE, "cross-file", None, false, false),
     meta!(PATTERN_NAME_MATCHES_FILENAME, "pattern", None, false, false),
     meta!(PATTERN_FILENAME, "pattern", None, false, false),
     meta!(PATTERN_CONTENT_MUST_MATCH, "pattern", None, false, false),

@@ -42,6 +42,10 @@ pub struct Workspace<'a> {
     pub by_lower: HashMap<String, Vec<usize>>,
     /// The parsed YAML sources the graph pass already holds.
     pub parsed: &'a [ParsedFile],
+    /// The directory the walk started from, when there was one. Lets a rule
+    /// report or match on a repo-relative path instead of an absolute one.
+    /// `None` for a synthetic file set (tests, or a fed-in git list).
+    pub root: Option<PathBuf>,
 }
 
 impl<'a> Workspace<'a> {
@@ -49,7 +53,9 @@ impl<'a> Workspace<'a> {
     pub fn build(root: &Path, parsed: &'a [ParsedFile]) -> Self {
         let mut files = Vec::new();
         walk(root, &mut files);
-        Self::from_files(files, parsed)
+        let mut ws = Self::from_files(files, parsed);
+        ws.root = Some(root.to_path_buf());
+        ws
     }
 
     /// Build from a pre-collected file set — the testable core (a real
@@ -68,6 +74,7 @@ impl<'a> Workspace<'a> {
             files,
             by_lower,
             parsed,
+            root: None,
         }
     }
 }
@@ -102,16 +109,22 @@ pub trait WorkspaceRule: Sync {
 }
 
 /// The built-in workspace rules, in reporting order.
-pub fn workspace_rules() -> Vec<Box<dyn WorkspaceRule>> {
+pub fn workspace_rules(config: &super::config::FleetLintConfig) -> Vec<Box<dyn WorkspaceRule>> {
     vec![
         Box::new(BrokenReferenceRule),
         Box::new(CaseCollisionRule),
         Box::new(UnregisteredScriptRule),
         Box::new(DuplicateContentRule),
-        Box::new(OrphanedFileRule),
+        Box::new(OrphanedFileRule {
+            allow: config.orphans.clone(),
+        }),
         Box::new(DuplicateIdentifierRule),
         Box::new(ProfileWellFormedRule),
         Box::new(DuplicateFleetNameRule),
+        Box::new(SharedBootstrapPackageRule),
+        Box::new(CrossFleetDivergenceRule {
+            placeholders: config.placeholders.clone(),
+        }),
     ]
 }
 
@@ -230,7 +243,28 @@ impl WorkspaceRule for DuplicateIdentifierRule {
 /// WorkspaceRule successor to `flint paths --unwired`'s CLI-only report,
 /// minus its hardcoded fleets/-only discovery). Warn: orphans are sometimes
 /// parked deliberately.
-pub struct OrphanedFileRule;
+pub struct OrphanedFileRule {
+    /// Globs the repo declares as deliberately unwired (`[orphans] allow`).
+    pub allow: super::config::OrphansConfig,
+}
+
+impl OrphanedFileRule {
+    /// Whether this artifact is declared kept on purpose. Matched on the
+    /// repo-root-relative path, so a glob reads the way it is written.
+    fn allowed(&self, f: &Path, ws: &Workspace) -> bool {
+        if self.allow.allow.is_empty() {
+            return false;
+        }
+        let rel = ws
+            .root
+            .as_deref()
+            .and_then(|root| f.strip_prefix(root).ok())
+            .unwrap_or(f)
+            .to_string_lossy()
+            .replace('\\', "/");
+        self.allow.allows(&rel)
+    }
+}
 
 /// Is `f` the kind of file a GitOps repo wires into configs?
 /// Mirrors `unwired::is_artifact`: profiles and scripts always; JSON only
@@ -273,6 +307,8 @@ impl WorkspaceRule for OrphanedFileRule {
         ws.files
             .iter()
             .filter(|f| is_artifact(f) && !referenced.contains(*f))
+            // Declared kept on purpose — see `[orphans] allow`.
+            .filter(|f| !self.allowed(f, ws))
             .map(|f| {
                 let mut err = LintError::warning(
                     format!("'{}' is referenced by no config file", f.display()),
@@ -691,6 +727,327 @@ impl WorkspaceRule for DuplicateFleetNameRule {
 }
 
 // ---------------------------------------------------------------------------
+// bootstrap-package-shared: one package URL, several fleets
+// ---------------------------------------------------------------------------
+
+/// Reports a `macos_bootstrap_package` URL that more than one fleet points at.
+///
+/// Sharing one is **allowed** — this is not an apply failure and never blocks.
+/// What it creates is a shared fate: the URL carries a token minted for one
+/// team's uploaded package, so whoever replaces their package invalidates it
+/// for every fleet still pointing at it, and the others fail their next apply
+/// with a 404 they did nothing to cause:
+///
+/// ```text
+/// Error: applying fleets: the URL to the macos_bootstrap_package doesn't exist.
+/// {"reason":"BootstrapPackage 11dd7b1f-… was not found in the datastore"}
+/// ```
+///
+/// This repo learned it on 2026-08-13 and disabled the field in seventeen
+/// fleets, recording the reason in a comment; a template re-added it two weeks
+/// later and pointed eight new fleets at one dead token.
+///
+/// Whether the URL is live needs the server, so flint reports the coupling it
+/// can see rather than asserting the failure it cannot.
+pub struct SharedBootstrapPackageRule;
+
+/// The keys Fleet accepts for the bootstrap package, current and pre-rename.
+const BOOTSTRAP_KEYS: &[&str] = &["macos_bootstrap_package", "bootstrap_package"];
+
+/// The identity two fleets would be sharing: the token if the URL carries one,
+/// else the whole URL. Two fleets can spell the same package differently, and
+/// the token is what actually ties them to one uploaded artifact.
+fn bootstrap_identity(url: &str) -> String {
+    url.split_once('?')
+        .and_then(|(_, query)| {
+            query.split('&').find_map(|pair| {
+                let (name, value) = pair.split_once('=')?;
+                (name.trim().eq_ignore_ascii_case("token") && !value.trim().is_empty())
+                    .then(|| format!("token={}", value.trim()))
+            })
+        })
+        .unwrap_or_else(|| url.to_string())
+}
+
+impl WorkspaceRule for SharedBootstrapPackageRule {
+    fn code(&self) -> &'static str {
+        codes::BOOTSTRAP_PACKAGE_SHARED
+    }
+
+    fn check(&self, ws: &Workspace) -> Vec<(PathBuf, LintError)> {
+        let mut by_identity: HashMap<String, Vec<&PathBuf>> = HashMap::new();
+        for pf in ws.parsed.iter().filter(|pf| is_fleet_config(pf)) {
+            let mut found: Option<String> = None;
+            crate::yaml_utils::walk_mappings(&pf.yaml, &mut |map| {
+                for key in BOOTSTRAP_KEYS {
+                    if let Some(Value::String(url)) =
+                        map.get(Value::String((*key).to_string()))
+                    {
+                        let u = url.trim();
+                        // An unresolved reference says nothing about which
+                        // package it becomes, so it cannot be compared.
+                        if !u.is_empty() && !u.starts_with('$') && !u.starts_with("op://") {
+                            found.get_or_insert_with(|| bootstrap_identity(u));
+                        }
+                    }
+                }
+            });
+            if let Some(id) = found {
+                by_identity.entry(id).or_default().push(&pf.path);
+            }
+        }
+
+        let mut shared: Vec<_> = by_identity.into_iter().filter(|(_, v)| v.len() > 1).collect();
+        shared.sort_by(|a, b| a.0.cmp(&b.0));
+
+        let mut findings = Vec::new();
+        for (_, mut fleets) in shared {
+            fleets.sort();
+            for (i, path) in fleets.iter().enumerate() {
+                let others: Vec<String> = fleets
+                    .iter()
+                    .enumerate()
+                    .filter(|(j, _)| *j != i)
+                    .map(|(_, p)| {
+                        p.file_name()
+                            .and_then(|n| n.to_str())
+                            .unwrap_or_default()
+                            .to_string()
+                    })
+                    .collect();
+                let mut err = LintError::warning(
+                    format!(
+                        "this fleet's macos_bootstrap_package is the same one {} use{}",
+                        others.join(", "),
+                        if others.len() == 1 { "s" } else { "" }
+                    ),
+                    path.as_path(),
+                )
+                .with_help(
+                    "Allowed, but they now share a fate: the token belongs to one team's \
+                     uploaded package, so whoever replaces theirs invalidates it for the \
+                     rest and their next apply fails with a 404. Give each fleet its own \
+                     package, or accept the coupling knowingly."
+                        .to_string(),
+                );
+                err.rule_code = Some(codes::BOOTSTRAP_PACKAGE_SHARED);
+                for o in fleets.iter().enumerate().filter(|(j, _)| *j != i) {
+                    err = err.with_related((*o.1).clone());
+                }
+                findings.push(((*path).clone(), err));
+            }
+        }
+        findings
+    }
+}
+
+// ---------------------------------------------------------------------------
+// cross-fleet-divergence: the odd one out among near-identical copies
+// ---------------------------------------------------------------------------
+
+/// In a repo of parallel teams, one artifact usually exists once per brand.
+/// When every copy but a few agrees, the minority is far likelier to be a
+/// stale copy than a deliberate exception — a template snapshotted before a
+/// fix, then propagated.
+///
+/// This finds defects no schema can: the copy pinned to an older package, the
+/// one still scoped to a label the others stopped using. Nothing about such a
+/// file is invalid, so per-file validation is structurally incapable of seeing
+/// it; it exists only in relation to its siblings.
+///
+/// Three things decide whether this is signal or noise, and all three are
+/// deliberate:
+///
+/// 1. **The brand token is normalised in the path AND the content.** Two
+///    copies that differ only by naming their own brand must compare equal, or
+///    every family looks unique.
+/// 2. **Comparison is on PARSED values, never bytes.** The reference repo's
+///    per-brand files carry prose comments that differ by more than the token —
+///    `an XYZ-specific pkg` against `a ZZ-specific pkg`. Comparing text would
+///    make every family all-distinct and the rule would find nothing.
+/// 3. **No majority means no finding.** `general-information-<BRAND>` has a
+///    distinct body per brand by design. A family where nothing dominates is
+///    per-brand on purpose, and is skipped.
+pub struct CrossFleetDivergenceRule {
+    /// Repo-declared placeholder markers (`[placeholders] patterns`).
+    pub placeholders: super::config::PlaceholdersConfig,
+}
+
+/// A family needs enough members for "majority" to mean anything. Two copies
+/// that disagree are a pair, not an outlier.
+const MIN_FAMILY: usize = 3;
+
+/// The brand token a file is named for: the nearest ancestor directory whose
+/// name also appears in the filename. That is what makes the normalisation
+/// self-describing — the repo's own layout says what the token is, rather than
+/// flint carrying a list of brands.
+fn brand_token(path: &Path) -> Option<String> {
+    let stem = path.file_name()?.to_str()?.to_ascii_lowercase();
+    path.parent()?
+        .components()
+        .filter_map(|c| c.as_os_str().to_str())
+        .filter(|seg| seg.len() >= 2)
+        .filter(|seg| stem.contains(&seg.to_ascii_lowercase()))
+        // Longest wins: `ACME` must not shadow `ACMEIO`.
+        .max_by_key(|seg| seg.len())
+        .map(|s| s.to_string())
+}
+
+fn replace_token(text: &str, token: &str) -> String {
+    // Case-insensitive replace without pulling in a regex: the token appears
+    // as `XYZ`, `xyz` and occasionally `Xyz`.
+    let mut out = String::with_capacity(text.len());
+    let lower = text.to_ascii_lowercase();
+    let needle = token.to_ascii_lowercase();
+    let mut i = 0;
+    while let Some(hit) = lower[i..].find(&needle) {
+        let at = i + hit;
+        out.push_str(&text[i..at]);
+        out.push_str("<T>");
+        i = at + needle.len();
+    }
+    out.push_str(&text[i..]);
+    out
+}
+
+/// The family a file belongs to: its kind directory plus its name with the
+/// brand token removed.
+fn family_of(path: &Path, token: Option<&str>) -> Option<String> {
+    let name = path.file_name()?.to_str()?;
+    let kind = path.parent()?.file_name()?.to_str()?;
+    let normalized = match token {
+        Some(t) => replace_token(name, t),
+        None => name.to_string(),
+    };
+    Some(format!("{kind}/{normalized}"))
+}
+
+/// What two copies are compared on. Parsed, never raw — see the type docs.
+fn comparable(path: &Path, raw: &str, token: Option<&str>) -> Option<String> {
+    let normalized = match token {
+        Some(t) => replace_token(raw, t),
+        None => raw.to_string(),
+    };
+    match path.extension().and_then(|e| e.to_str()) {
+        Some("mobileconfig") => Some(super::profile::canonical_profile(&normalized)),
+        Some("yml" | "yaml") => serde_yaml::from_str::<Value>(&normalized)
+            .ok()
+            .and_then(|v| serde_yaml::to_string(&v).ok()),
+        _ => None,
+    }
+}
+
+impl CrossFleetDivergenceRule {
+    /// Whether any scalar VALUE in the file is a declared placeholder marker.
+    ///
+    /// Parsed values, not raw text — the same rule as the comparison itself.
+    /// A raw scan would read a `# TODO: replace …` comment as a marker and
+    /// park every commented copy, collapsing the family to nothing.
+    fn is_placeholder_file(&self, raw: &str) -> bool {
+        let Ok(doc) = serde_yaml::from_str::<Value>(raw) else {
+            return false;
+        };
+        let mut hit = false;
+        fn walk(v: &Value, f: &mut dyn FnMut(&str)) {
+            match v {
+                Value::String(s) => f(s),
+                Value::Mapping(m) => m.values().for_each(|v| walk(v, f)),
+                Value::Sequence(seq) => seq.iter().for_each(|v| walk(v, f)),
+                _ => {}
+            }
+        }
+        walk(&doc, &mut |s| {
+            if self.placeholders.is_placeholder(s) {
+                hit = true;
+            }
+        });
+        hit
+    }
+}
+
+impl WorkspaceRule for CrossFleetDivergenceRule {
+    fn code(&self) -> &'static str {
+        codes::CROSS_FLEET_DIVERGENCE
+    }
+
+    fn check(&self, ws: &Workspace) -> Vec<(PathBuf, LintError)> {
+        // family -> [(path, comparable form)]
+        let mut families: HashMap<String, Vec<(&PathBuf, String)>> = HashMap::new();
+        for f in &ws.files {
+            let token = brand_token(f);
+            let Some(family) = family_of(f, token.as_deref()) else {
+                continue;
+            };
+            let Ok(raw) = std::fs::read_to_string(f) else {
+                continue;
+            };
+            let Some(form) = comparable(f, &raw, token.as_deref()) else {
+                continue;
+            };
+            // A placeholder is declared unfinished work. It cannot be the
+            // majority anything should conform to, and it is not itself
+            // divergent — it is parked. On the reference repo 24 placeholder
+            // copies would otherwise outvote the 3 finished ones and report
+            // the finished ones as the odd ones out.
+            if self.is_placeholder_file(&raw) {
+                continue;
+            }
+            families.entry(family).or_default().push((f, form));
+        }
+
+        let mut findings = Vec::new();
+        let mut names: Vec<&String> = families.keys().collect();
+        names.sort();
+        for family in names {
+            let members = &families[family];
+            if members.len() < MIN_FAMILY {
+                continue;
+            }
+            let mut counts: HashMap<&str, usize> = HashMap::new();
+            for (_, form) in members {
+                *counts.entry(form.as_str()).or_default() += 1;
+            }
+            let Some((majority_form, majority_n)) =
+                counts.iter().max_by_key(|(_, n)| **n).map(|(f, n)| (*f, *n))
+            else {
+                continue;
+            };
+            // No majority means the family is per-brand on purpose.
+            if majority_n * 2 <= members.len() {
+                continue;
+            }
+            let exemplar = members
+                .iter()
+                .find(|(_, form)| form == majority_form)
+                .map(|(p, _)| {
+                    p.file_name().and_then(|n| n.to_str()).unwrap_or_default().to_string()
+                })
+                .unwrap_or_default();
+
+            for (path, _) in members.iter().filter(|(_, f)| f != majority_form) {
+                let mut err = LintError::warning(
+                    format!(
+                        "this differs from {majority_n} of its {} siblings — the others, \
+                         including '{exemplar}', agree",
+                        members.len()
+                    ),
+                    path.as_path(),
+                )
+                .with_help(
+                    "A copy that disagrees with the majority is usually a stale one: a template \
+                     taken before a fix and propagated. Diff it against a sibling; if the \
+                     difference is deliberate, it is the majority that needs updating."
+                        .to_string(),
+                );
+                err.rule_code = Some(codes::CROSS_FLEET_DIVERGENCE);
+                findings.push(((*path).clone(), err));
+            }
+        }
+        findings
+    }
+}
+
+// ---------------------------------------------------------------------------
 // duplicate-content: byte-identical payloads at two paths
 // ---------------------------------------------------------------------------
 
@@ -1094,7 +1451,7 @@ controls:
             ],
             &binding,
         );
-        let findings = OrphanedFileRule.check(&ws);
+        let findings = OrphanedFileRule { allow: Default::default() }.check(&ws);
         assert_eq!(findings.len(), 1, "{:?}", findings);
         assert!(findings[0].0.to_string_lossy().ends_with("orphan.sh"));
     }
@@ -1477,5 +1834,256 @@ mod duplicate_fleet_name_tests {
         let binding = [fleet, policy];
         let ws = Workspace::from_files(vec![], &binding);
         assert!(DuplicateFleetNameRule.check(&ws).is_empty());
+    }
+}
+
+#[cfg(test)]
+mod shared_bootstrap_tests {
+    use super::*;
+    use super::tests_support::parsed;
+
+    fn fleet(name: &str, url: &str) -> String {
+        format!("name: {name}\ncontrols:\n  setup_experience:\n    macos_bootstrap_package: \"{url}\"\n")
+    }
+
+    /// Allowed, but a shared fate — so it is raised, never blocking.
+    #[test]
+    fn one_token_across_two_fleets_is_a_warning_on_each() {
+        let url = "https://x.example.com/bootstrap?token=abc123";
+        let a = parsed("fleets/a.yml", &fleet("ABC - A", url));
+        let b = parsed("fleets/b.yml", &fleet("ABC - B", url));
+        let binding = [a, b];
+        let ws = Workspace::from_files(vec![], &binding);
+
+        let found = SharedBootstrapPackageRule.check(&ws);
+        assert_eq!(found.len(), 2, "one per fleet: {found:?}");
+        for (_, err) in &found {
+            assert_eq!(err.severity, crate::error::Severity::Warning, "sharing is legal");
+            assert_eq!(err.rule_code, Some(codes::BOOTSTRAP_PACKAGE_SHARED));
+            assert_eq!(err.related.len(), 1);
+        }
+        assert!(found[0].1.message.contains("b.yml"));
+    }
+
+    #[test]
+    fn distinct_packages_are_silent() {
+        let a = parsed("fleets/a.yml", &fleet("ABC - A", "https://x/bootstrap?token=aaa"));
+        let b = parsed("fleets/b.yml", &fleet("ABC - B", "https://x/bootstrap?token=bbb"));
+        let binding = [a, b];
+        let ws = Workspace::from_files(vec![], &binding);
+        assert!(SharedBootstrapPackageRule.check(&ws).is_empty());
+    }
+
+    /// The token is the identity — two fleets can spell the same package
+    /// differently and still be tied to one uploaded artifact.
+    #[test]
+    fn the_token_identifies_the_package_not_the_url_text() {
+        let a = parsed("fleets/a.yml", &fleet("ABC - A", "https://one.example/bootstrap?token=t1"));
+        let b = parsed("fleets/b.yml", &fleet("ABC - B", "https://two.example/bootstrap?token=t1&x=1"));
+        let binding = [a, b];
+        let ws = Workspace::from_files(vec![], &binding);
+        assert_eq!(SharedBootstrapPackageRule.check(&ws).len(), 2);
+    }
+
+    /// An unresolved reference says nothing about which package it becomes.
+    #[test]
+    fn unresolved_references_are_not_compared() {
+        let a = parsed("fleets/a.yml", &fleet("ABC - A", "${FLEET_BOOTSTRAP_TOKEN}"));
+        let b = parsed("fleets/b.yml", &fleet("ABC - B", "${FLEET_BOOTSTRAP_TOKEN}"));
+        let binding = [a, b];
+        let ws = Workspace::from_files(vec![], &binding);
+        assert!(SharedBootstrapPackageRule.check(&ws).is_empty());
+    }
+
+    /// The 2026-08-13 remedy was to comment the field out; a commented line is
+    /// not in the parsed document, so it must not count as a reference.
+    #[test]
+    fn a_commented_out_package_is_not_shared() {
+        let a = parsed("fleets/a.yml", "name: ABC - A\ncontrols:\n  setup_experience:\n    # macos_bootstrap_package: \"https://x/bootstrap?token=abc\"\n");
+        let b = parsed("fleets/b.yml", &fleet("ABC - B", "https://x/bootstrap?token=abc"));
+        let binding = [a, b];
+        let ws = Workspace::from_files(vec![], &binding);
+        assert!(SharedBootstrapPackageRule.check(&ws).is_empty());
+    }
+}
+
+#[cfg(test)]
+mod orphan_allowlist_tests {
+    use super::*;
+    use std::fs;
+    use tempfile::TempDir;
+
+    fn repo_with(files: &[&str]) -> TempDir {
+        let tmp = TempDir::new().unwrap();
+        for f in files {
+            let p = tmp.path().join(f);
+            fs::create_dir_all(p.parent().unwrap()).unwrap();
+            fs::write(p, "x").unwrap();
+        }
+        tmp
+    }
+
+    fn rule(globs: &[&str]) -> OrphanedFileRule {
+        OrphanedFileRule {
+            allow: crate::config::OrphansConfig {
+                allow: globs.iter().map(|g| g.to_string()).collect(),
+            },
+        }
+    }
+
+    #[test]
+    fn an_unreferenced_artifact_is_reported_by_default() {
+        let tmp = repo_with(&["profiles/parked.mobileconfig"]);
+        let ws = Workspace::build(tmp.path(), &[]);
+        assert_eq!(rule(&[]).check(&ws).len(), 1);
+    }
+
+    /// A repo keeping a reference copy on purpose should be able to say so
+    /// once, rather than skip past the finding forever.
+    #[test]
+    fn a_declared_orphan_is_silenced() {
+        let tmp = repo_with(&["profiles/parked.mobileconfig"]);
+        let ws = Workspace::build(tmp.path(), &[]);
+        assert!(rule(&["profiles/parked.mobileconfig"]).check(&ws).is_empty());
+    }
+
+    #[test]
+    fn the_allowlist_takes_globs() {
+        let tmp = repo_with(&["enrollment-profiles/a.dep.json", "profiles/b.mobileconfig"]);
+        let ws = Workspace::build(tmp.path(), &[]);
+        let found = rule(&["enrollment-profiles/**"]).check(&ws);
+        assert_eq!(found.len(), 1, "only the un-declared one remains: {found:?}");
+        assert!(found[0].0.ends_with("b.mobileconfig"));
+    }
+
+    /// Silencing is scoped to THIS rule — unlike `[files] exclude`, which
+    /// would take the file out of scope for the rules that check its contents.
+    #[test]
+    fn a_declared_orphan_is_still_a_file_other_rules_see() {
+        let tmp = repo_with(&["profiles/parked.mobileconfig"]);
+        let ws = Workspace::build(tmp.path(), &[]);
+        assert!(rule(&["profiles/**"]).check(&ws).is_empty());
+        assert!(
+            ws.files.iter().any(|f| f.ends_with("parked.mobileconfig")),
+            "the file stays in the workspace set"
+        );
+    }
+
+    #[test]
+    fn a_non_matching_glob_changes_nothing() {
+        let tmp = repo_with(&["profiles/parked.mobileconfig"]);
+        let ws = Workspace::build(tmp.path(), &[]);
+        assert_eq!(rule(&["scripts/**"]).check(&ws).len(), 1);
+    }
+}
+
+#[cfg(test)]
+mod divergence_tests {
+    use super::*;
+    use std::fs;
+    use tempfile::TempDir;
+
+    fn rule() -> CrossFleetDivergenceRule {
+        CrossFleetDivergenceRule { placeholders: Default::default() }
+    }
+
+    /// Writes `platforms/brand/<BRAND>/software/corp-dock-<brand>.yml` per entry.
+    fn repo(copies: &[(&str, &str)]) -> TempDir {
+        let tmp = TempDir::new().unwrap();
+        for (brand, body) in copies {
+            let dir = tmp.path().join("platforms/brand").join(brand).join("software");
+            fs::create_dir_all(&dir).unwrap();
+            fs::write(dir.join(format!("corp-dock-{}.yml", brand.to_lowercase())), body).unwrap();
+        }
+        tmp
+    }
+
+    const V102: &str = "- hash_sha256: 9689e6c8e3aff27f4e0a202a517595970f90a174aff28aa04c613b0002c08ec1\n  display_name: Dock\n";
+    const V100: &str = "- hash_sha256: 0000000000000000000000000000000000000000000000000000000000000000\n  display_name: Dock\n";
+
+    /// The incident: a template snapshotted at 1.0.0 and copied while the
+    /// other brands had moved to 1.0.2.
+    #[test]
+    fn the_stale_copy_is_the_odd_one_out() {
+        let tmp = repo(&[("ACME", V102), ("XYZ", V102), ("DEF", V102), ("ZULU", V100)]);
+        let ws = Workspace::build(tmp.path(), &[]);
+        let found = rule().check(&ws);
+        assert_eq!(found.len(), 1, "got: {found:?}");
+        assert!(found[0].0.ends_with("corp-dock-zulu.yml"));
+        assert_eq!(found[0].1.severity, crate::error::Severity::Warning);
+        assert!(found[0].1.message.contains("3 of its 4 siblings"), "got: {}", found[0].1.message);
+    }
+
+    /// Caveat 2 made concrete: the per-brand comments differ by more than the
+    /// token (`an XYZ-specific pkg` vs `a ZZ-specific pkg`). Compared as text
+    /// every copy is unique and nothing is ever found.
+    #[test]
+    fn prose_comments_that_differ_do_not_break_the_comparison() {
+        let mk = |brand: &str, art: &str| {
+            format!("# TODO: If {brand} needs a distinct layout, replace this with {art} {brand}-specific pkg.\n{V102}")
+        };
+        let tmp = repo(&[
+            ("ACME", &mk("ACME", "an")),
+            ("XYZ", &mk("XYZ", "an")),
+            ("ZZ", &mk("ZZ", "a")),
+            ("ZULU", V100),
+        ]);
+        let ws = Workspace::build(tmp.path(), &[]);
+        let found = rule().check(&ws);
+        assert_eq!(found.len(), 1, "only the real divergence: {found:?}");
+        assert!(found[0].0.ends_with("corp-dock-zulu.yml"));
+    }
+
+    /// Caveat 1: a family where every copy differs is per-brand on purpose.
+    #[test]
+    fn no_majority_means_no_finding() {
+        let tmp = repo(&[
+            ("ACME", "- display_name: ACME Dock\n"),
+            ("XYZ", "- display_name: XYZ Dock\n"),
+            ("DEF", "- display_name: DEF Dock\n"),
+        ]);
+        let ws = Workspace::build(tmp.path(), &[]);
+        // After token normalisation these ARE equal — so make them differ.
+        let tmp2 = repo(&[
+            ("ACME", "- display_name: Alpha\n"),
+            ("XYZ", "- display_name: Beta\n"),
+            ("DEF", "- display_name: Gamma\n"),
+        ]);
+        assert!(rule().check(&ws).is_empty(), "token-only differences are not divergence");
+        let ws2 = Workspace::build(tmp2.path(), &[]);
+        assert!(rule().check(&ws2).is_empty(), "all-distinct = per-brand by design");
+    }
+
+    /// A placeholder is parked work, not a vote. On the reference repo 24 of
+    /// them would otherwise outvote the 3 finished copies.
+    #[test]
+    fn placeholders_neither_vote_nor_diverge() {
+        let ph = "- hash_sha256: PLACEHOLDER_REPLACE_ME\n";
+        let tmp = repo(&[("A", ph), ("B", ph), ("C", ph), ("D", ph), ("ACME", V102), ("XX", V102)]);
+        let ws = Workspace::build(tmp.path(), &[]);
+        assert!(rule().check(&ws).is_empty(), "finished copies must not be the odd ones out");
+    }
+
+    #[test]
+    fn two_copies_are_a_pair_not_a_family() {
+        let tmp = repo(&[("ACME", V102), ("ZULU", V100)]);
+        let ws = Workspace::build(tmp.path(), &[]);
+        assert!(rule().check(&ws).is_empty());
+    }
+
+    #[test]
+    fn brand_token_is_the_longest_ancestor_named_in_the_file() {
+        // `ACME` must not shadow `ACMEIO`.
+        let p = Path::new("platforms/brand/ACMEIO/software/corp-dock-acmeio.yml");
+        assert_eq!(brand_token(p).as_deref(), Some("ACMEIO"));
+        assert_eq!(
+            family_of(p, Some("ACMEIO")).as_deref(),
+            Some("software/corp-dock-<T>.yml")
+        );
+    }
+
+    #[test]
+    fn replace_token_is_case_insensitive() {
+        assert_eq!(replace_token("XYZ xyz Xyz x", "xyz"), "<T> <T> <T> x");
     }
 }

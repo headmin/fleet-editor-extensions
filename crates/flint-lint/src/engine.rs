@@ -58,6 +58,7 @@ fn rules_for_full(
         thresholds: config.thresholds.clone(),
         snapshot,
         placeholders: config.placeholders.clone(),
+        declared_env: config.fleet.env.keys().cloned().collect(),
         referenced: referenced.unwrap_or_default(),
     })
 }
@@ -694,7 +695,7 @@ impl Linter {
         // Workspace rules (ADR-010 Phase 1): one file-set walk, then each
         // rule is index lookups over it. Declarative [[patterns]] (Phase 2)
         // share the same Workspace.
-        let ws_rules: Vec<_> = super::workspace::workspace_rules()
+        let ws_rules: Vec<_> = super::workspace::workspace_rules(&self.config)
             .into_iter()
             .filter(|r| !disabled.contains(r.code()))
             .collect();

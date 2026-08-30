@@ -84,6 +84,10 @@ pub struct FleetLintConfig {
     /// cannot guess.
     pub placeholders: PlaceholdersConfig,
 
+    /// Files the repo keeps on purpose without wiring them into a fleet.
+    #[serde(default)]
+    pub orphans: OrphansConfig,
+
     /// Declarative repo-convention patterns (ADR-010 Phase 2). Top-level
     /// `[[patterns]]` array — safe alongside `RulesConfig.custom`'s
     /// `#[serde(flatten)]` map because that flatten lives inside `[rules]`,
@@ -125,12 +129,42 @@ impl Clone for FleetLintConfig {
             lsp: self.lsp.clone(),
             patterns: self.patterns.clone(),
             placeholders: self.placeholders.clone(),
+            orphans: self.orphans.clone(),
             compiled: once_cell::sync::OnceCell::new(),
             // Carried, unlike `compiled`: the base directory describes where
             // the globs are anchored, and a clone that forgot it would stop
             // matching absolute paths.
             base_dir: self.base_dir.clone(),
         }
+    }
+}
+
+/// Artifacts deliberately kept unreferenced.
+///
+/// `orphaned-file` is right to report an unwired payload — it is never applied,
+/// so it is either a mistake or dead weight. But some are neither: a reference
+/// copy, a template, a profile parked before its rollout. Without a way to say
+/// so, those are reported for the life of the repo and teach people to skim
+/// past the rule.
+///
+/// Declaring one is deliberately more work than deleting it: an entry here is
+/// a claim, in review, that the file is kept on purpose.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(default)]
+pub struct OrphansConfig {
+    /// Globs, relative to the repo root, matched against the artifact's path.
+    /// A match silences `orphaned-file` for that artifact and nothing else —
+    /// unlike `[files] exclude`, which would take the file out of scope for
+    /// every rule, including the ones that check its contents.
+    pub allow: Vec<String>,
+}
+
+impl OrphansConfig {
+    /// Whether `rel` (repo-root-relative, POSIX separators) is declared kept.
+    pub fn allows(&self, rel: &str) -> bool {
+        self.allow
+            .iter()
+            .any(|g| super::config::compile_glob(g).is_some_and(|m| m.is_match(rel)))
     }
 }
 
