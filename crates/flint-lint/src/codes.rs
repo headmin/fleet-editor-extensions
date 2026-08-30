@@ -44,6 +44,9 @@ pub const HASH_FORMAT: &str = "hash-format";
 pub const CATEGORIES: &str = "categories";
 pub const FILE_EXTENSION: &str = "file-extension";
 pub const SECRET_HYGIENE: &str = "secret-hygiene";
+/// A `${VAR}` fleetctl cannot resolve. It expands the RAW file text before any
+/// YAML is parsed, so one unset name fails the whole file — comments included.
+pub const ENV_VAR_RESOLVABLE: &str = "env-var-resolvable";
 pub const PATH_REFERENCE: &str = "path-reference";
 pub const SHEBANG_SYNTAX: &str = "shebang-syntax";
 pub const WEBHOOK_ENDPOINT_VALID: &str = "webhook-endpoint-valid";
@@ -57,6 +60,15 @@ pub const YAML_INDENTATION: &str = "yaml-indentation";
 pub const YAML_COLONS: &str = "yaml-colons";
 pub const YAML_EMPTY_VALUES: &str = "yaml-empty-values";
 pub const DUPLICATE_PAYLOAD_UUID: &str = "duplicate-payload-uuid";
+/// A `.mobileconfig` does not parse as XML — fleetctl refuses the apply, and
+/// every other profile-level rule goes dark for that file.
+pub const PROFILE_WELL_FORMED: &str = "profile-well-formed";
+
+// --- Extra code emitted by ProfileWellFormedRule beyond its own name --------
+/// A `PayloadUUID` is not syntactically a UUID. Advisory and never fixable:
+/// the UUID is part of profile identity, so rewriting it re-delivers the
+/// profile to every enrolled host.
+pub const PAYLOAD_UUID_FORMAT: &str = "payload-uuid-format";
 
 // --- Extra codes emitted by PathExistsRule beyond its own name -------------
 pub const PATH_CASE: &str = "path-case";
@@ -83,6 +95,16 @@ pub const DUPLICATE_CONTENT: &str = "duplicate-content";
 pub const ORPHANED_FILE: &str = "orphaned-file";
 /// Same PayloadIdentifier in two profiles of one fleet with different content.
 pub const DUPLICATE_IDENTIFIER: &str = "duplicate-identifier";
+/// Two fleet files declaring the same `name:`. They do not conflict — they
+/// collapse server-side, the second silently winning, and one team ceases to
+/// exist.
+pub const DUPLICATE_FLEET_NAME: &str = "duplicate-fleet-name";
+/// One bootstrap package URL used by more than one fleet. Legal, and a shared
+/// fate: whoever replaces their package invalidates the token for everyone.
+pub const BOOTSTRAP_PACKAGE_SHARED: &str = "bootstrap-package-shared";
+/// One copy of a per-brand artifact disagreeing with the majority of its
+/// siblings — usually a template taken before a fix and propagated.
+pub const CROSS_FLEET_DIVERGENCE: &str = "cross-fleet-divergence";
 
 // --- Declarative patterns (ADR-010 Phase 2; [[patterns]] in .fleetlint.toml)
 pub const PATTERN_NAME_MATCHES_FILENAME: &str = "pattern/name-matches-filename";
@@ -130,6 +152,11 @@ pub const CROSS_FILE: &[&str] = &[
     DUPLICATE_CONTENT,
     ORPHANED_FILE,
     DUPLICATE_IDENTIFIER,
+    PROFILE_WELL_FORMED,
+    PAYLOAD_UUID_FORMAT,
+    DUPLICATE_FLEET_NAME,
+    BOOTSTRAP_PACKAGE_SHARED,
+    CROSS_FLEET_DIVERGENCE,
 ];
 
 /// Registry metadata for one diagnostic code.
@@ -197,6 +224,9 @@ pub static REGISTRY: &[RuleMeta] = &[
     // display-only `$VAR` placeholder the applier always skips. Naming the
     // real variable is the author's call.
     meta!(SECRET_HYGIENE, "security", Some(concat_url!("#policies")), false, false),
+    // Not fixable: the remedy is to provide the variable or escape the literal,
+    // and which one is meant is the author's call.
+    meta!(ENV_VAR_RESOLVABLE, "semantic", None, false, false),
     meta!(PATH_REFERENCE, "semantic", None, false, false),
     meta!(SHEBANG_SYNTAX, "semantic", None, false, false),
     meta!(WEBHOOK_ENDPOINT_VALID, "semantic", None, false, false),
@@ -210,6 +240,12 @@ pub static REGISTRY: &[RuleMeta] = &[
     meta!(YAML_COLONS, "yaml", None, true, false),
     meta!(YAML_EMPTY_VALUES, "yaml", None, false, false),
     meta!(DUPLICATE_PAYLOAD_UUID, "semantic", None, false, false),
+    // Not fixable: a malformed profile needs an author's judgement about the
+    // intended text, not a mechanical substitution.
+    meta!(PROFILE_WELL_FORMED, "cross-file", None, false, false),
+    // Deliberately NOT fixable — see the constant's docs. Rewriting a
+    // PayloadUUID makes Fleet re-deliver the profile to every enrolled host.
+    meta!(PAYLOAD_UUID_FORMAT, "cross-file", None, false, false),
     // PathExistsRule's extra codes.
     meta!(PATH_CASE, "structural", None, true, false),
     meta!(PATH_EMPTY, "structural", None, false, false),
@@ -227,6 +263,15 @@ pub static REGISTRY: &[RuleMeta] = &[
     meta!(DUPLICATE_CONTENT, "cross-file", None, false, false),
     meta!(ORPHANED_FILE, "cross-file", None, false, false),
     meta!(DUPLICATE_IDENTIFIER, "cross-file", None, false, false),
+    // Not fixable: which of the two fleets should be renamed is the author's
+    // call, and renaming the wrong one silently retires a different team.
+    meta!(DUPLICATE_FLEET_NAME, "cross-file", None, false, false),
+    // Not fixable: which fleet should get its own package is an operational
+    // decision, not a mechanical substitution.
+    meta!(BOOTSTRAP_PACKAGE_SHARED, "cross-file", None, false, false),
+    // Not fixable: which side is stale is exactly the judgement being asked
+    // for, and the majority is not automatically right.
+    meta!(CROSS_FLEET_DIVERGENCE, "cross-file", None, false, false),
     meta!(PATTERN_NAME_MATCHES_FILENAME, "pattern", None, false, false),
     meta!(PATTERN_FILENAME, "pattern", None, false, false),
     meta!(PATTERN_CONTENT_MUST_MATCH, "pattern", None, false, false),
@@ -271,6 +316,8 @@ mod tests {
             );
         }
         let extra = [
+            PROFILE_WELL_FORMED,
+            PAYLOAD_UUID_FORMAT,
             PATH_CASE,
             PATH_EMPTY,
             PATH_IS_FILE,

@@ -1,6 +1,9 @@
-//! v0.2.0 `flint gen` surface: every legacy generator invocation and its
-//! canonical `gen` replacement must produce byte-identical stdout; the legacy
-//! form warns on stderr, the canonical form does not.
+//! `flint gen` surface. Through v0.2.x every legacy generator invocation
+//! (`pkg`, `app`, `profile`, `query`, `new`) forwarded here and had to match
+//! its `gen` replacement byte for byte; v0.3.0 removed the legacy spellings.
+//! These tests now pin two things: the canonical `gen` forms work, and the
+//! old spellings fail LOUDLY — an unrecognized subcommand, never a silent
+//! no-op — so a script still using one breaks at its first run.
 
 #![expect(clippy::print_stderr, reason = "a test explaining why it skipped is worth more than a silent pass")]
 
@@ -20,72 +23,49 @@ fn run(args: &[&str]) -> Output {
     Command::new(BIN).args(args).output().expect("run flint")
 }
 
-/// Mask v4 UUIDs — the blank profile template legitimately mints a fresh
-/// PayloadUUID per invocation, so identity is asserted modulo UUIDs.
-fn mask_uuids(s: &str) -> String {
-    let mut out = String::with_capacity(s.len());
-    let bytes = s.as_bytes();
-    let mut i = 0;
-    while i < bytes.len() {
-        let rest = &s[i..];
-        // .get() (not slicing) so a multibyte char inside the window simply
-        // fails the check instead of panicking on a non-char boundary.
-        let looks_like_uuid = rest.get(..36).is_some_and(|w| {
-            w.chars().enumerate().all(|(j, c)| match j {
-                8 | 13 | 18 | 23 => c == '-',
-                _ => c.is_ascii_hexdigit(),
-            })
-        });
-        if looks_like_uuid {
-            out.push_str("<UUID>");
-            i += 36;
-        } else {
-            out.push(s[i..].chars().next().unwrap());
-            i += s[i..].chars().next().unwrap().len_utf8();
-        }
-    }
-    out
+/// The canonical form succeeds, prints something, and carries no deprecation
+/// noise — there is nothing left to be deprecated.
+fn assert_gen_works(args: &[&str]) {
+    let out = run(args);
+    assert!(out.status.success(), "{args:?} failed: {}", String::from_utf8_lossy(&out.stderr));
+    assert!(!out.stdout.is_empty(), "{args:?} printed nothing");
+    assert!(
+        !String::from_utf8_lossy(&out.stderr).contains("deprecated"),
+        "{args:?} must not warn"
+    );
 }
 
-/// Assert `old` and `new` invocations emit identical stdout (modulo minted
-/// UUIDs), and that only the old one warns (deprecation on stderr).
-fn assert_identical(old: &[&str], new: &[&str]) {
-    let o = run(old);
-    let n = run(new);
-    assert_eq!(
-        mask_uuids(&String::from_utf8_lossy(&o.stdout)),
-        mask_uuids(&String::from_utf8_lossy(&n.stdout)),
-        "stdout differs: {old:?} vs {new:?}"
-    );
-    assert_eq!(o.status.code(), n.status.code(), "exit codes differ");
-    let old_err = String::from_utf8_lossy(&o.stderr);
-    let new_err = String::from_utf8_lossy(&n.stderr);
+/// A removed spelling is rejected by the parser, not forwarded.
+fn assert_legacy_rejected(args: &[&str]) {
+    let out = run(args);
+    assert!(!out.status.success(), "removed spelling {args:?} must fail");
+    let err = String::from_utf8_lossy(&out.stderr);
     assert!(
-        old_err.contains("deprecated"),
-        "legacy {old:?} must warn on stderr, got: {old_err}"
+        err.contains("unrecognized subcommand") || err.contains("unexpected argument"),
+        "removed spelling {args:?} must be rejected by clap, got: {err}"
     );
-    assert!(
-        !new_err.contains("deprecated"),
-        "canonical {new:?} must not warn, got: {new_err}"
-    );
+    assert!(out.stdout.is_empty(), "removed spelling {args:?} must produce no output");
 }
 
 #[test]
-fn templates_match_legacy_new() {
+fn templates_via_gen_only() {
     for kind in ["policy", "query", "profile", "fleet", "label"] {
-        assert_identical(&["new", kind], &["gen", kind]);
+        assert_gen_works(&["gen", kind]);
+        assert_legacy_rejected(&["new", kind]);
     }
 }
 
 #[test]
-fn query_and_policy_from_sql_match_legacy() {
+fn query_and_policy_from_sql_via_gen_only() {
     let dir = scratch("sql");
     let sql = dir.join("check.sql");
     std::fs::write(&sql, "SELECT 1 FROM apps WHERE bundle_identifier = 'x';\n").unwrap();
     let p = sql.to_str().unwrap();
 
-    assert_identical(&["query", p], &["gen", "query", "--from", p]);
-    assert_identical(&["query", p, "--policy"], &["gen", "policy", "--from", p]);
+    assert_gen_works(&["gen", "query", "--from", p]);
+    assert_gen_works(&["gen", "policy", "--from", p]);
+    assert_legacy_rejected(&["query", p]);
+    assert_legacy_rejected(&["query", p, "--policy"]);
 
     std::fs::remove_dir_all(&dir).ok();
 }
@@ -109,7 +89,7 @@ fn fixture_pkg(dir: &Path) -> Option<PathBuf> {
 }
 
 #[test]
-fn software_and_policy_from_pkg_match_legacy() {
+fn software_and_policy_from_pkg_via_gen_only() {
     let dir = scratch("pkg");
     let Some(pkg) = fixture_pkg(&dir) else {
         eprintln!("skipping: pkgbuild unavailable");
@@ -117,40 +97,33 @@ fn software_and_policy_from_pkg_match_legacy() {
     };
     let p = pkg.to_str().unwrap();
 
-    assert_identical(&["pkg", p], &["gen", "software", "--from", p]);
-    assert_identical(&["pkg", p, "--full"], &["gen", "software", "--from", p, "--full"]);
-    assert_identical(&["pkg", p, "--policy"], &["gen", "policy", "--from", p]);
-    assert_identical(
-        &["pkg", p, "--policy", "--enforce"],
-        &["gen", "policy", "--from", p, "--enforce"],
-    );
-    // Multi-format reader must accept .pkg too (dispatch parity with `app`).
-    assert_identical(&["app", p], &["gen", "software", "--from", p]);
+    assert_gen_works(&["gen", "software", "--from", p]);
+    assert_gen_works(&["gen", "software", "--from", p, "--full"]);
+    assert_gen_works(&["gen", "policy", "--from", p]);
+    assert_gen_works(&["gen", "policy", "--from", p, "--enforce"]);
+    assert_legacy_rejected(&["pkg", p]);
+    assert_legacy_rejected(&["app", p]);
+    assert_legacy_rejected(&["profile", p]);
 
     std::fs::remove_dir_all(&dir).ok();
 }
 
 #[test]
-fn scripts_from_pkg_match_legacy() {
+fn scripts_from_pkg_via_gen_only() {
     let dir = scratch("scripts");
     let Some(pkg) = fixture_pkg(&dir) else {
         eprintln!("skipping: pkgbuild unavailable");
         return;
     };
     let p = pkg.to_str().unwrap();
-    let out_old = dir.join("old");
     let out_new = dir.join("new");
 
-    let o = run(&["pkg", p, "--scripts", out_old.to_str().unwrap()]);
     let n = run(&["gen", "scripts", "--from", p, "-o", out_new.to_str().unwrap()]);
-    assert!(o.status.success() && n.status.success());
+    assert!(n.status.success());
     for f in ["install.sh", "uninstall.sh"] {
-        assert_eq!(
-            std::fs::read_to_string(out_old.join(f)).unwrap(),
-            std::fs::read_to_string(out_new.join(f)).unwrap(),
-            "{f} differs between legacy and gen"
-        );
+        assert!(out_new.join(f).is_file(), "{f} not generated");
     }
+    assert_legacy_rejected(&["pkg", p, "--scripts", dir.join("old").to_str().unwrap()]);
 
     std::fs::remove_dir_all(&dir).ok();
 }
@@ -160,7 +133,7 @@ fn standalone_names_file_by_slug_with_fleet_path_hint() {
     let dir = scratch("standalone");
     // GitOps-shaped repo so the path hint resolves relative to the root.
     std::fs::create_dir_all(dir.join(".git")).unwrap();
-    let swdir = dir.join("platforms/macos/L1/hello/software");
+    let swdir = dir.join("platforms/macos/site/hello/software");
     std::fs::create_dir_all(&swdir).unwrap();
     let Some(pkg) = fixture_pkg(&dir) else {
         eprintln!("skipping: pkgbuild unavailable");
@@ -179,7 +152,7 @@ fn standalone_names_file_by_slug_with_fleet_path_hint() {
     assert!(dest.exists(), "expected {}, stdout: {stdout}", dest.display());
     // Copy-pasteable fleet-file reference, relative to the repo root.
     assert!(
-        stdout.contains("- path: ../platforms/macos/L1/hello/software/hello.package.yml"),
+        stdout.contains("- path: ../platforms/macos/site/hello/software/hello.package.yml"),
         "missing path hint, stdout: {stdout}"
     );
 
@@ -202,15 +175,15 @@ fn gen_policy_rejects_unknown_source_kind() {
     assert!(err.contains(".pkg or .sql"), "got: {err}");
 }
 
+/// `--help` never advertised the legacy spellings; now they are not merely
+/// hidden but absent, and `setup-agent` is the only way to install the skill.
 #[test]
-fn legacy_commands_hidden_from_help() {
-    let out = run(&["--help"]);
-    let help = String::from_utf8_lossy(&out.stdout);
+fn legacy_spellings_are_gone_not_hidden() {
+    let help = String::from_utf8_lossy(&run(&["--help"]).stdout).to_string();
     assert!(help.contains("\n  gen"), "gen must be visible");
     for legacy in ["\n  pkg", "\n  app", "\n  profile", "\n  query", "\n  new"] {
-        assert!(
-            !help.contains(legacy),
-            "legacy command {legacy:?} must be hidden from --help"
-        );
+        assert!(!help.contains(legacy), "{legacy:?} must not appear in --help");
     }
+    assert_legacy_rejected(&["help-agents", "--install-skill"]);
+    assert!(help.contains("setup-agent"), "the replacement must be advertised");
 }

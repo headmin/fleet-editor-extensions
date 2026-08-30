@@ -1,6 +1,117 @@
 # Changelog
 
-## v0.2.0 (Unreleased)
+## v0.3.0 (Unreleased)
+
+### Removed: the legacy generator spellings
+
+As announced in v0.2.0, `flint query`, `flint new`, `flint profile`,
+`flint app`, `flint pkg` and `flint help-agents --install-skill` are gone. They
+had forwarded to `flint gen …` (and `flint setup-agent`) with a warning on
+stderr; the mapping table under v0.2.0 below is the migration guide. An old
+spelling now fails as an unrecognized subcommand — deliberately loud, so a
+script that still uses one breaks at the first run rather than drifting.
+
+### New: `flint history` — what the rules would have caught
+
+Replays today's rules against past commits, so rule priority rests on measured
+recurrence rather than judgement. Each first-parent commit is reconstructed with
+`git archive` into a scratch directory — the working copy is never touched — and
+linted. Findings are grouped into *red windows*: runs of commits in which a code
+fired, and the commit that closed each one.
+
+```
+flint history --max 400                  # replay; red windows per rule
+flint history --suggest-patterns         # mine remediation commits for guardrails
+flint history --oracle <gitops-oracle>   # diff against Fleet's own parser
+flint history --gate <baseline.json>     # fail CI when rule quality regresses
+```
+
+Only **closed** windows score. A finding still present at HEAD describes current
+state, not a repeated mistake, and must not inflate a recurrence count.
+
+`software-source` is excluded and says so: a snapshot-derived finding depends on
+the Fleet server's state at that commit, which is gone.
+
+`--oracle` puts each tree through `spec.GitOpsFromFile` — the function
+`fleetctl gitops` itself calls — and diffs blocking claims both ways: rules that
+say an apply will fail where Fleet accepts, and Fleet complaints flint is silent
+on. Dev/CI only; the oracle is not shipped.
+
+`--gate` compares a run to a stored scorecard and exits 2 on regression. Only new
+*keys* gate — occurrence counts move with the range replayed, so they are
+reported and never failed on.
+
+### New rules
+
+- **`profile-well-formed`** (error) — a `.mobileconfig` or DDM declaration that
+  does not parse. Dependency-free: no `plutil` (macOS-only), no new crate.
+  Existed because `parse_mobileconfig` is a hand-rolled scanner that *cannot*
+  fail, so one raw `&` in a brand name silently emptied every profile-level rule
+  for that file while `fleetctl gitops` refused the apply. Binary plists and
+  signed DER profiles are reported as info rather than skipped.
+- **`payload-uuid-format`** (warning) — a `PayloadUUID` that is not 8-4-4-4-12
+  hexadecimal. Registers **no** fix and is never auto-rewritten: a PayloadUUID is
+  part of profile identity, so changing one makes Fleet re-deliver that profile to
+  every enrolled host.
+- **`duplicate-fleet-name`** (error) — two fleet files declaring the same `name:`.
+  They do not conflict; Fleet collapses them server-side, the second silently
+  wins, and a team ceases to exist.
+
+### Changed — these may newly fail a previously green run
+
+- **`unregistered-script` is now scoped per fleet.** It accepted a script
+  registered by *any* fleet, so one declared in fleet A satisfied a policy applied
+  by fleet B. `fleetctl` validates per team; flint now matches. Expect findings
+  wherever a policy file is pulled into several fleets by a glob and the script is
+  registered in only some — those are real apply failures.
+- **`path-exists` carries the missing target in `related`**, so
+  `flint check --staged` blocks the commit that *deletes* a referenced file.
+  Previously those findings sat on unstaged fleet YAML and were demoted to
+  "pre-existing elsewhere".
+- **`duplicate-identifier` and `duplicate-content` compare a canonical form**
+  rather than raw bytes. Two profiles differing only in XML escaping (`&quot;`
+  against a literal `"`) decode identically, so byte comparison both invented
+  divergences and hid real duplicates. `duplicate-content` now distinguishes the
+  two cases in its message.
+- **Profile-level rules run repo-wide, not per fleet file.** A profile reached by
+  N fleets' globs now yields one finding instead of N, and a profile nothing
+  references is checked at all. Consequence: these rules no longer run on a
+  single-file lint (`flint check one.yml`), only on a directory lint.
+
+## v0.2.2 (2026-08-13)
+
+- **`secret-hygiene` inspects URL query strings.** A credential riding in a URL
+  (`macos_bootstrap_package: "https://…/bootstrap?token=<literal>"`) was
+  invisible because only named credential fields were checked. `$VAR` and
+  `op://` stay silent.
+- **`flint dry-run --refresh-snapshot`** re-captures `.fleet-snapshot.json`
+  before linting, so "hash is not uploaded" means *now* rather than at capture
+  time; `[fleet] refresh_snapshot = true` opts a repo in for every run.
+- **`--assume-uploaded`** treats every package as already on the server — for
+  mid-upload work when refreshing is not possible.
+- **`flint fleet doctor`** diagnoses the Fleet connection; config errors are
+  reported loudly instead of silently falling back to defaults.
+- **`flint paths --unwired --oneline` and `--prompt`**: one tab-separated record
+  per orphan (a `grep` target), or a ready-to-run instruction per artifact for an
+  agent.
+- Fixes: an absolute path no longer falls out of `[files] include` scope, and
+  `flint check <one file>` no longer panics when that file is filtered out.
+
+## v0.2.1 (2026-08-11)
+
+- **Schema tracks Fleet v4.90.0** (`controls.name_template`,
+  `*_settings.assets`); a fleet file's own `mdm:` block is accepted.
+- **Every key Fleet resolves as a path is a file reference.** `path-exists` and
+  the orphan scan shared no list and neither matched Fleet, so live ADE
+  enrollment profiles under `apple_setup_assistant` were reported as orphans
+  while a typo in the same key linted clean.
+- **`--fix` promises match what it applies**: six codes that advertised fixes
+  the applier never emitted are no longer marked fixable, and `check` now says
+  when a finding is auto-fixable.
+- osquery table matrix synced to 5.23.1; the docs index leads with the
+  check → dry-run → fix loop.
+
+## v0.2.0 (2026-08-09)
 
 ### New: one generator verb — `flint gen`
 

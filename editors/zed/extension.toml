@@ -1,6 +1,6 @@
 id = "flint"
 name = "Flint — Fleet GitOps"
-version = "0.2.2"
+version = "0.3.0"
 schema_version = 1
 authors = ["Henry Stamerjohann>"]
 description = "Fleet GitOps YAML linting, completions, and diagnostics"

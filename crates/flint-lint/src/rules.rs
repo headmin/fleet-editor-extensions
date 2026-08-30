@@ -74,7 +74,9 @@ impl RuleSet {
         }));
         set.add_rule(Box::new(super::structural::StructuralValidationRule));
         set.add_rule(Box::new(super::self_reference::SelfReferenceRule));
-        set.add_rule(Box::new(super::path_exists::PathExistsRule::default()));
+        set.add_rule(Box::new(super::path_exists::PathExistsRule::with_referenced(
+            opts.referenced.clone(),
+        )));
         set.add_rule(Box::new(super::profile::DuplicatePayloadUuidRule));
         set.add_rule(Box::new(super::deprecation_rule::DeprecationRule::new(
             opts.version,
@@ -87,6 +89,9 @@ impl RuleSet {
         set.add_rule(Box::new(super::semantic::PolicyAutomationLocationRule));
         set.add_rule(Box::new(super::semantic::DateFormatRule));
         set.add_rule(Box::new(super::semantic::HashFormatRule));
+        set.add_rule(Box::new(super::semantic::EnvVarResolvableRule {
+            declared: opts.declared_env.clone(),
+        }));
         set.add_rule(Box::new(super::semantic::CategoriesRule));
         set.add_rule(Box::new(super::semantic::FileExtensionRule));
         set.add_rule(Box::new(super::semantic::SecretHygieneRule));
@@ -133,6 +138,9 @@ pub struct RuleOptions {
     pub snapshot: Option<std::sync::Arc<super::snapshot::LoadedSnapshot>>,
     /// Repo-declared placeholder markers (`[placeholders] patterns`).
     pub placeholders: super::config::PlaceholdersConfig,
+    /// Variable names the repo declares it supplies (`[fleet] env`), on top of
+    /// whatever the process environment holds.
+    pub declared_env: std::collections::HashSet<String>,
     /// Shared, late-filled set of every path some config file references.
     ///
     /// Rules are built before the workspace exists, so this is a handle the
@@ -152,6 +160,7 @@ impl Default for RuleOptions {
         Self {
             snapshot: None,
             placeholders: Default::default(),
+            declared_env: Default::default(),
             referenced: Default::default(),
             version: super::version_gate::VersionContext::dormant(),
             thresholds: super::config::ThresholdsConfig::default(),
@@ -488,7 +497,11 @@ impl Rule for SecurityRule {
                             "Webhook URL appears to contain a token or API key",
                             file,
                         )
-                        .with_help("Use environment variables for secrets: $WEBHOOK_URL")
+                        .with_help(
+                            "Use an environment variable for the secret: $WEBHOOK_URL — \
+                             `env-var-resolvable` then checks it actually resolves, because \
+                             fleetctl fails the whole file on an unset name.",
+                        )
                         .with_suggestion("webhook_settings:\n  url: $WEBHOOK_URL"),
                     );
                 }

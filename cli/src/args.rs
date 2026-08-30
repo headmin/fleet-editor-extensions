@@ -27,10 +27,20 @@ pub(crate) enum Commands {
     #[command(alias = "lint")]
     Check(CheckArgs),
 
-    /// Local, server-free dry-run: lint the whole repo and report whether it
-    /// would likely pass `fleetctl gitops`. The local equivalent of
-    /// `fleetctl gitops --dry-run` — no Fleet server, no fleetctl. Errors are
-    /// blocking (exit 2); warnings are advisory unless --strict.
+    /// Offline gate: lint the whole repo and report whether it would likely
+    /// pass `fleetctl gitops`. Errors are blocking (exit 2); warnings are
+    /// advisory unless --strict.
+    ///
+    /// This is a complement to `fleetctl gitops --dry-run`, not a substitute.
+    /// It sees the whole tree at once where fleetctl stops at the first
+    /// failing team, and it needs no server. It models structure, path and
+    /// label references, cross-file consistency, and — given a fresh
+    /// `.fleet-snapshot.json` — which installers and labels the server
+    /// already has. It does NOT model: expansion of `${VAR}` against the
+    /// environment gitops will actually run in, whether a bootstrap package
+    /// URL is live, server state with no snapshot, or anything Fleet checks
+    /// only at apply time. A clean dry-run means flint found nothing, which
+    /// is weaker than fleetctl accepting the apply.
     #[command(visible_alias = "dryrun")]
     DryRun(DryRunArgs),
 
@@ -39,6 +49,21 @@ pub(crate) enum Commands {
         #[command(subcommand)]
         action: HooksAction,
     },
+
+    /// Replay today's rules against past commits, and mine remediation
+    /// commits for conventions no rule encodes yet.
+    ///
+    /// Default mode is a replay: for each first-parent commit it reconstructs
+    /// the tree and runs the engine, then reports "red windows" — the runs of
+    /// commits in which a rule would have fired, and the commit that closed
+    /// each one. A code with two or more CLOSED windows is a repeat failure,
+    /// which is prioritisation evidence rather than a judgement call.
+    ///
+    /// `--suggest-patterns` switches to archaeology: it mines commits that
+    /// look like remediation and proposes `[[patterns]]` guardrails for
+    /// conventions that recurred. That output is heuristic, is emitted
+    /// commented out, and is never written to your config.
+    History(HistoryArgs),
 
     /// Start language server (called by editor extensions, not directly)
     #[command(hide = true)]
@@ -87,27 +112,6 @@ pub(crate) enum Commands {
         what: GenKind,
     },
 
-    /// Deprecated: use `flint gen query --from <file.sql>`
-    /// (or `gen policy --from <file.sql>` for --policy).
-    #[command(hide = true)]
-    Query(QueryArgs),
-
-    /// Deprecated: use `flint gen <kind>` (e.g. `flint gen policy`).
-    #[command(hide = true)]
-    New(NewArgs),
-
-    /// Deprecated: use `flint gen profile --from <file>`.
-    #[command(hide = true)]
-    Profile(ProfileArgs),
-
-    /// Deprecated: use `flint gen software --from <installer>`.
-    #[command(hide = true)]
-    App(AppArgs),
-
-    /// Deprecated: use `flint gen software --from <file.pkg>` (or
-    /// `gen policy` / `gen scripts` for the --policy/--scripts modes).
-    #[command(hide = true)]
-    Pkg(PkgArgs),
 
     /// Fleet Maintained Apps: search slugs, show app details, list recent
     /// updates, and refresh the local registry from fmalibrary.com.
@@ -216,6 +220,77 @@ pub(crate) struct CheckArgs {
 }
 
 #[derive(Args)]
+pub(crate) struct HistoryArgs {
+    /// Repo directory (default: current directory)
+    #[arg(default_value = ".")]
+    pub(crate) path: PathBuf,
+
+    /// Replay from this ref (exclusive) up to HEAD, instead of the last
+    /// `--max` commits.
+    #[arg(long, value_name = "REF")]
+    pub(crate) since: Option<String>,
+
+    /// Maximum first-parent commits to examine.
+    #[arg(long, default_value_t = 200, value_name = "N")]
+    pub(crate) max: usize,
+
+    /// Mine remediation commits for candidate `[[patterns]]` guardrails
+    /// instead of replaying the rules.
+    #[arg(long)]
+    pub(crate) suggest_patterns: bool,
+
+    /// With --suggest-patterns: how many times a convention must have been
+    /// repaired by hand before it is proposed. One repair is an anecdote.
+    #[arg(long, default_value_t = 2, value_name = "N", requires = "suggest_patterns")]
+    pub(crate) min_occurrences: usize,
+
+    /// Path to the `gitops-oracle` binary. When given, each replayed tree is
+    /// also put through Fleet's own parser and the two verdicts are diffed,
+    /// so the report measures correctness rather than self-consistency.
+    ///
+    /// Dev/CI only — the oracle is not shipped with flint.
+    #[arg(long, value_name = "PATH", conflicts_with = "suggest_patterns")]
+    pub(crate) oracle: Option<PathBuf>,
+
+    /// Replay each tree under ITS OWN committed `.fleetlint.toml` instead of
+    /// today's.
+    ///
+    /// The default applies the current config to every tree, because "today's
+    /// rules against yesterday's trees" should hold scope fixed too: a
+    /// directory the repo has since declared out of scope would otherwise
+    /// pollute the whole history. Use this to ask the different question,
+    /// "what would flint have said at the time".
+    #[arg(long)]
+    pub(crate) scope_as_committed: bool,
+
+    /// Compute every commit from scratch instead of reusing the previous
+    /// result when nothing in scope changed. Reuse is output-identical by
+    /// construction; this exists to prove that, and to bisect if it is not.
+    #[arg(long)]
+    pub(crate) no_reuse: bool,
+
+    /// Gate the run against a stored scorecard, for CI.
+    ///
+    /// Compares this replay to the baseline at PATH and exits 2 if rule
+    /// quality regressed: a rule that newly claims blocking where Fleet
+    /// accepts, or a Fleet complaint flint has newly gone silent on. Writes
+    /// the file and passes if it does not exist yet.
+    ///
+    /// Only new KEYS gate. Counts move with the range replayed, so they are
+    /// reported and never failed on.
+    #[arg(long, value_name = "PATH", conflicts_with = "suggest_patterns")]
+    pub(crate) gate: Option<PathBuf>,
+
+    /// Overwrite the --gate baseline with this run instead of comparing.
+    #[arg(long, requires = "gate")]
+    pub(crate) update_baseline: bool,
+
+    /// Emit JSON — the form an agent consumes.
+    #[arg(long)]
+    pub(crate) json: bool,
+}
+
+#[derive(Args)]
 pub(crate) struct DryRunArgs {
     /// Repo directory (default: current directory)
     #[arg(default_value = ".")]
@@ -233,6 +308,32 @@ pub(crate) struct DryRunArgs {
     /// Emit the verdict as JSON.
     #[arg(long)]
     pub(crate) json: bool,
+
+    /// Lint the MERGE of HEAD and REF — the tree git would produce, without
+    /// producing it.
+    ///
+    /// The incident this exists for: one branch deleted profiles another had
+    /// begun referencing. Each tree was valid alone and git saw no conflict
+    /// (no file was touched twice), so the defect existed only in the
+    /// combination and surfaced in CI, after the merge, as 48 errors. Run
+    /// this before merging to see that result first. A textual conflict is
+    /// reported and blocks (exit 2): flint cannot lint a tree that does not
+    /// exist yet.
+    #[arg(long, value_name = "REF")]
+    pub(crate) against: Option<String>,
+
+    /// Audit this run's blocking findings against Fleet's own parser, so a
+    /// rule that blocks where Fleet would accept is caught before it blocks
+    /// automation.
+    ///
+    /// Runs `gitops-oracle` (dev-only, not shipped) over the same tree and
+    /// reports two lists: findings flint blocks on that Fleet's parser
+    /// accepts — each marked either "expected" (a check Fleet enforces
+    /// server-side, which the offline parser cannot see) or "REVIEW" (a
+    /// possible false positive) — and complaints Fleet raises that flint is
+    /// silent on. Advisory: it never changes the verdict or exit code.
+    #[arg(long, value_name = "PATH")]
+    pub(crate) oracle: Option<PathBuf>,
 
     /// Refresh `.fleet-snapshot.json` from the Fleet server before linting.
     ///
@@ -321,10 +422,6 @@ pub(crate) struct HelpAgentsArgs {
     /// Output the complete reference (all commands, all flags)
     #[arg(long)]
     pub(crate) full: bool,
-
-    /// Deprecated: use `flint setup-agent`.
-    #[arg(long, hide = true)]
-    pub(crate) install_skill: bool,
 }
 
 #[derive(Args)]
@@ -523,14 +620,14 @@ pub(crate) struct PathsArgs {
     pub(crate) label_stubs: Option<String>,
 
     /// Limit interactive wiring to fleet/team files matching this glob
-    /// (e.g. "fleets/acfg-*.yml" or "acfg-*"). Matched against each file's
+    /// (e.g. "fleets/team-*.yml" or "team-*"). Matched against each file's
     /// path and name.
     #[arg(long, value_name = "GLOB", requires = "unwired")]
     pub(crate) only: Option<String>,
 
     /// With --unwired: one tab-separated record per artifact
     /// (`path  section  wire-value`) instead of the YAML blocks, so the
-    /// report can be filtered — `flint paths --unwired --oneline | grep lisa`.
+    /// report can be filtered — `flint paths --unwired --oneline | grep pilot`.
     #[arg(long, requires = "unwired", conflicts_with = "interactive")]
     pub(crate) oneline: bool,
 

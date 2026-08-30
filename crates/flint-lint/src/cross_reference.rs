@@ -464,7 +464,11 @@ pub(crate) fn check_team_membership(files: &[ParsedFile]) -> Vec<(PathBuf, LintE
                     .and_then(|v| v.as_str())
                     .unwrap_or("(unnamed)");
                 let (line, col) = anchor_line(&f.source);
-                let mut err = LintError::warning(
+                // Error, not advisory: fleetctl refuses the apply outright —
+                // "failed to parse policy install_software …: package_path
+                // SHA256 … not found on team". A repo that wants it softer can
+                // downgrade it via `[rules] warn`.
+                let mut err = LintError::error(
                     format!("fleet '{team_name}': policy '{pol_name}' auto-installs {missing}, but this fleet's software list doesn't include it"),
                     &f.path,
                 )
@@ -919,7 +923,7 @@ mod tests {
         )];
         let index = RepoIndex::build(&files);
         let f = parsed(
-            "fleets/fdn.yml",
+            "fleets/abc.yml",
             "policies:\n  - name: p\n    query: SELECT 1;\n    labels_include_any:\n      - macOS 27 hosts\n",
         );
         let errs = check_references(&index, &f.path, &f.source, &f.yaml, None);
@@ -1000,52 +1004,56 @@ mod tests {
 
     const HASH: &str = "3a673c556d864348df3702a806be41bcdf44721976c7aacac41682aa159a3be2";
 
-    /// The FDN-BETA scenario: a fleet pulls an autoinstall policy via a glob but
+    /// The ABC-BETA scenario: a fleet pulls an autoinstall policy via a glob but
     /// does NOT include the package the policy installs.
     #[test]
     fn team_missing_package_for_globbed_policy_is_flagged() {
         let files = vec![
             // software file (hash-only, the upload-by-hash pattern)
             parsed(
-                "platforms/macos/L0/software/corp-fonts.yml",
+                "platforms/macos/base/software/corp-fonts.yml",
                 &format!("# com.x (Corp.pkg) version 1.0\n- hash_sha256: {HASH}\n"),
             ),
             // policy pulled by glob, installs the package by package_path
             parsed(
                 "platforms/macos/policies/autoinstalls/corp-fonts.yml",
-                "- name: Corp-Fonts is installed\n  platform: darwin\n  query: \"SELECT 1;\"\n  install_software:\n    package_path: ../../L0/software/corp-fonts.yml\n",
+                "- name: Corp-Fonts is installed\n  platform: darwin\n  query: \"SELECT 1;\"\n  install_software:\n    package_path: ../../base/software/corp-fonts.yml\n",
             ),
             // fleet pulls the policy via glob but has NO software
             parsed(
-                "fleets/FDN-BETA.yml",
-                "name: FDN - LX\npolicies:\n  - paths: ../platforms/macos/policies/autoinstalls/*.yml\nsoftware:\n  packages:\n",
+                "fleets/ABC-BETA.yml",
+                "name: ABC - XX\npolicies:\n  - paths: ../platforms/macos/policies/autoinstalls/*.yml\nsoftware:\n  packages:\n",
             ),
         ];
         let findings = check_team_membership(&files);
         assert_eq!(findings.len(), 1, "got: {findings:?}");
         let (path, err) = &findings[0];
-        assert!(path.ends_with("fleets/FDN-BETA.yml"));
+        assert!(path.ends_with("fleets/ABC-BETA.yml"));
         assert_eq!(err.rule_code, Some("install-software-team"));
-        assert!(err.message.contains("FDN - LX"));
+        // fleetctl refuses the apply outright — "package_path SHA256 … not
+        // found on team" — so this states a failure, not a suggestion. A repo
+        // that wants it softer downgrades it via `[rules] warn`.
+        assert_eq!(err.severity, crate::error::Severity::Error);
+        assert!(err.message.contains("ABC - XX"));
         assert!(err.message.contains("Corp-Fonts is installed"));
     }
 
-    /// The FDN-ALPHA scenario: same policy, but the fleet DOES include the
+    /// The ABC-ALPHA scenario: same policy, but the fleet DOES include the
     /// package (by path → hash) — no finding.
     #[test]
     fn team_with_package_included_is_ok() {
         let files = vec![
             parsed(
-                "platforms/macos/L0/software/corp-fonts.yml",
+                "platforms/macos/base/software/corp-fonts.yml",
                 &format!("# com.x (Corp.pkg) version 1.0\n- hash_sha256: {HASH}\n"),
             ),
             parsed(
                 "platforms/macos/policies/autoinstalls/corp-fonts.yml",
-                "- name: Corp-Fonts is installed\n  platform: darwin\n  query: \"SELECT 1;\"\n  install_software:\n    package_path: ../../L0/software/corp-fonts.yml\n",
+                "- name: Corp-Fonts is installed\n  platform: darwin\n  query: \"SELECT 1;\"\n  install_software:\n    package_path: ../../base/software/corp-fonts.yml\n",
             ),
             parsed(
-                "fleets/FDN-ALPHA.yml",
-                "name: FDN - ALPHA\npolicies:\n  - paths: ../platforms/macos/policies/autoinstalls/*.yml\nsoftware:\n  packages:\n    - path: ../platforms/macos/L0/software/corp-fonts.yml\n",
+                "fleets/ABC-ALPHA.yml",
+                "name: ABC - ALPHA\npolicies:\n  - paths: ../platforms/macos/policies/autoinstalls/*.yml\nsoftware:\n  packages:\n    - path: ../platforms/macos/base/software/corp-fonts.yml\n",
             ),
         ];
         let findings = check_team_membership(&files);
@@ -1082,12 +1090,12 @@ mod tests {
         // com.fleetdm… → the policy may install yet never pass.
         let files = vec![
             parsed(
-                "platforms/macos/L0/software/corp-fonts.yml",
+                "platforms/macos/base/software/corp-fonts.yml",
                 "# com.fleetdm.fonts.corp (Corp-Fonts-1.0.pkg) version 1.0\n- hash_sha256: abc123\n",
             ),
             parsed(
                 "platforms/macos/policies/autoinstalls/corp-fonts.yml",
-                "- name: Corp-Fonts is installed\n  platform: darwin\n  query: \"SELECT 1 FROM package_receipts WHERE package_id = 'com.example.fonts.corp';\"\n  install_software:\n    package_path: ../../L0/software/corp-fonts.yml\n",
+                "- name: Corp-Fonts is installed\n  platform: darwin\n  query: \"SELECT 1 FROM package_receipts WHERE package_id = 'com.example.fonts.corp';\"\n  install_software:\n    package_path: ../../base/software/corp-fonts.yml\n",
             ),
         ];
         let findings = check_package_id_match(&files);
@@ -1102,12 +1110,12 @@ mod tests {
     fn query_id_matching_package_is_ok() {
         let files = vec![
             parsed(
-                "platforms/macos/L0/software/corp-fonts.yml",
+                "platforms/macos/base/software/corp-fonts.yml",
                 "# com.example.fonts.corp (Corp-Fonts-1.0.pkg) version 1.0\n- hash_sha256: abc123\n",
             ),
             parsed(
                 "platforms/macos/policies/autoinstalls/corp-fonts.yml",
-                "- name: Corp-Fonts is installed\n  platform: darwin\n  query: \"SELECT 1 FROM package_receipts WHERE package_id = 'com.example.fonts.corp';\"\n  install_software:\n    package_path: ../../L0/software/corp-fonts.yml\n",
+                "- name: Corp-Fonts is installed\n  platform: darwin\n  query: \"SELECT 1 FROM package_receipts WHERE package_id = 'com.example.fonts.corp';\"\n  install_software:\n    package_path: ../../base/software/corp-fonts.yml\n",
             ),
         ];
         assert!(check_package_id_match(&files).is_empty());
@@ -1138,8 +1146,8 @@ mod tests {
     #[test]
     fn app_store_apps_without_vpp_is_flagged() {
         let files = vec![parsed(
-            "fleets/FDN-ALPHA.yml",
-            "name: FDN - ALPHA\nsoftware:\n  app_store_apps:\n    - app_store_id: \"1037126344\"\n      platform: darwin\n",
+            "fleets/ABC-ALPHA.yml",
+            "name: ABC - ALPHA\nsoftware:\n  app_store_apps:\n    - app_store_id: \"1037126344\"\n      platform: darwin\n",
         )];
         let findings = check_app_store_vpp(&files);
         assert_eq!(findings.len(), 1, "got: {findings:?}");
@@ -1153,11 +1161,11 @@ mod tests {
         let files = vec![
             parsed(
                 "default.yml",
-                "org_settings:\n  volume_purchasing_program:\n    - location: \"OMT\"\n      fleets:\n        - All teams\n",
+                "org_settings:\n  volume_purchasing_program:\n    - location: \"HQ\"\n      fleets:\n        - All teams\n",
             ),
             parsed(
-                "fleets/FDN-ALPHA.yml",
-                "name: FDN - ALPHA\nsoftware:\n  app_store_apps:\n    - app_store_id: \"1037126344\"\n      platform: darwin\n",
+                "fleets/ABC-ALPHA.yml",
+                "name: ABC - ALPHA\nsoftware:\n  app_store_apps:\n    - app_store_id: \"1037126344\"\n      platform: darwin\n",
             ),
         ];
         assert!(check_app_store_vpp(&files).is_empty(), "VPP configured → no finding");

@@ -366,7 +366,7 @@ mod tests {
         let f1 = ParsedFile {
             path: PathBuf::from("/repo/fleets/a.yml"),
             source: String::new(),
-            yaml: serde_yaml::from_str("controls:\n  scripts:\n    - path: ../L0/base.sh\n")
+            yaml: serde_yaml::from_str("controls:\n  scripts:\n    - path: ../base/base.sh\n")
                 .unwrap(),
         };
         let f2 = ParsedFile {
@@ -375,10 +375,10 @@ mod tests {
             yaml: serde_yaml::from_str("name: b\n").unwrap(),
         };
         let parsed = [f1, f2];
-        let ws = ws_of(vec![PathBuf::from("/repo/L0/base.sh")], &parsed);
+        let ws = ws_of(vec![PathBuf::from("/repo/base/base.sh")], &parsed);
 
         let mut p = pat("must-be-referenced");
-        p.files = "L0/**".into();
+        p.files = "base/**".into();
         p.by = "fleets/*.yml".into();
         p.quantifier = "all".into();
         let mut out = Vec::new();
@@ -396,25 +396,25 @@ mod tests {
     fn unique_content_and_required_structure() {
         let dir = tempfile::tempdir().unwrap();
         let root = normalize_path(dir.path());
-        std::fs::create_dir_all(root.join("L1/zoom/scripts")).unwrap();
-        std::fs::create_dir_all(root.join("L1/webex")).unwrap();
-        std::fs::write(root.join("L1/zoom/scripts/a.sh"), "same").unwrap();
-        std::fs::write(root.join("L1/webex/b.sh"), "same").unwrap();
+        std::fs::create_dir_all(root.join("site/zoom/scripts")).unwrap();
+        std::fs::create_dir_all(root.join("site/webex")).unwrap();
+        std::fs::write(root.join("site/zoom/scripts/a.sh"), "same").unwrap();
+        std::fs::write(root.join("site/webex/b.sh"), "same").unwrap();
         let files = vec![
-            root.join("L1/zoom/scripts/a.sh"),
-            root.join("L1/webex/b.sh"),
+            root.join("site/zoom/scripts/a.sh"),
+            root.join("site/webex/b.sh"),
         ];
         let ws = ws_of(files, &[]);
 
         let mut p = pat("unique-content-within");
-        p.files = "L1/**/*.sh".into();
+        p.files = "site/**/*.sh".into();
         let mut out = Vec::new();
         check_one(&p, &root, &ws, &mut HashMap::new(), &mut out);
         assert_eq!(out.len(), 2);
         assert!(!out[0].1.related.is_empty());
 
         let mut p = pat("required-structure");
-        p.files = "L1/*".into();
+        p.files = "site/*".into();
         p.entries = vec!["scripts".into()];
         out.clear();
         check_one(&p, &root, &ws, &mut HashMap::new(), &mut out);

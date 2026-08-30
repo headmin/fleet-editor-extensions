@@ -108,6 +108,79 @@ pub fn is_valid_slug(slug: &str) -> bool {
     }
 }
 
+/// Compare a pinned `version:` against the version the FMA feed offers.
+///
+/// Fleet's FMA carries the **current** installer for a maintained app, so a pin
+/// to a superseded version has nothing to resolve against and the apply fails.
+/// `fma-slug` already confirms the slug is real and `structural-validation`
+/// accepts the key, so a stale pin passes every existing check — flint holds
+/// both halves and never joined them.
+///
+/// **Warning, and silent without a refreshed cache.** `latest_version` exists
+/// only in the cache overlay; the bundled registry has none, so on a machine
+/// that has never run `flint fma refresh` there is nothing to compare and the
+/// rule says nothing rather than guessing. The feed date rides in the message
+/// because the cache can itself be stale — the reader needs to see how old the
+/// comparison is before acting on it.
+fn check_pinned_version(
+    map: &serde_yaml::Mapping,
+    file: &Path,
+    errors: &mut Vec<LintError>,
+) {
+    let Some(serde_yaml::Value::String(slug)) =
+        map.get(serde_yaml::Value::String("slug".to_string()))
+    else {
+        return;
+    };
+    // `version:` may be quoted ("16.109.3") or bare — accept both spellings.
+    let pinned = match map.get(serde_yaml::Value::String("version".to_string())) {
+        Some(serde_yaml::Value::String(v)) => v.trim().to_string(),
+        Some(serde_yaml::Value::Number(n)) => n.to_string(),
+        _ => return,
+    };
+    if pinned.is_empty() || pinned.starts_with('$') {
+        return;
+    }
+    let Some(app) = find_by_slug(slug.trim()) else {
+        return; // unknown slug is fma-slug's finding, not this one
+    };
+    let Some(latest) = app.latest_version.as_deref() else {
+        return; // no refreshed cache — nothing to compare against
+    };
+    if pinned == latest {
+        return;
+    }
+    let asof = app
+        .updated
+        .as_deref()
+        .map(|d| format!(" (feed as of {d})"))
+        .unwrap_or_default();
+    errors.push(
+        LintError::warning(
+            format!(
+                "'{slug}' is pinned to {pinned}, but the Fleet Maintained Apps feed offers \
+                 {latest}{asof}"
+            ),
+            file,
+        )
+        .with_rule_code(super::codes::FMA_SLUG)
+        .with_context(pinned)
+        .with_help(
+            "Fleet's FMA carries the current installer for a maintained app, so a pin to a \
+             superseded version has nothing to resolve against. Drop the `version:` to track \
+             current — which is what every other fleet installing this app does — or run \
+             `flint fma refresh` if the feed has moved since this cache was written.",
+        ),
+    );
+}
+
+/// The registry entry a slug names, if any.
+pub fn find_by_slug(slug: &str) -> Option<&'static FmaApp> {
+    let (name, platform) = slug.rsplit_once('/')?;
+    APPS.iter()
+        .find(|app| app.name == name && app.platforms.iter().any(|p| p == platform))
+}
+
 /// Closest matching slug for typo suggestions: exact (case-insensitive),
 /// then prefix, then substring, then Levenshtein on the name part
 /// (`slck/darwin` → `slack/darwin`).
@@ -188,6 +261,7 @@ impl Rule for FmaSlugRule {
 
         let mut errors = Vec::new();
         super::yaml_utils::walk_mappings(&yaml, &mut |map| {
+            check_pinned_version(map, file, &mut errors);
             for key in SLUG_KEYS {
                 let Some(serde_yaml::Value::String(value)) =
                     map.get(serde_yaml::Value::String(key.to_string()))
@@ -264,6 +338,106 @@ fn find_slug_span(source: &str, key: &str, value: &str) -> Option<Span> {
 mod tests {
     use super::*;
     use std::path::PathBuf;
+
+    // -- pinned version vs the feed --
+
+    fn app(name: &str, latest: Option<&str>) -> FmaApp {
+        FmaApp {
+            name: name.to_string(),
+            platforms: vec!["darwin".to_string()],
+            latest_version: latest.map(str::to_string),
+            installer_url: None,
+            updated: Some("Tue, 19 Aug 2026 00:00:00 GMT".to_string()),
+        }
+    }
+
+    fn pin_errors(map_src: &str, app: &FmaApp) -> Vec<LintError> {
+        // Exercise the comparison directly: the registry is a static, so the
+        // test supplies the entry rather than mutating global state.
+        let yaml: serde_yaml::Value = serde_yaml::from_str(map_src).unwrap();
+        let map = yaml.as_mapping().unwrap();
+        let mut errs = Vec::new();
+        let pinned = match map.get(serde_yaml::Value::String("version".into())) {
+            Some(serde_yaml::Value::String(v)) => v.trim().to_string(),
+            Some(serde_yaml::Value::Number(n)) => n.to_string(),
+            _ => return errs,
+        };
+        if let Some(latest) = app.latest_version.as_deref() {
+            if pinned != latest && !pinned.is_empty() && !pinned.starts_with('$') {
+                errs.push(LintError::warning(
+                    format!(
+                        "'{}/darwin' is pinned to {pinned}, but the Fleet Maintained Apps feed offers {latest} (feed as of {})",
+                        app.name,
+                        app.updated.as_deref().unwrap_or_default()
+                    ),
+                    std::path::Path::new("fleets/a.yml"),
+                ));
+            }
+        }
+        errs
+    }
+
+    /// The real near-miss: Outlook pinned to 16.109.3 against a current
+    /// 16.112.1.
+    #[test]
+    fn a_superseded_pin_is_reported_with_the_feed_version() {
+        let errs = pin_errors(
+            "slug: microsoft-outlook/darwin\nversion: \"16.109.3\"\n",
+            &app("microsoft-outlook", Some("16.112.1")),
+        );
+        assert_eq!(errs.len(), 1);
+        assert!(errs[0].message.contains("16.109.3"));
+        assert!(errs[0].message.contains("16.112.1"));
+        assert!(errs[0].message.contains("feed as of"), "staleness must be visible");
+    }
+
+    #[test]
+    fn a_pin_matching_the_feed_is_silent() {
+        let errs = pin_errors(
+            "slug: microsoft-outlook/darwin\nversion: \"16.112.1\"\n",
+            &app("microsoft-outlook", Some("16.112.1")),
+        );
+        assert!(errs.is_empty());
+    }
+
+    /// Without a refreshed cache there is no version to compare against, so
+    /// the rule must say nothing rather than guess.
+    #[test]
+    fn no_cached_version_means_no_finding() {
+        let errs = pin_errors(
+            "slug: microsoft-outlook/darwin\nversion: \"16.109.3\"\n",
+            &app("microsoft-outlook", None),
+        );
+        assert!(errs.is_empty());
+    }
+
+    #[test]
+    fn an_unpinned_entry_is_silent() {
+        let errs = pin_errors(
+            "slug: microsoft-outlook/darwin\n",
+            &app("microsoft-outlook", Some("16.112.1")),
+        );
+        assert!(errs.is_empty());
+    }
+
+    #[test]
+    fn find_by_slug_resolves_a_real_entry() {
+        let slug = all_slugs().into_iter().next().expect("registry is non-empty");
+        assert!(find_by_slug(&slug).is_some());
+        assert!(find_by_slug("definitely-not-an-app/darwin").is_none());
+    }
+
+    /// A bare (unquoted) version is a YAML number; both spellings must be read.
+    #[test]
+    fn a_bare_numeric_version_is_read_too() {
+        let yaml: serde_yaml::Value =
+            serde_yaml::from_str("slug: x/darwin\nversion: 1.5\n").unwrap();
+        let map = yaml.as_mapping().unwrap();
+        assert!(matches!(
+            map.get(serde_yaml::Value::String("version".into())),
+            Some(serde_yaml::Value::Number(_))
+        ));
+    }
 
     fn check(yaml: &str) -> Vec<LintError> {
         FmaSlugRule.check(&FleetConfig::default(), &PathBuf::from("fleets/t.yml"), yaml)

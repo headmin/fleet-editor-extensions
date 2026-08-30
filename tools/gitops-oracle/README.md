@@ -84,7 +84,7 @@ Two deliberate differences from flint, both documented in `scope.go`:
   both stops a punctuation difference from reading as a real gap.
 
 `scope_test.go` pins the semantics, including that an anchored `santa/**`
-exclude must NOT reach a nested `platforms/macos/L1/santa/` — the trap that
+exclude must NOT reach a nested `platforms/macos/site/santa/` — the trap that
 would silence live config.
 
 ## Usage

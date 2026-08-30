@@ -6,8 +6,8 @@ icon: lucide/terminal
 
 Beyond linting, flint generates GitOps YAML from real artifacts, repairs and
 wires `path:` references, and scaffolds new files. Run `flint <command> --help`
-for full flags, or `flint help-ai --sop <paths|software>` for step-by-step
-workflows.
+for full flags, or `flint help-ai --sop <lint|paths|software|history>` for
+step-by-step workflows.
 
 ## The local dry-run
 
@@ -16,6 +16,8 @@ flint dry-run                     # lint the whole repo; verdict: would gitops p
 flint dry-run --strict            # also gate on advisory warnings (zero-tolerance)
 flint dry-run --json              # machine-readable verdict (for CI)
 flint dry-run --exclude '**/tools-scripts/fleet-templates/**'
+flint dry-run --against main       # lint the MERGE of HEAD and main, before merging
+flint dry-run --oracle ./gitops-oracle   # dev/CI: audit blocking findings against Fleet's parser
 ```
 
 `flint dry-run` is the **local, server-free equivalent of `fleetctl gitops
@@ -32,6 +34,25 @@ prints a single verdict:
 Errors are **blocking** (exit code 2 — drop it straight into CI); warnings are
 advisory unless `--strict`. Run it before every push (see *Wire it in* below).
 
+**`--against <REF>`** lints the tree git *would* produce by merging `REF` into
+`HEAD` — without producing it. The incident it exists for: one branch deleted
+profiles another had begun referencing. Each tree was valid alone and git saw
+no conflict (no file was touched twice), so the defect existed only in the
+combination and surfaced in CI, after the merge. A textual conflict is reported
+and blocks (exit 2): flint cannot lint a tree that does not exist yet.
+
+**`--oracle <PATH>`** (dev/CI only — `gitops-oracle` is not shipped) runs the
+same tree through Fleet's own parser and reports two lists: findings flint
+blocks on that Fleet accepts — each marked *expected* (a check Fleet enforces
+server-side, invisible to the offline parser) or *REVIEW* (a possible false
+positive) — and complaints Fleet raises that flint is silent on. Advisory: it
+never changes the verdict or exit code.
+
+A clean dry-run means flint found nothing, which is weaker than `fleetctl`
+accepting the apply: it does not model `${VAR}` expansion against the real
+environment, whether a bootstrap URL is live, or anything Fleet checks only at
+apply time.
+
 ## Linting (detail)
 
 `flint dry-run` is a whole-repo wrapper over `flint check`. Use `check` directly
@@ -43,8 +64,21 @@ flint check . --fix               # auto-apply Safe fixes (renames, typos)
 flint check . --fix --unsafe-fixes
 flint check . --format json       # structured output for CI
 flint check . --exclude '**/tools-scripts/fleet-templates/**'   # skip a folder
+flint check wifi.mobileconfig     # scan one profile (or DDM .json) directly
 flint list-rules                  # show enforced rules
 ```
+
+`flint check <profile>` runs the profile-level rules (`profile-well-formed`,
+`payload-uuid-format`) on a single `.mobileconfig` or DDM declaration without a
+fleet file — for authoring in an editor. Wiring and reference rules still need
+the directory lint. On a directory, the summary leads with a verdict and, when
+the same finding text recurs in five or more files, a repeated-findings index —
+so a 139-line wall reads as a few problems repeated rather than many problems.
+
+Severity follows the coupling flint can see: a finding inside a fragment no
+fleet wires (a broken `path:`, an empty target) is a **warning**; the same
+finding inside a wired fragment is an **error**, because there it will fail
+the apply.
 
 See [Getting started](getting-started.md) and [Rules](rules.md).
 
@@ -157,6 +191,12 @@ flint paths .                     # report broken path: refs (before → after)
 flint paths . --fix               # rewrite every unambiguous reference in place
 ```
 
+When no unique match exists on disk, the report says what git knows about the
+missing target — `renamed to <new> in <sha> "<subject>"` or `deleted in <sha>
+"<subject>"`. A recorded rename is unambiguous, so `--fix` rewrites it too
+(following a chain of up to five renames); a deleted target gets no fix — drop
+the reference or restore the file.
+
 It also catches a reference to an **empty file** (`path-empty`): a `path:`/
 `package_path:`/`run_script.path`/`install_script.path`/… that resolves but has
 no usable content — blank, whitespace-only, or (for YAML) comment-only (e.g. a
@@ -193,12 +233,24 @@ Interactive wiring asks per fleet (`[y]es / [a]ll-remaining / [n]o / [s]kip /
 | Flag | Effect |
 |---|---|
 | `--label-stubs[=blank\|comment]` | on blank label answers, emit the empty key (`blank`, default) or a commented stub (`comment`) |
-| `--only <glob>` | limit target fleets, e.g. `--only 'fleets/acfg-*.yml'` |
+| `--only <glob>` | limit target fleets, e.g. `--only 'fleets/team-*.yml'` |
 
 Each artifact is routed to the right section using current Fleet keys
 (`controls.apple_settings.configuration_profiles`, `controls.scripts`,
 `controls.setup_experience.apple_setup_assistant`, `software.packages`, …), with
 paths written relative to where your fleet files actually live.
+
+An artifact kept on purpose — an archived profile, a template — is *declared*
+rather than excluded:
+
+```toml
+[orphans]
+allow = ["profiles/archive/**"]
+```
+
+A match silences `orphaned-file` for that artifact and nothing else; `[files]
+exclude` would take the file out of scope for every rule, including the ones
+that check its contents.
 
 ## Generate YAML (`flint gen`)
 
@@ -343,8 +395,8 @@ osquery tables the SQL references; unknown tables leave a commented placeholder.
 
 ### Migrating from v0.1.x
 
-The legacy generator commands keep working until **v0.3.0** (hidden from
-`--help`, warning on stderr):
+The legacy generator commands were **removed in v0.3.0**. An old spelling now
+fails as an unrecognized subcommand; this table is the migration guide:
 
 | v0.1.x | v0.2.0 |
 |---|---|
@@ -359,6 +411,57 @@ The legacy generator commands keep working until **v0.3.0** (hidden from
 | `flint profile X [--full\|--wire\|--regen-uuid\|-o]` | `flint gen profile --from X [same]` |
 | `flint new profile\|fleet\|policy\|query\|label` | `flint gen <kind>` |
 | `flint help-agents --install-skill` | `flint setup-agent` |
+
+## Rule history (`flint history`)
+
+Replays today's rules against past commits, so rule priority rests on measured
+recurrence rather than judgement. Each first-parent commit is reconstructed with
+`git archive` into a scratch directory — the working copy is never touched —
+and linted.
+
+```bash
+flint history --max 400                  # replay; red windows per rule (default 200 commits)
+flint history --since v0.2.2             # replay REF (exclusive) .. HEAD
+flint history --suggest-patterns         # mine remediation commits for [[patterns]] guardrails
+flint history --oracle ./gitops-oracle   # diff blocking verdicts against Fleet's own parser
+flint history --gate .flint/baseline.json   # CI: exit 2 when rule quality regresses
+flint history --json                     # every mode, machine-readable
+```
+
+Findings are grouped into **red windows** — runs of commits in which a code
+fired, and the commit that closed each one:
+
+```
+path-exists  ×3 closed windows, 41 commit(s)
+    a1b2c3d Move profiles into platforms/  →  fixed in e4f5a6b Repoint the moved profiles
+    …
+```
+
+Only **closed** windows score. A finding still present at HEAD describes current
+state, not a repeated mistake; a code with two or more closed windows is a
+repeat failure, and that is the ranking that matters. `software-source` is not
+replayed and says so: a snapshot-derived finding depends on the Fleet server's
+state at that commit, which is gone.
+
+- **`--suggest-patterns`** mines commits that look like remediation and
+  proposes `[[patterns]]` guardrails for conventions repaired at least
+  `--min-occurrences` times (default 2 — one repair is an anecdote). The output
+  is heuristic, emitted commented out, and never written to your config.
+- **`--oracle <PATH>`** (dev/CI only) puts each tree through
+  `spec.GitOpsFromFile` — the function `fleetctl gitops` itself calls — and
+  diffs blocking claims both ways: rules that say an apply will fail where Fleet
+  accepts (marked *expected* where Fleet enforces the check server-side, else
+  *REVIEW*), and Fleet complaints flint is silent on.
+- **`--gate <PATH>`** compares the run to a stored scorecard and exits 2 on
+  regression: a rule newly blocking where Fleet accepts, a Fleet complaint flint
+  newly misses, or a rule that no longer catches what it used to. Only new
+  *keys* gate — occurrence counts move with the range replayed, so they are
+  reported and never failed on. The file is written and the run passes when it
+  does not exist yet; `--update-baseline` overwrites it once a change is
+  understood.
+- **`--scope-as-committed`** replays each tree under its *own* committed
+  `.fleetlint.toml` instead of today's, answering "what would flint have said
+  at the time" rather than "today's rules against yesterday's trees".
 
 ## Fleet Maintained Apps (`flint fma`)
 
@@ -397,6 +500,7 @@ flint setup-agent                 # install Claude Code skills
 flint help-ai                     # command reference for agents
 flint help-ai --sop paths         # broken-path + unwired workflows
 flint help-ai --sop software      # artifact-generation workflows
+flint help-ai --sop history       # replay / suggest-patterns / oracle / gate workflows
 flint lsp                         # language server (run by editor extensions)
 ```
 

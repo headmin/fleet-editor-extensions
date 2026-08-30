@@ -36,6 +36,9 @@ impl Rule for StructuralValidationRule {
 
         let mut errors = Vec::new();
 
+        // Types Fleet insists on, independent of which document this is.
+        check_app_store_id_type(&yaml_value, source, file, &mut errors);
+
         // Standalone software files (software/*.yml, *.package.yml) aren't
         // fleet configs — their root is a package/app item (or a list of
         // them), not the GitOps document. Real-repo replay of playground
@@ -54,6 +57,65 @@ impl Rule for StructuralValidationRule {
 
         errors
     }
+}
+
+/// `app_store_id` must be a **string**, never a bare number.
+///
+/// `app_store_id: 1037126344` is valid YAML and invalid Fleet:
+///
+/// ```text
+/// Couldn't edit "fleets/ABC-ACME.yml" at "software.app_store_apps.app_store_id",
+/// expected type string but got number
+/// ```
+///
+/// The cascade is what makes this worth an error rather than a nit. The type
+/// failure aborts the whole `software:` block, so `fleet_maintained_apps` reads
+/// as EMPTY and every patch policy the fleet applies then reports its slug as
+/// undeclared. On the reference repo one unquoted id produced **44** Fleet
+/// errors — 1 real and 43 downstream — and quoting it returned the file to
+/// zero. Replaying the history against Fleet's own parser attributed 264 file
+/// verdicts to that downstream shape, which is why it read as a missing
+/// patch-policy rule rather than a missing type check.
+fn check_app_store_id_type(
+    doc: &serde_yaml::Value,
+    source: &str,
+    file: &Path,
+    errors: &mut Vec<LintError>,
+) {
+    super::yaml_utils::walk_mappings(doc, &mut |map| {
+        let Some(value) = map.get(serde_yaml::Value::from("app_store_id")) else {
+            return;
+        };
+        // Only a bare scalar number is wrong; a string is correct and anything
+        // else is another rule's business.
+        let Some(number) = value.as_i64().map(|n| n.to_string()) else {
+            return;
+        };
+        let mut err = LintError::error(
+            format!(
+                "app_store_id {number} must be quoted — Fleet expects a string and rejects a \
+                 number"
+            ),
+            file,
+        )
+        .with_rule_code(crate::codes::TYPE_VALIDATION)
+        .with_help(
+            "The type failure aborts the whole `software:` block, so every patch policy in \
+             this fleet then reports its Fleet-maintained app as undeclared. Quote it: \
+             app_store_id: \"…\"",
+        )
+        .with_fix(super::error::Fix::Replace {
+            old: Some(number.clone()),
+            new: format!("\"{number}\""),
+            // Quoting a numeric id is a pure type correction — the value is
+            // unchanged, so this is safe to auto-apply.
+            safety: super::error::FixSafety::Safe,
+        });
+        if let Some(span) = super::yaml_utils::find_value_span(source, "app_store_id", &number) {
+            err = err.with_span(span);
+        }
+        errors.push(err);
+    });
 }
 
 /// Pick the schema for one standalone software item by its discriminating
@@ -236,19 +298,24 @@ fn classify_unknown_key(
                 // Check if the key is valid under this sibling
                 for vp in valid_paths {
                     if vp.starts_with(&sibling_path) {
-                        let display_path = if current_path.is_empty() {
-                            key.to_string()
+                        // At the top level the "path" IS the key, so the
+                        // generic phrasing degenerates to "Key 'scripts' is not
+                        // valid at 'scripts'" — tautological, and the exact
+                        // wording that made a past false positive hard to read.
+                        // Say what is actually wrong instead: it needs nesting.
+                        let message = if current_path.is_empty() {
+                            format!(
+                                "Top-level key '{}' must be nested under '{}'",
+                                key, sibling_key
+                            )
                         } else {
-                            format!("{}.{}", current_path, key)
+                            format!(
+                                "Key '{}' is not valid at '{}.{}'. It requires wrapper '{}'",
+                                key, current_path, key, sibling_key
+                            )
                         };
 
-                        let mut err = LintError::error(
-                            format!(
-                                "Key '{}' is not valid at '{}'. It requires wrapper '{}'",
-                                key, display_path, sibling_key
-                            ),
-                            file,
-                        )
+                        let mut err = LintError::error(message, file)
                         .with_help(format!("Place '{}' inside '{}' instead", key, sibling_path));
 
                         if let Some(l) = line {
@@ -443,6 +510,92 @@ mod tests {
     use super::*;
     use std::path::PathBuf;
 
+    /// At the top level the "path" IS the key, so the generic phrasing used to
+    /// read "Key 'scripts' is not valid at 'scripts'" — true, and useless.
+    /// Real occurrence: playground commit 320b43f, one of five windows this
+    /// rule opened and closed.
+    #[test]
+    fn a_top_level_key_needing_a_wrapper_says_so_plainly() {
+        let errs = StructuralValidationRule.check(
+            &FleetConfig::default(),
+            std::path::Path::new("fleets/a.yml"),
+            "name: ABC - X\nscripts:\n  - path: ../scripts/a.sh\n",
+        );
+        let msg = errs
+            .iter()
+            .find(|e| e.message.contains("scripts"))
+            .map(|e| e.message.clone())
+            .unwrap_or_default();
+        assert!(
+            msg.contains("Top-level key 'scripts' must be nested under 'controls'"),
+            "got: {msg}"
+        );
+        assert!(!msg.contains("not valid at 'scripts'"), "the tautology is gone: {msg}");
+    }
+
+    /// A nested misplacement keeps the path form, which is informative there.
+    #[test]
+    fn a_nested_misplaced_key_still_names_its_path() {
+        let errs = StructuralValidationRule.check(
+            &FleetConfig::default(),
+            std::path::Path::new("fleets/a.yml"),
+            "name: ABC - X\ncontrols:\n  path: ../profiles/a.mobileconfig\n",
+        );
+        assert!(
+            errs.iter().any(|e| e.message.contains("controls.path")),
+            "got: {:?}",
+            errs.iter().map(|e| e.message.clone()).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn numeric_app_store_id_is_an_error_with_a_safe_fix() {
+        let yaml = "name: ABC - X\nsoftware:\n  app_store_apps:\n    - app_store_id: 1037126344\n      platform: darwin\n";
+        let errs = StructuralValidationRule.check(
+            &FleetConfig::default(),
+            std::path::Path::new("fleets/ABC-X.yml"),
+            yaml,
+        );
+        let hit: Vec<_> = errs.iter().filter(|e| e.rule_code == Some("type-validation")).collect();
+        assert_eq!(hit.len(), 1, "got: {errs:?}");
+        assert_eq!(hit[0].severity, crate::error::Severity::Error);
+        assert!(hit[0].message.contains("1037126344"));
+        match hit[0].fix.as_ref().expect("quoting is mechanical") {
+            crate::error::Fix::Replace { old, new, safety } => {
+                assert_eq!(old.as_deref(), Some("1037126344"));
+                assert_eq!(new, "\"1037126344\"");
+                assert_eq!(*safety, crate::error::FixSafety::Safe);
+            }
+            other => panic!("expected a Replace fix, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn quoted_app_store_id_is_accepted() {
+        let yaml = "name: ABC - X\nsoftware:\n  app_store_apps:\n    - app_store_id: \"1037126344\"\n      platform: darwin\n";
+        let errs = StructuralValidationRule.check(
+            &FleetConfig::default(),
+            std::path::Path::new("fleets/ABC-X.yml"),
+            yaml,
+        );
+        assert!(
+            !errs.iter().any(|e| e.rule_code == Some("type-validation")),
+            "got: {errs:?}"
+        );
+    }
+
+    /// It must fire in a standalone software file too — the same value is
+    /// equally fatal wherever Fleet reads it.
+    #[test]
+    fn numeric_app_store_id_is_caught_in_a_software_file() {
+        let errs = StructuralValidationRule.check(
+            &FleetConfig::default(),
+            std::path::Path::new("platforms/macos/base/software/configurator.yml"),
+            "- app_store_id: 1037126344\n  platform: darwin\n",
+        );
+        assert!(errs.iter().any(|e| e.rule_code == Some("type-validation")), "got: {errs:?}");
+    }
+
     fn check(yaml: &str, file_name: &str) -> Vec<LintError> {
         let config = FleetConfig::default();
         let path = PathBuf::from(file_name);
@@ -533,10 +686,10 @@ controls:
         // Sequence-rooted package file (the shape in the wild)
         let yaml = r#"
 - hash_sha256: 704b0366c7223dca64785716f73a235cacfde93a2d4a68053521e580471c4c62
-  display_name: "LUNA"
-  description: "LUNA configuration management"
+  display_name: "DEMOAPP"
+  description: "DEMOAPP configuration management"
 "#;
-        let errors = rule.check(&config, Path::new("platforms/macos/L1/luna/software/luna.package.yml"), yaml);
+        let errors = rule.check(&config, Path::new("platforms/macos/site/demoapp/software/demoapp.package.yml"), yaml);
         assert!(
             errors.iter().any(|e| e.message.contains("description")),
             "expected unknown-key error for 'description', got: {:?}",
@@ -544,19 +697,19 @@ controls:
         );
 
         // Mapping-rooted single package file
-        let yaml2 = "url: https://example.com/luna.pkg\ndescription: nope\n";
-        let errors2 = rule.check(&config, Path::new("software/luna.package.yml"), yaml2);
+        let yaml2 = "url: https://example.com/demoapp.pkg\ndescription: nope\n";
+        let errors2 = rule.check(&config, Path::new("software/demoapp.package.yml"), yaml2);
         assert!(errors2.iter().any(|e| e.message.contains("description")));
 
         // Valid package file stays clean
         let yaml3 = r#"
 - hash_sha256: 704b0366c7223dca64785716f73a235cacfde93a2d4a68053521e580471c4c62
-  display_name: "LUNA"
+  display_name: "DEMOAPP"
   self_service: true
   categories:
     - Productivity
 "#;
-        let errors3 = rule.check(&config, Path::new("software/luna.package.yml"), yaml3);
+        let errors3 = rule.check(&config, Path::new("software/demoapp.package.yml"), yaml3);
         assert!(errors3.is_empty(), "valid package flagged: {:?}", errors3);
     }
 
