@@ -4,11 +4,6 @@
 use crate::args::{Cli, HelpAgentsArgs, HelpJsonArgs};
 
 pub(crate) fn run_help_agents(args: HelpAgentsArgs) -> anyhow::Result<()> {
-    if args.install_skill {
-        super::deprecation_warning("flint help-agents --install-skill", "flint setup-agent");
-        crate::help_agents::install_skill(env!("CARGO_PKG_VERSION"))?;
-        return Ok(());
-    }
     use clap::CommandFactory;
     let cmd = Cli::command();
     let mut out = std::io::stdout();

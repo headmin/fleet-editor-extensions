@@ -46,6 +46,13 @@ pub struct Workspace<'a> {
     /// report or match on a repo-relative path instead of an absolute one.
     /// `None` for a synthetic file set (tests, or a fed-in git list).
     pub root: Option<PathBuf>,
+    /// Payload contents, read once and shared. Five rules used to read the
+    /// same profiles and packages independently; this gives them one path
+    /// and one answer. Measured on the reference repo it is NOT a speed-up —
+    /// the OS page cache already made repeated reads cheap — so its value is
+    /// that a rule can never see a different byte sequence from its
+    /// neighbour. `None` records a failed read so it is not retried.
+    contents: std::sync::Mutex<HashMap<PathBuf, Option<std::sync::Arc<Vec<u8>>>>>,
 }
 
 impl<'a> Workspace<'a> {
@@ -75,7 +82,18 @@ impl<'a> Workspace<'a> {
             by_lower,
             parsed,
             root: None,
+            contents: std::sync::Mutex::new(HashMap::new()),
         }
+    }
+
+    /// The bytes of a file in the workspace, read on first request and shared
+    /// by every rule after that.
+    pub fn read(&self, path: &Path) -> Option<std::sync::Arc<Vec<u8>>> {
+        let mut cache = self.contents.lock().unwrap_or_else(|e| e.into_inner());
+        cache
+            .entry(path.to_path_buf())
+            .or_insert_with(|| std::fs::read(path).ok().map(std::sync::Arc::new))
+            .clone()
     }
 }
 
@@ -146,12 +164,24 @@ impl WorkspaceRule for DuplicateIdentifierRule {
     }
 
     fn check(&self, ws: &Workspace) -> Vec<(PathBuf, LintError)> {
-        // Payloads read once across every fleet that references them.
-        let mut content_cache: HashMap<PathBuf, Option<String>> = HashMap::new();
-        let mut read = |p: &PathBuf| -> Option<String> {
-            content_cache
+        // Each profile is summarised ONCE — identifier plus canonical form —
+        // however many fleets reference it. The reference repo has 33 fleets
+        // sharing most profiles; canonicalising per (fleet, profile) made this
+        // rule 141ms of a 460ms pass for work that was 97% repeated.
+        let mut summaries: HashMap<PathBuf, Option<(String, String)>> = HashMap::new();
+        let mut summary = |p: &PathBuf| -> Option<(String, String)> {
+            summaries
                 .entry(p.clone())
-                .or_insert_with(|| std::fs::read_to_string(p).ok())
+                .or_insert_with(|| {
+                    let bytes = ws.read(p)?;
+                    let text = String::from_utf8(bytes.as_ref().clone()).ok()?;
+                    let id = super::profile::parse_mobileconfig(&text).identifier?;
+                    // Canonical form, not raw bytes: two profiles differing
+                    // only in XML escaping (`&quot;` vs `"`) decode identically
+                    // and Fleet delivers them the same, so comparing bytes
+                    // reports a divergence that does not exist.
+                    Some((id, super::profile::canonical_profile(&text)))
+                })
                 .clone()
         };
 
@@ -192,17 +222,8 @@ impl WorkspaceRule for DuplicateIdentifierRule {
             // Group by PayloadIdentifier; flag groups whose contents differ.
             let mut by_id: HashMap<String, Vec<(PathBuf, String)>> = HashMap::new();
             for r in refs {
-                let Some(content) = read(&r) else { continue };
-                if let Some(id) = super::profile::parse_mobileconfig(&content).identifier {
-                    // Canonical form, not raw bytes: two profiles differing only
-                    // in XML escaping (`&quot;` vs `"`) decode identically and
-                    // Fleet delivers them the same, so comparing bytes reports
-                    // a divergence that does not exist.
-                    by_id
-                        .entry(id)
-                        .or_default()
-                        .push((r, super::profile::canonical_profile(&content)));
-                }
+                let Some((id, form)) = summary(&r) else { continue };
+                by_id.entry(id).or_default().push((r, form));
             }
             for (id, group) in by_id {
                 if group.len() < 2 || group.windows(2).all(|w| w[0].1 == w[1].1) {
@@ -352,15 +373,14 @@ impl WorkspaceRule for ProfileWellFormedRule {
             let ext = f.extension().and_then(|e| e.to_str()).unwrap_or_default();
             // `.json` is only this rule's business when it really is a DDM
             // declaration — the repo is full of other JSON.
-            if ext == "json" {
-                let Ok(bytes) = std::fs::read(f) else { continue };
-                if !super::profile::looks_like_declaration(&bytes) {
-                    continue;
-                }
-            } else if ext != "mobileconfig" {
+            if ext != "json" && ext != "mobileconfig" {
                 continue;
             }
-            for err in super::profile::scan_and_report(f) {
+            let Some(bytes) = ws.read(f) else { continue };
+            if ext == "json" && !super::profile::looks_like_declaration(&bytes) {
+                continue;
+            }
+            for err in super::profile::scan_bytes_and_report(f, &bytes) {
                 findings.push((f.clone(), err));
             }
         }
@@ -971,28 +991,40 @@ impl WorkspaceRule for CrossFleetDivergenceRule {
     }
 
     fn check(&self, ws: &Workspace) -> Vec<(PathBuf, LintError)> {
-        // family -> [(path, comparable form)]
-        let mut families: HashMap<String, Vec<(&PathBuf, String)>> = HashMap::new();
+        // Group by family on PATHS alone first. Most files belong to a family
+        // too small to judge — one-off profiles, per-fleet YAML — and reading
+        // and canonicalising them only to discard the group was 56% of the
+        // whole cross-file pass. Only families of MIN_FAMILY or more are read.
+        let mut candidates: HashMap<String, Vec<(&PathBuf, Option<String>)>> = HashMap::new();
         for f in &ws.files {
             let token = brand_token(f);
-            let Some(family) = family_of(f, token.as_deref()) else {
-                continue;
-            };
-            let Ok(raw) = std::fs::read_to_string(f) else {
-                continue;
-            };
-            let Some(form) = comparable(f, &raw, token.as_deref()) else {
-                continue;
-            };
-            // A placeholder is declared unfinished work. It cannot be the
-            // majority anything should conform to, and it is not itself
-            // divergent — it is parked. On the reference repo 24 placeholder
-            // copies would otherwise outvote the 3 finished ones and report
-            // the finished ones as the odd ones out.
-            if self.is_placeholder_file(&raw) {
+            if let Some(family) = family_of(f, token.as_deref()) {
+                candidates.entry(family).or_default().push((f, token));
+            }
+        }
+
+        // family -> [(path, comparable form)]
+        let mut families: HashMap<String, Vec<(&PathBuf, String)>> = HashMap::new();
+        for (family, members) in candidates {
+            if members.len() < MIN_FAMILY {
                 continue;
             }
-            families.entry(family).or_default().push((f, form));
+            for (f, token) in members {
+                let Some(bytes) = ws.read(f) else { continue };
+                let Ok(raw) = std::str::from_utf8(&bytes) else { continue };
+                let Some(form) = comparable(f, raw, token.as_deref()) else {
+                    continue;
+                };
+                // A placeholder is declared unfinished work. It cannot be the
+                // majority anything should conform to, and it is not itself
+                // divergent — it is parked. On the reference repo 24 placeholder
+                // copies would otherwise outvote the 3 finished ones and report
+                // the finished ones as the odd ones out.
+                if self.is_placeholder_file(raw) {
+                    continue;
+                }
+                families.entry(family.clone()).or_default().push((f, form));
+            }
         }
 
         let mut findings = Vec::new();
@@ -1073,7 +1105,7 @@ impl WorkspaceRule for DuplicateContentRule {
             if !PAYLOAD_EXTS.contains(&ext) {
                 continue;
             }
-            let Ok(raw) = std::fs::read(f) else {
+            let Some(raw) = ws.read(f) else {
                 continue;
             };
             if raw.is_empty() {
@@ -1086,7 +1118,7 @@ impl WorkspaceRule for DuplicateContentRule {
                 ("mobileconfig", Ok(text)) => {
                     super::profile::canonical_profile(text).into_bytes()
                 }
-                _ => raw,
+                _ => raw.as_ref().clone(),
             };
             let mut hasher = DefaultHasher::new();
             content.hash(&mut hasher);
@@ -1112,9 +1144,8 @@ impl WorkspaceRule for DuplicateContentRule {
                 if twins.is_empty() {
                     continue;
                 }
-                let same_bytes = std::fs::read(path).ok().is_some_and(|a| {
-                    std::fs::read(twins[0]).ok().is_some_and(|b| a == b)
-                });
+                let same_bytes =
+                    ws.read(path).is_some_and(|a| ws.read(twins[0]).is_some_and(|b| a == b));
                 let how = if same_bytes {
                     "byte-identical to"
                 } else {

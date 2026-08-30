@@ -2,6 +2,15 @@
 
 ## v0.3.0 (Unreleased)
 
+### Removed: the legacy generator spellings
+
+As announced in v0.2.0, `flint query`, `flint new`, `flint profile`,
+`flint app`, `flint pkg` and `flint help-agents --install-skill` are gone. They
+had forwarded to `flint gen …` (and `flint setup-agent`) with a warning on
+stderr; the mapping table under v0.2.0 below is the migration guide. An old
+spelling now fails as an unrecognized subcommand — deliberately loud, so a
+script that still uses one breaks at the first run rather than drifting.
+
 ### New: `flint history` — what the rules would have caught
 
 Replays today's rules against past commits, so rule priority rests on measured

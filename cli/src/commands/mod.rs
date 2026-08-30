@@ -19,11 +19,42 @@ pub(crate) mod version;
 
 use flint_lint as linter;
 
-/// Print a deprecation notice for a legacy invocation. Goes to stderr so
-/// scripts consuming stdout stay byte-compatible; the legacy form is removed
-/// in v0.3.0.
-pub(crate) fn deprecation_warning(old: &str, new: &str) {
-    eprintln!("flint: warning: '{old}' is deprecated; use '{new}' — the legacy form is removed in v0.3.0");
+/// Extract any tree-ish — a commit, or a bare tree oid from `git merge-tree`
+/// — into `dest` without touching the working copy. `git archive` writes the
+/// tree exactly as git holds it, so a replay or a merge preview never
+/// disturbs the checkout the user is sitting in.
+pub(crate) fn materialize_tree(
+    repo: &std::path::Path,
+    treeish: &str,
+    dest: &std::path::Path,
+) -> anyhow::Result<()> {
+    use anyhow::Context;
+    let tar = dest.join(".flint-tree.tar");
+    let out = std::process::Command::new("git")
+        .args(["archive", "--format=tar", "-o"])
+        .arg(&tar)
+        .arg(treeish)
+        .current_dir(repo)
+        .output()
+        .context("failed to run git archive")?;
+    if !out.status.success() {
+        anyhow::bail!(
+            "git archive {treeish} failed: {}",
+            String::from_utf8_lossy(&out.stderr).trim()
+        );
+    }
+    let status = std::process::Command::new("tar")
+        .arg("-xf")
+        .arg(&tar)
+        .arg("-C")
+        .arg(dest)
+        .status()
+        .context("failed to run tar")?;
+    if !status.success() {
+        anyhow::bail!("tar failed to extract {treeish}");
+    }
+    let _ = std::fs::remove_file(&tar);
+    Ok(())
 }
 
 /// Apply auto-fixable suggestions to a file.

@@ -27,10 +27,20 @@ pub(crate) enum Commands {
     #[command(alias = "lint")]
     Check(CheckArgs),
 
-    /// Local, server-free dry-run: lint the whole repo and report whether it
-    /// would likely pass `fleetctl gitops`. The local equivalent of
-    /// `fleetctl gitops --dry-run` — no Fleet server, no fleetctl. Errors are
-    /// blocking (exit 2); warnings are advisory unless --strict.
+    /// Offline gate: lint the whole repo and report whether it would likely
+    /// pass `fleetctl gitops`. Errors are blocking (exit 2); warnings are
+    /// advisory unless --strict.
+    ///
+    /// This is a complement to `fleetctl gitops --dry-run`, not a substitute.
+    /// It sees the whole tree at once where fleetctl stops at the first
+    /// failing team, and it needs no server. It models structure, path and
+    /// label references, cross-file consistency, and — given a fresh
+    /// `.fleet-snapshot.json` — which installers and labels the server
+    /// already has. It does NOT model: expansion of `${VAR}` against the
+    /// environment gitops will actually run in, whether a bootstrap package
+    /// URL is live, server state with no snapshot, or anything Fleet checks
+    /// only at apply time. A clean dry-run means flint found nothing, which
+    /// is weaker than fleetctl accepting the apply.
     #[command(visible_alias = "dryrun")]
     DryRun(DryRunArgs),
 
@@ -102,27 +112,6 @@ pub(crate) enum Commands {
         what: GenKind,
     },
 
-    /// Deprecated: use `flint gen query --from <file.sql>`
-    /// (or `gen policy --from <file.sql>` for --policy).
-    #[command(hide = true)]
-    Query(QueryArgs),
-
-    /// Deprecated: use `flint gen <kind>` (e.g. `flint gen policy`).
-    #[command(hide = true)]
-    New(NewArgs),
-
-    /// Deprecated: use `flint gen profile --from <file>`.
-    #[command(hide = true)]
-    Profile(ProfileArgs),
-
-    /// Deprecated: use `flint gen software --from <installer>`.
-    #[command(hide = true)]
-    App(AppArgs),
-
-    /// Deprecated: use `flint gen software --from <file.pkg>` (or
-    /// `gen policy` / `gen scripts` for the --policy/--scripts modes).
-    #[command(hide = true)]
-    Pkg(PkgArgs),
 
     /// Fleet Maintained Apps: search slugs, show app details, list recent
     /// updates, and refresh the local registry from fmalibrary.com.
@@ -314,6 +303,19 @@ pub(crate) struct DryRunArgs {
     #[arg(long)]
     pub(crate) json: bool,
 
+    /// Lint the MERGE of HEAD and REF — the tree git would produce, without
+    /// producing it.
+    ///
+    /// The incident this exists for: one branch deleted profiles another had
+    /// begun referencing. Each tree was valid alone and git saw no conflict
+    /// (no file was touched twice), so the defect existed only in the
+    /// combination and surfaced in CI, after the merge, as 48 errors. Run
+    /// this before merging to see that result first. A textual conflict is
+    /// reported and blocks (exit 2): flint cannot lint a tree that does not
+    /// exist yet.
+    #[arg(long, value_name = "REF")]
+    pub(crate) against: Option<String>,
+
     /// Refresh `.fleet-snapshot.json` from the Fleet server before linting.
     ///
     /// A snapshot can prove something EXISTS on the server; it cannot prove
@@ -401,10 +403,6 @@ pub(crate) struct HelpAgentsArgs {
     /// Output the complete reference (all commands, all flags)
     #[arg(long)]
     pub(crate) full: bool,
-
-    /// Deprecated: use `flint setup-agent`.
-    #[arg(long, hide = true)]
-    pub(crate) install_skill: bool,
 }
 
 #[derive(Args)]

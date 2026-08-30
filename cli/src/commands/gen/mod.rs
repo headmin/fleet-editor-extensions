@@ -1,10 +1,10 @@
 //! The artifact-generator family — flint's third face: copy-pasteable Fleet
 //! GitOps YAML from real artifacts or blank templates.
 //!
-//! `flint gen <kind> [--from <source>]` is the canonical surface; the legacy
-//! commands (`pkg`, `app`, `profile`, `query`, `new`) forward here unchanged
-//! (their `run()` fns are the implementations `gen` dispatches to), hidden
-//! from help and warning on stderr. They are removed in v0.3.0.
+//! `flint gen <kind> [--from <source>]` is the only surface. The per-kind
+//! `run()` fns and their `*Args` structs here are the implementations `gen`
+//! dispatches to; the legacy top-level spellings that used to forward to them
+//! (`pkg`, `app`, `profile`, `query`, `new`) were removed in v0.3.0.
 
 pub(crate) mod app;
 pub(crate) mod new;

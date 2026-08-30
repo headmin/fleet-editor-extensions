@@ -951,21 +951,28 @@ pub fn looks_like_declaration(bytes: &[u8]) -> bool {
 /// Reporting on the profile rather than on each referencing fleet is what makes
 /// the finding appear once instead of once per fleet, lets orphaned artifacts be
 /// checked at all, and gives editors somewhere to jump to.
+#[cfg(test)]
 pub(crate) fn scan_and_report(path: &Path) -> Vec<LintError> {
-    let report_on = path;
-    let Ok(bytes) = std::fs::read(path) else {
-        return vec![LintError::warning(
+    match std::fs::read(path) {
+        Ok(bytes) => scan_bytes_and_report(path, &bytes),
+        Err(_) => vec![LintError::warning(
             format!("could not read '{}' — profile checks did not run", path.display()),
-            report_on,
+            path,
         )
-        .with_rule_code(crate::codes::PROFILE_WELL_FORMED)];
-    };
+        .with_rule_code(crate::codes::PROFILE_WELL_FORMED)],
+    }
+}
+
+/// [`scan_and_report`] over bytes the caller already holds, so a workspace
+/// pass that has read the file for another rule does not read it again.
+pub(crate) fn scan_bytes_and_report(path: &Path, bytes: &[u8]) -> Vec<LintError> {
+    let report_on = path;
     let name = path.file_name().and_then(|n| n.to_str()).unwrap_or_default().to_string();
 
     let scan = if is_mobileconfig(path) {
-        scan_mobileconfig(&bytes)
-    } else if looks_like_declaration(&bytes) {
-        scan_declaration(&bytes)
+        scan_mobileconfig(bytes)
+    } else if looks_like_declaration(bytes) {
+        scan_declaration(bytes)
     } else {
         // A `.json` that is not a DDM declaration (`.dep.json`, a lockfile) is
         // not this rule's business.

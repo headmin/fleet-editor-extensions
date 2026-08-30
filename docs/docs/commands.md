@@ -343,8 +343,8 @@ osquery tables the SQL references; unknown tables leave a commented placeholder.
 
 ### Migrating from v0.1.x
 
-The legacy generator commands keep working until **v0.3.0** (hidden from
-`--help`, warning on stderr):
+The legacy generator commands were **removed in v0.3.0**. An old spelling now
+fails as an unrecognized subcommand; this table is the migration guide:
 
 | v0.1.x | v0.2.0 |
 |---|---|

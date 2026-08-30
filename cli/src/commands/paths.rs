@@ -58,6 +58,9 @@ pub(crate) fn run(args: PathsArgs) -> anyhow::Result<()> {
     let mut fixed_total = 0usize;
     let mut blocks: Vec<String> = Vec::new();
 
+    // Resolved once: every archaeology lookup is relative to the same root.
+    let repo_root = git_toplevel(&path);
+
     for (file_path, report) in &results {
         let findings: Vec<&LintError> = report
             .errors
@@ -101,6 +104,14 @@ pub(crate) fn run(args: PathsArgs) -> anyhow::Result<()> {
                         old.yellow(),
                         why
                     ));
+                    // No unique match on disk — but git usually knows what
+                    // happened to the file.
+                    if let Some(note) = repo_root
+                        .as_deref()
+                        .and_then(|root| archaeology(root, file_path, old))
+                    {
+                        block.push_str(&format!("      {} {}\n", "↳".dimmed(), note.dimmed()));
+                    }
                 }
             }
         }
@@ -140,6 +151,74 @@ pub(crate) fn run(args: PathsArgs) -> anyhow::Result<()> {
 }
 
 /// Report artifacts that exist on disk but no fleet config references, grouped
+/// The git repository containing `start`, if any.
+fn git_toplevel(start: &std::path::Path) -> Option<PathBuf> {
+    let dir = if start.is_dir() { start } else { start.parent()? };
+    let out = std::process::Command::new("git")
+        .args(["rev-parse", "--show-toplevel"])
+        .current_dir(dir)
+        .output()
+        .ok()?;
+    out.status
+        .success()
+        .then(|| PathBuf::from(String::from_utf8_lossy(&out.stdout).trim()))
+        .and_then(|p| p.canonicalize().ok())
+}
+
+/// What git knows about a missing target: the commit that deleted it, or the
+/// path it was renamed to.
+///
+/// `flint paths --help` promised "where the files moved to", yet the incident's
+/// 48 broken references all reported "no unique match found" — every one had
+/// been deleted or renamed in a commit git could name. `git log` follows a
+/// path that no longer exists, and `--name-status -M` distinguishes the two
+/// cases, so the answer costs one process per finding.
+fn archaeology(repo_root: &std::path::Path, referrer: &std::path::Path, target: &str) -> Option<String> {
+    // Resolve the reference the way Fleet does — relative to the file that
+    // holds it — then make it repo-relative for git.
+    let base = referrer.parent()?.canonicalize().ok()?;
+    let mut abs = base;
+    for comp in std::path::Path::new(target).components() {
+        match comp {
+            std::path::Component::ParentDir => {
+                abs.pop();
+            }
+            std::path::Component::CurDir => {}
+            other => abs.push(other),
+        }
+    }
+    let rel = abs.strip_prefix(repo_root).ok()?.to_string_lossy().replace('\\', "/");
+
+    let out = std::process::Command::new("git")
+        .args(["log", "-1", "-M", "--name-status", "--format=%h%x1f%s", "--", &rel])
+        .current_dir(repo_root)
+        .output()
+        .ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    describe_name_status(&String::from_utf8_lossy(&out.stdout))
+}
+
+/// One `git log -1 -M --name-status --format=%h%x1f%s` record: the commit
+/// line, then `D\tpath` for a deletion or `R<score>\told\tnew` for a rename.
+fn describe_name_status(text: &str) -> Option<String> {
+    let mut lines = text.lines().filter(|l| !l.is_empty());
+    let (sha, subject) = lines.next()?.split_once('\u{1f}')?;
+    for line in lines {
+        let mut cols = line.split('\t');
+        let status = cols.next()?;
+        if status.starts_with('D') {
+            return Some(format!("deleted in {sha} \"{subject}\""));
+        }
+        if status.starts_with('R') {
+            let _old = cols.next()?;
+            let new = cols.next()?;
+            return Some(format!("renamed to {new} in {sha} \"{subject}\""));
+        }
+    }
+    None
+}
 /// Resolve the scan root the same way every unwired reporter does.
 fn unwired_root(path: &std::path::Path) -> PathBuf {
     if path.is_dir() {
@@ -417,5 +496,35 @@ pub(crate) fn describe_artifact(path: &std::path::Path) -> String {
             format!("{}  {}  {}", id.bold(), t, fname.dimmed())
         }
         _ => fname.to_string(),
+    }
+}
+
+#[cfg(test)]
+mod archaeology_tests {
+    use super::describe_name_status;
+
+    #[test]
+    fn a_deletion_names_the_commit() {
+        let out = "cffe9ac\u{1f}Delete app-notifications-teams.mobileconfig\nD\tplatforms/x/app-notifications-teams.mobileconfig\n";
+        assert_eq!(
+            describe_name_status(out).as_deref(),
+            Some("deleted in cffe9ac \"Delete app-notifications-teams.mobileconfig\"")
+        );
+    }
+
+    #[test]
+    fn a_rename_names_the_new_path() {
+        let out = "e012ae0\u{1f}Profile naming pass\nR100\told/Efficient Elements.yml\tnew/efficient-elements.yml\n";
+        assert_eq!(
+            describe_name_status(out).as_deref(),
+            Some("renamed to new/efficient-elements.yml in e012ae0 \"Profile naming pass\"")
+        );
+    }
+
+    /// A modification is not an explanation for a missing file.
+    #[test]
+    fn an_edit_is_not_reported() {
+        assert!(describe_name_status("abc1234\u{1f}tweak\nM\tpath.yml\n").is_none());
+        assert!(describe_name_status("").is_none());
     }
 }

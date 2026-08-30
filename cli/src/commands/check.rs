@@ -368,6 +368,7 @@ pub(crate) fn run(args: CheckArgs) -> anyhow::Result<()> {
                 );
             }
         }
+        print_repeats(&results);
         if !fix {
             print_fix_hint(&results);
             print_next_steps(&results, total_errors);
@@ -398,6 +399,67 @@ pub(crate) fn run(args: CheckArgs) -> anyhow::Result<()> {
     }
 
     Ok(())
+}
+
+/// How many files must carry the identical finding before it is indexed.
+const REPEAT_THRESHOLD: usize = 5;
+
+/// Findings whose exact text recurs across many files.
+///
+/// One dead glob copied into 32 fleets renders as 32 warnings and is one
+/// problem; so is a hash the server lacks, referenced from 29 software files.
+/// The per-file rendering above stays complete — this is the index a
+/// 139-line wall was missing, so a reader can see that most of it is a few
+/// problems repeated rather than many problems.
+fn print_repeats(results: &[(PathBuf, linter::error::LintReport)]) {
+    use colored::Colorize;
+    use std::collections::BTreeMap;
+
+    // (severity rank, message) -> files carrying it
+    let mut groups: BTreeMap<(u8, String), Vec<&PathBuf>> = BTreeMap::new();
+    for (path, report) in results {
+        for (rank, list) in [(0u8, &report.errors), (1, &report.warnings), (2, &report.infos)] {
+            for e in list {
+                groups.entry((rank, e.message.clone())).or_default().push(path);
+            }
+        }
+    }
+    let mut rows: Vec<_> = groups
+        .into_iter()
+        .map(|(k, mut files)| {
+            files.sort();
+            files.dedup();
+            (k, files)
+        })
+        .filter(|(_, files)| files.len() >= REPEAT_THRESHOLD)
+        .collect();
+    if rows.is_empty() {
+        return;
+    }
+    rows.sort_by_key(|((rank, _), files)| (std::cmp::Reverse(files.len()), *rank));
+
+    println!("\n{}", "Repeated across files".bold());
+    for ((rank, msg), files) in rows {
+        let sev = match rank {
+            0 => "error".red().to_string(),
+            1 => "warning".yellow().to_string(),
+            _ => "info".blue().to_string(),
+        };
+        let shown: Vec<&str> = files
+            .iter()
+            .take(3)
+            .map(|p| p.file_name().and_then(|n| n.to_str()).unwrap_or_default())
+            .collect();
+        let more = files.len().saturating_sub(shown.len());
+        let tail = if more > 0 { format!(", +{more} more") } else { String::new() };
+        let msg: String = if msg.chars().count() > 84 {
+            format!("{}…", msg.chars().take(83).collect::<String>())
+        } else {
+            msg
+        };
+        println!("  {}  {sev}  {msg}", format!("×{}", files.len()).bold());
+        println!("        {}", format!("{}{tail}", shown.join(", ")).dimmed());
+    }
 }
 
 /// The staged file set, absolute + lexically normalized. `--no-renames` is

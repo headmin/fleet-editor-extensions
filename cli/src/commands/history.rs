@@ -149,32 +149,7 @@ fn first_parent_commits(root: &Path, since: Option<&str>, max: usize) -> Result<
 /// copy — `git archive` writes the tree as it was, so a replay never disturbs
 /// the checkout the user is sitting in.
 fn materialize(root: &Path, sha: &str, dest: &Path) -> Result<()> {
-    let tar = dest.join(".flint-history.tar");
-    let out = Command::new("git")
-        .args(["archive", "--format=tar", "-o"])
-        .arg(&tar)
-        .arg(sha)
-        .current_dir(root)
-        .output()
-        .context("failed to run git archive")?;
-    if !out.status.success() {
-        bail!(
-            "git archive {sha} failed: {}",
-            String::from_utf8_lossy(&out.stderr).trim()
-        );
-    }
-    let status = Command::new("tar")
-        .arg("-xf")
-        .arg(&tar)
-        .arg("-C")
-        .arg(dest)
-        .status()
-        .context("failed to run tar")?;
-    if !status.success() {
-        bail!("tar failed to extract {sha}");
-    }
-    let _ = std::fs::remove_file(&tar);
-    Ok(())
+    crate::commands::materialize_tree(root, sha, dest)
 }
 
 // ---------------------------------------------------------------------------
