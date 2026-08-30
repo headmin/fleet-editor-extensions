@@ -203,9 +203,20 @@ fn path_refs(source: &str) -> Vec<String> {
             continue; // commented-out wiring is not active
         }
         let body = trimmed.trim_start_matches('-').trim_start();
-        let value = body
-            .strip_prefix("paths:")
-            .or_else(|| body.strip_prefix("path:"));
+        // Every key Fleet resolves as a path, not just `path:`. Sharing
+        // `PATH_BEARING_KEYS` with `path-exists` and `workspace::referenced_by`
+        // is what stops a file being wired for one and orphaned for another:
+        // ADE profiles reached through `apple_setup_assistant:` were reported
+        // here as unwired while 20 fleets referenced them, and the suggested
+        // remedy was the very key already doing it.
+        //
+        // `paths` is tried first so it is not shadowed by the `path` prefix.
+        // The setup-scoped `script:` is deliberately excluded — this scanner
+        // sees raw lines and cannot tell which section it is in, and matching
+        // it document-wide would silence real orphans.
+        let value = std::iter::once(&"paths")
+            .chain(crate::yaml_utils::PATH_BEARING_KEYS.iter())
+            .find_map(|key| body.strip_prefix(&format!("{key}:")));
         if let Some(v) = value {
             let v = v.trim().trim_matches('"').trim_matches('\'');
             if v.is_empty() || v.starts_with('$') || v.contains("://") {
@@ -518,6 +529,55 @@ mod tests {
 
     fn parses(s: &str) -> serde_yaml::Value {
         serde_yaml::from_str(s).expect("inserted YAML must still parse")
+    }
+
+    // -----------------------------------------------------------------------
+    // path_refs — what counts as active wiring
+    // -----------------------------------------------------------------------
+
+    /// The regression this scanner had: ADE profiles are wired through a bare
+    /// `apple_setup_assistant:` scalar, not `path:`, so 20 fleets referenced
+    /// them while the unwired report called them orphans — and suggested
+    /// wiring them with the very key already doing it.
+    #[test]
+    fn setup_assistant_counts_as_wiring() {
+        let src = "controls:\n  setup_experience:\n    \
+                   apple_setup_assistant: ../platforms/macos/enroll.dep.json\n";
+        assert_eq!(path_refs(src), vec!["../platforms/macos/enroll.dep.json"]);
+    }
+
+    #[test]
+    fn every_shared_path_bearing_key_counts() {
+        for key in crate::yaml_utils::PATH_BEARING_KEYS {
+            let src = format!("  {key}: ../x/target.yml\n");
+            assert_eq!(
+                path_refs(&src),
+                vec!["../x/target.yml"],
+                "'{key}' is in the shared list but invisible to the unwired scan"
+            );
+        }
+    }
+
+    /// `paths` must be matched before `path`, or the glob form is truncated.
+    #[test]
+    fn paths_is_not_shadowed_by_path() {
+        assert_eq!(path_refs("  - paths: ../x/*.yml\n"), vec!["../x/*.yml"]);
+    }
+
+    /// Commented-out wiring is not active — the distinction the whole orphan
+    /// report rests on.
+    #[test]
+    fn commented_out_wiring_is_still_ignored() {
+        let src = "    # apple_setup_assistant: ../platforms/macos/enroll.dep.json\n";
+        assert!(path_refs(src).is_empty(), "a commented key must not count as wiring");
+    }
+
+    /// The setup-scoped `script:` is deliberately excluded: this scanner reads
+    /// raw lines and cannot tell which section it is in, so matching it
+    /// document-wide would silence real orphans.
+    #[test]
+    fn bare_script_key_is_not_treated_as_wiring() {
+        assert!(path_refs("  script: ../scripts/setup.sh\n").is_empty());
     }
 
     #[test]

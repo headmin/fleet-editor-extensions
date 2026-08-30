@@ -259,7 +259,7 @@ fn replay(
             // One unreadable tree must not abort a 358-commit run — but it is
             // recorded and reported, never silently dropped.
             match run_oracle(bin, dir.path()) {
-                Ok(Some(fleet)) => diff.absorb(c, &flint_blocking, &fleet),
+                Ok(Some(v)) => diff.absorb(c, &flint_blocking, &v.blocking, &v.no_opinion),
                 Ok(None) => diff.no_input += 1,
                 Err(e) => diff.errors.push((c.short.clone(), e.to_string())),
             }
@@ -525,8 +525,28 @@ fn truncate(s: &str, n: usize) -> String {
 #[derive(serde::Deserialize)]
 struct OracleFile {
     path: String,
+    /// Whether Fleet's parser could read the file. An entry file it could not
+    /// parse may carry NO error-severity finding, so reading only `findings`
+    /// would make an unreadable file look accepted.
+    #[serde(default = "yes")]
+    parsed: bool,
+    /// Fleet's parser is not the right judge of this file at all.
+    ///
+    /// `GitOpsFromFile` accepts only a fleet file (`name:`) or the global
+    /// config; a profile, a standalone policy list, or anything pulled in via
+    /// `path:` is validated as part of its PARENT. flint lints those
+    /// individually, so counting them either way invents a verdict Fleet never
+    /// gave — the oracle says so itself and excludes them.
+    #[serde(default)]
+    not_entry_file: bool,
     #[serde(default)]
     findings: Vec<OracleFinding>,
+}
+
+/// Absent `parsed` means the oracle predates the field; assume it read the file
+/// rather than inventing a blocking verdict.
+fn yes() -> bool {
+    true
 }
 
 #[derive(serde::Deserialize)]
@@ -545,7 +565,15 @@ struct OracleOut {
 
 /// Run the oracle over a materialised tree and return each file's blocking
 /// messages, keyed by the same repo-relative path flint findings use.
-fn run_oracle(bin: &Path, dir: &Path) -> Result<Option<BTreeMap<String, Vec<String>>>> {
+/// Fleet's verdicts on one tree: what it blocked, and what it declined to judge.
+struct OracleVerdicts {
+    blocking: BTreeMap<String, Vec<String>>,
+    /// Paths Fleet's parser has no opinion on. Excluded from the diff on BOTH
+    /// sides — a fragment is not an acceptance.
+    no_opinion: BTreeSet<String>,
+}
+
+fn run_oracle(bin: &Path, dir: &Path) -> Result<Option<OracleVerdicts>> {
     let out = Command::new(bin)
         .arg("--repo")
         .arg(dir)
@@ -569,14 +597,22 @@ fn run_oracle(bin: &Path, dir: &Path) -> Result<Option<BTreeMap<String, Vec<Stri
     let parsed: OracleOut =
         serde_json::from_slice(&out.stdout).context("oracle did not emit the expected JSON")?;
 
-    let mut by_file: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    let mut blocking_by_file: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    let mut no_opinion: BTreeSet<String> = BTreeSet::new();
     for f in parsed.files {
-        let blocking: Vec<String> = f
+        if f.not_entry_file {
+            no_opinion.insert(rel(dir, Path::new(&f.path)));
+            continue;
+        }
+        let mut blocking: Vec<String> = f
             .findings
             .into_iter()
             .filter(|x| x.severity == "error")
             .map(|x| x.message)
             .collect();
+        if !f.parsed && blocking.is_empty() {
+            blocking.push("Fleet's parser could not read this file".to_string());
+        }
         if !blocking.is_empty() {
             // Fleet embeds absolute paths in some messages. Left alone, the
             // scratch directory makes every commit's copy of one complaint
@@ -586,10 +622,10 @@ fn run_oracle(bin: &Path, dir: &Path) -> Result<Option<BTreeMap<String, Vec<Stri
                 .into_iter()
                 .map(|m| m.replace(&base, "<tree>"))
                 .collect();
-            by_file.insert(rel(dir, Path::new(&f.path)), blocking);
+            blocking_by_file.insert(rel(dir, Path::new(&f.path)), blocking);
         }
     }
-    Ok(Some(by_file))
+    Ok(Some(OracleVerdicts { blocking: blocking_by_file, no_opinion }))
 }
 
 /// A path relative to the materialised tree, so flint's and the oracle's
@@ -637,8 +673,9 @@ impl Diff {
         commit: &CommitRef,
         flint: &BTreeMap<String, BTreeSet<String>>,
         fleet: &BTreeMap<String, Vec<String>>,
+        no_opinion: &BTreeSet<String>,
     ) {
-        for (file, codes) in flint {
+        for (file, codes) in flint.iter().filter(|(f, _)| !no_opinion.contains(*f)) {
             match fleet.get(file) {
                 Some(_) => self.agreed += 1,
                 None => {
@@ -654,7 +691,7 @@ impl Diff {
                 }
             }
         }
-        for (file, messages) in fleet {
+        for (file, messages) in fleet.iter().filter(|(f, _)| !no_opinion.contains(*f)) {
             if flint.contains_key(file) {
                 continue;
             }
@@ -868,8 +905,22 @@ impl GateVerdict {
     fn compare(base: &Scorecard, now: &Scorecard) -> Self {
         let mut v = Self::default();
 
+        // A baseline recorded WITH the oracle, compared against a run without
+        // it, has no oracle halves to compare — every gap would otherwise
+        // vanish and be reported as closed. Skip those buckets entirely and
+        // say so; a silent "all gaps closed" is the worst thing this gate
+        // could print.
+        let oracle_comparable = now.oracle || !base.oracle;
+        if !oracle_comparable {
+            v.notes.push(
+                "baseline was recorded WITH --oracle and this run was not, so the \
+                 correctness halves (over-claims and gaps) were NOT compared"
+                    .to_string(),
+            );
+        }
+
         // A rule that did not over-claim before and does now.
-        for (code, n) in &now.flint_only {
+        for (code, n) in now.flint_only.iter().filter(|_| oracle_comparable) {
             match base.flint_only.get(code) {
                 None => v.regressions.push(format!(
                     "'{code}' now claims blocking where Fleet accepts (×{n}) — it did not before"
@@ -881,7 +932,7 @@ impl GateVerdict {
                 _ => {}
             }
         }
-        for code in base.flint_only.keys() {
+        for code in base.flint_only.keys().filter(|_| oracle_comparable) {
             if !now.flint_only.contains_key(code) {
                 v.improvements
                     .push(format!("'{code}' no longer claims blocking where Fleet accepts"));
@@ -889,7 +940,7 @@ impl GateVerdict {
         }
 
         // A complaint Fleet makes that flint has newly gone silent on.
-        for (shape, n) in &now.gap_shapes {
+        for (shape, n) in now.gap_shapes.iter().filter(|_| oracle_comparable) {
             if !base.gap_shapes.contains_key(shape) {
                 v.regressions.push(format!(
                     "Fleet blocks and flint is silent on something new (×{n}): {}",
@@ -897,10 +948,24 @@ impl GateVerdict {
                 ));
             }
         }
-        for shape in base.gap_shapes.keys() {
+        for shape in base.gap_shapes.keys().filter(|_| oracle_comparable) {
             if !now.gap_shapes.contains_key(shape) {
                 v.improvements
                     .push(format!("gap closed: {}", truncate(shape, 78)));
+            }
+        }
+
+        // A rule that used to catch something in this history and no longer
+        // does. Replaying a fixed range can only ADD closed windows as commits
+        // accrue, so a fall is never explained by the range — the rule changed.
+        // This is the regression a flint version bump introduces, and the only
+        // one detectable without the oracle.
+        for (code, was) in &base.closed_windows {
+            let now_n = now.closed_windows.get(code).copied().unwrap_or(0);
+            if *was > 0 && now_n < *was {
+                v.regressions.push(format!(
+                    "'{code}' no longer catches what it used to: {was} closed window(s) → {now_n}                      over the same history"
+                ));
             }
         }
 
@@ -917,13 +982,6 @@ impl GateVerdict {
             }
         }
 
-        if base.oracle && !now.oracle {
-            v.notes.push(
-                "baseline was recorded WITH --oracle and this run was not, so the \
-                 correctness halves were not compared"
-                    .to_string(),
-            );
-        }
         v
     }
 }
@@ -1437,6 +1495,33 @@ mod tests {
 
     /// The question worth asking of any rule being added: would it ever have
     /// fired? Not a failure — the range may simply not contain the defect.
+    /// The regression a flint version bump introduces, and the only one the
+    /// gate can see without the oracle.
+    #[test]
+    fn a_rule_that_stops_catching_what_it_used_to_is_a_regression() {
+        let base = card(&[], &[], &[("unregistered-script", 3)]);
+        let now = card(&[], &[], &[("unregistered-script", 1)]);
+        let v = GateVerdict::compare(&base, &now);
+        assert_eq!(v.regressions.len(), 1, "{:?}", v.regressions);
+        assert!(v.regressions[0].contains("no longer catches"));
+    }
+
+    #[test]
+    fn a_rule_removed_entirely_is_also_caught() {
+        let base = card(&[], &[], &[("unregistered-script", 3)]);
+        let now = card(&[], &[], &[]);
+        assert_eq!(GateVerdict::compare(&base, &now).regressions.len(), 1);
+    }
+
+    /// Replaying a longer range can only add closed windows, so a rise is
+    /// never a regression.
+    #[test]
+    fn more_closed_windows_than_the_baseline_is_fine() {
+        let base = card(&[], &[], &[("path-exists", 2)]);
+        let now = card(&[], &[], &[("path-exists", 5)]);
+        assert!(GateVerdict::compare(&base, &now).regressions.is_empty());
+    }
+
     #[test]
     fn a_new_rule_with_no_history_is_noted_not_failed() {
         let base = card(&[], &[], &[("path-exists", 3)]);
@@ -1452,17 +1537,32 @@ mod tests {
 
     /// A baseline recorded with the oracle, compared against a run without it,
     /// would silently look like every gap had closed.
+    /// The worst thing this gate could print is "all gaps closed" because the
+    /// oracle simply was not run. CI without the oracle must compare neither
+    /// half, not compare them against nothing.
     #[test]
-    fn dropping_the_oracle_is_called_out() {
-        let base = card(&[("categories", 1)], &[("unknown key", 1)], &[]);
-        let mut now = card(&[], &[], &[]);
+    fn dropping_the_oracle_compares_neither_half_and_says_so() {
+        let base = card(&[("categories", 1)], &[("unknown key", 1)], &[("path-exists", 2)]);
+        let mut now = card(&[], &[], &[("path-exists", 2)]);
         now.oracle = false;
         let v = GateVerdict::compare(&base, &now);
+        assert!(v.regressions.is_empty(), "{:?}", v.regressions);
         assert!(
-            v.notes.iter().any(|n| n.contains("were not compared")),
-            "{:?}",
-            v.notes
+            v.improvements.is_empty(),
+            "vanished gaps must NOT read as closed: {:?}",
+            v.improvements
         );
+        assert!(v.notes.iter().any(|n| n.contains("NOT compared")), "{:?}", v.notes);
+    }
+
+    /// The closed-window half still gates without the oracle — that is what
+    /// makes a replay-only CI run worth running.
+    #[test]
+    fn without_the_oracle_the_closed_window_half_still_gates() {
+        let base = card(&[], &[], &[("unregistered-script", 3)]);
+        let mut now = card(&[], &[], &[("unregistered-script", 0)]);
+        now.oracle = false;
+        assert_eq!(GateVerdict::compare(&base, &now).regressions.len(), 1);
     }
 
     #[test]
@@ -1563,6 +1663,24 @@ mod tests {
             .collect()
     }
 
+    /// Fleet's parser judges only entry files. A profile or standalone policy
+    /// list is validated as part of its PARENT, so counting it either way
+    /// invents a verdict Fleet never gave.
+    #[test]
+    fn files_fleet_has_no_opinion_on_are_excluded_from_both_sides() {
+        let mut d = Diff::default();
+        let ignored: BTreeSet<String> = ["profiles/a.mobileconfig".to_string()].into();
+        d.absorb(
+            &commit("aaa"),
+            &blocking(&[("profiles/a.mobileconfig", &["profile-well-formed"])]),
+            &fleet(&[("profiles/a.mobileconfig", "not an entry file")]),
+            &ignored,
+        );
+        assert_eq!(d.agreed, 0, "a fragment is not an agreement");
+        assert!(d.flint_only.is_empty(), "nor an over-claim");
+        assert!(d.fleet_only.is_empty(), "nor a gap");
+    }
+
     #[test]
     fn agreement_is_counted_not_reported() {
         let mut d = Diff::default();
@@ -1570,6 +1688,7 @@ mod tests {
             &commit("aaa"),
             &blocking(&[("fleets/a.yml", &["path-exists"])]),
             &fleet(&[("fleets/a.yml", "no such file")]),
+            &BTreeSet::new(),
         );
         assert_eq!(d.agreed, 1);
         assert!(d.flint_only.is_empty());
@@ -1585,6 +1704,7 @@ mod tests {
             &commit("aaa"),
             &blocking(&[("fleets/a.yml", &["categories", "fma-slug"])]),
             &BTreeMap::new(),
+            &BTreeSet::new(),
         );
         assert_eq!(d.agreed, 0);
         assert_eq!(d.flint_only["categories"].0, 1);
@@ -1601,6 +1721,7 @@ mod tests {
                 &commit(c),
                 &BTreeMap::new(),
                 &fleet(&[(f, &format!("environment variable \"{f}\" not set"))]),
+                &BTreeSet::new(),
             );
         }
         // Two different files, one shape — they must cluster into one entry.
@@ -1618,6 +1739,7 @@ mod tests {
                 &commit(&format!("c{i}")),
                 &blocking(&[("fleets/a.yml", &["categories"])]),
                 &BTreeMap::new(),
+                &BTreeSet::new(),
             );
         }
         let (n, examples) = &d.flint_only["categories"];

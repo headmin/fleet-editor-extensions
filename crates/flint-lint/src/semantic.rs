@@ -1747,19 +1747,45 @@ impl Rule for SoftwareSourceRule {
             if !is_hex_digest {
                 let (line, col) = find_line_containing(source, hash);
                 let declared = self.placeholders.is_placeholder(hash);
+
+                // Severity is a function of WIRING, not of the marker. An
+                // unresolved hash in a file no fleet references cannot fail an
+                // apply — that is parked work, and the paragraph above is right
+                // that it must never gate. The moment something points at the
+                // file, the same value is a guaranteed apply failure:
+                //
+                //   * hash_sha256 value "PLACEHOLDER_…" must be a valid
+                //     lower-case hex-encoded (64-character) SHA-256 hash value
+                //
+                // Replaying this repo's history against Fleet's own parser
+                // found 104 file verdicts where Fleet blocked on exactly this
+                // and flint only advised. Unknown wiring (single-file lint)
+                // counts as unreferenced, so escalation stays conservative.
+                let wired = self
+                    .referenced
+                    .get()
+                    .is_some_and(|set| set.contains(&crate::util::normalize_path(file)));
+
                 let msg = if declared {
                     format!("'{hash}' is a declared placeholder — package not built yet")
                 } else {
                     format!("'{hash}' is not a valid sha256 (64 hex chars)")
                 };
-                let mut err = LintError::warning(
-                    msg,
-                    file,
-                )
+                let mut err = if wired {
+                    LintError::error(msg, file)
+                } else {
+                    LintError::info(msg, file)
+                }
                 .with_rule_code(crate::codes::SOFTWARE_SOURCE)
-                .with_help(
-                    "Intentional scaffolding is fine: this stays a warning and never blocks a commit. Fill in the real hash (or add a `url:`) before referencing this file from a fleet — an unresolved hash only reaches Fleet once something points at it.",
-                );
+                .with_help(if wired {
+                    "A fleet references this file, so fleetctl gitops reads this value and \
+                     rejects it — fill in the real hash, add a `url:`, or comment the \
+                     reference out until the package is built."
+                } else {
+                    "Intentional scaffolding is fine: nothing references this file, so it \
+                     cannot fail an apply and this never blocks a commit. It becomes an error \
+                     once a fleet points at it."
+                });
                 if let (Some(l), Some(c)) = (line, col) {
                     err = err.with_location(l, c);
                 }
@@ -3078,6 +3104,72 @@ mod tests {
         assert_eq!(errs[0].rule_code, Some("software-source"));
         assert!(errs[0].message.contains("no url"));
         assert!(errs[0].line().is_some());
+    }
+
+    /// Severity is a function of WIRING. Parked scaffolding no fleet points at
+    /// cannot fail an apply, so it must never gate.
+    #[test]
+    fn unreferenced_placeholder_hash_is_advisory_only() {
+        let errs = lint_at(
+            &SoftwareSourceRule { snapshot: None, placeholders: Default::default(), referenced: Default::default() },
+            "- hash_sha256: PLACEHOLDER_REPLACE_WITH_ACTUAL_PKG_HASH\n",
+            "platforms/macos/brand/ZZ/software/ZZ-customization.yml",
+        );
+        assert_eq!(errs.len(), 1, "got: {errs:?}");
+        assert_eq!(errs[0].severity, Severity::Info, "parked work must not block");
+        assert!(errs[0].help.as_deref().unwrap_or_default().contains("nothing references this file"));
+    }
+
+    /// The same value in a file a fleet DOES reference is a guaranteed apply
+    /// failure — 104 file verdicts of it in the replayed history.
+    #[test]
+    fn referenced_placeholder_hash_is_an_error() {
+        let path = "platforms/macos/brand/ZZ/software/ZZ-customization.yml";
+        let referenced: super::super::rules::ReferencedPaths = Default::default();
+        referenced
+            .set([crate::util::normalize_path(std::path::Path::new(path))].into_iter().collect())
+            .expect("fresh cell");
+        let errs = lint_at(
+            &SoftwareSourceRule { snapshot: None, placeholders: Default::default(), referenced },
+            "- hash_sha256: PLACEHOLDER_REPLACE_WITH_ACTUAL_PKG_HASH\n",
+            path,
+        );
+        assert_eq!(errs.len(), 1, "got: {errs:?}");
+        assert_eq!(errs[0].severity, Severity::Error);
+        assert_eq!(errs[0].rule_code, Some("software-source"));
+        assert!(errs[0].help.as_deref().unwrap_or_default().contains("fleetctl gitops"));
+    }
+
+    /// A malformed hash that is not a declared placeholder follows the same
+    /// rule — Fleet rejects the value either way.
+    #[test]
+    fn referenced_malformed_hash_is_an_error_too() {
+        let path = "platforms/macos/base/software/corp.yml";
+        let referenced: super::super::rules::ReferencedPaths = Default::default();
+        referenced
+            .set([crate::util::normalize_path(std::path::Path::new(path))].into_iter().collect())
+            .expect("fresh cell");
+        let errs = lint_at(
+            &SoftwareSourceRule { snapshot: None, placeholders: Default::default(), referenced },
+            "- hash_sha256: deadbeef\n",
+            path,
+        );
+        assert_eq!(errs.len(), 1, "got: {errs:?}");
+        assert_eq!(errs[0].severity, Severity::Error);
+    }
+
+    /// A single-file lint cannot know what the repo wires, so it must not
+    /// escalate — unknown wiring counts as unreferenced.
+    #[test]
+    fn unknown_wiring_never_escalates() {
+        let path = "platforms/macos/base/software/corp.yml";
+        // `referenced` never set — exactly the single-file-lint case.
+        let errs = lint_at(
+            &SoftwareSourceRule { snapshot: None, placeholders: Default::default(), referenced: Default::default() },
+            "- hash_sha256: PLACEHOLDER_NOT_BUILT_YET\n",
+            path,
+        );
+        assert_eq!(errs[0].severity, Severity::Info, "must stay conservative");
     }
 
     #[test]

@@ -464,7 +464,11 @@ pub(crate) fn check_team_membership(files: &[ParsedFile]) -> Vec<(PathBuf, LintE
                     .and_then(|v| v.as_str())
                     .unwrap_or("(unnamed)");
                 let (line, col) = anchor_line(&f.source);
-                let mut err = LintError::warning(
+                // Error, not advisory: fleetctl refuses the apply outright —
+                // "failed to parse policy install_software …: package_path
+                // SHA256 … not found on team". A repo that wants it softer can
+                // downgrade it via `[rules] warn`.
+                let mut err = LintError::error(
                     format!("fleet '{team_name}': policy '{pol_name}' auto-installs {missing}, but this fleet's software list doesn't include it"),
                     &f.path,
                 )
@@ -1026,6 +1030,10 @@ mod tests {
         let (path, err) = &findings[0];
         assert!(path.ends_with("fleets/ABC-BETA.yml"));
         assert_eq!(err.rule_code, Some("install-software-team"));
+        // fleetctl refuses the apply outright — "package_path SHA256 … not
+        // found on team" — so this states a failure, not a suggestion. A repo
+        // that wants it softer downgrades it via `[rules] warn`.
+        assert_eq!(err.severity, crate::error::Severity::Error);
         assert!(err.message.contains("ABC - XX"));
         assert!(err.message.contains("Corp-Fonts is installed"));
     }
