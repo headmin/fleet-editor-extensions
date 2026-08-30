@@ -511,7 +511,7 @@ mod tests {
         let fleets = temp_dir.path().join("fleets");
         fs::create_dir(&fleets).unwrap();
 
-        fs::write(fleets.join("FDN-ALPHA.yml"), "name: FDN-ALPHA\ncontrols: {}\n").unwrap();
+        fs::write(fleets.join("ABC-ALPHA.yml"), "name: ABC-ALPHA\ncontrols: {}\n").unwrap();
         fs::write(fleets.join("CFG-ONE.yml"), "name: CFG-ONE\n").unwrap();
         fs::write(fleets.join("unassigned.yml"), "name: Unassigned\n").unwrap();
 
@@ -549,8 +549,8 @@ mod tests {
 
     #[test]
     fn top_level_name_detection_ignores_indented_and_commented_keys() {
-        assert!(declares_fleet_name("name: FDN-ALPHA\n"));
-        assert!(declares_fleet_name("controls: {}\nname: FDN-ALPHA\n"));
+        assert!(declares_fleet_name("name: ABC-ALPHA\n"));
+        assert!(declares_fleet_name("controls: {}\nname: ABC-ALPHA\n"));
         // Value on the following line is still a top-level key.
         assert!(declares_fleet_name("name:\n"));
 

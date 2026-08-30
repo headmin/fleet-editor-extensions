@@ -705,7 +705,7 @@ mod tests {
         fs::create_dir_all(tmp.path().join(".git")).unwrap();
 
         // The moved file at its new home.
-        let new_home = tmp.path().join("platforms/macos/L1/software");
+        let new_home = tmp.path().join("platforms/macos/site/software");
         fs::create_dir_all(&new_home).unwrap();
         fs::write(new_home.join("swiftdialog.yml"), "name: swiftdialog\n").unwrap();
 
@@ -723,7 +723,7 @@ mod tests {
             tmp.path(),
             &from_file,
             "../platforms/macos/software/swiftdialog.yml",
-            "../platforms/macos/L1/software/swiftdialog.yml",
+            "../platforms/macos/site/software/swiftdialog.yml",
             &doc_for,
         )
         .expect("should find 2+ references to the moved file");
@@ -736,7 +736,7 @@ mod tests {
             assert_eq!(edits.len(), 1);
             assert_eq!(
                 edits[0].new_text,
-                "../platforms/macos/L1/software/swiftdialog.yml"
+                "../platforms/macos/site/software/swiftdialog.yml"
             );
         }
     }
@@ -747,7 +747,7 @@ mod tests {
         // workspace-wide action must not appear.
         let tmp = TempDir::new().unwrap();
         fs::create_dir_all(tmp.path().join(".git")).unwrap();
-        let new_home = tmp.path().join("platforms/macos/L1/software");
+        let new_home = tmp.path().join("platforms/macos/site/software");
         fs::create_dir_all(&new_home).unwrap();
         fs::write(new_home.join("only.yml"), "x\n").unwrap();
         let fleets = tmp.path().join("fleets");
@@ -762,7 +762,7 @@ mod tests {
             tmp.path(),
             &fleets.join("a.yml"),
             "../platforms/macos/software/only.yml",
-            "../platforms/macos/L1/software/only.yml",
+            "../platforms/macos/site/software/only.yml",
             &(|_: &Path| None),
         );
         assert!(result.is_none(), "single reference must not yield fix-all");

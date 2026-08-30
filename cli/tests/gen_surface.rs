@@ -160,7 +160,7 @@ fn standalone_names_file_by_slug_with_fleet_path_hint() {
     let dir = scratch("standalone");
     // GitOps-shaped repo so the path hint resolves relative to the root.
     std::fs::create_dir_all(dir.join(".git")).unwrap();
-    let swdir = dir.join("platforms/macos/L1/hello/software");
+    let swdir = dir.join("platforms/macos/site/hello/software");
     std::fs::create_dir_all(&swdir).unwrap();
     let Some(pkg) = fixture_pkg(&dir) else {
         eprintln!("skipping: pkgbuild unavailable");
@@ -179,7 +179,7 @@ fn standalone_names_file_by_slug_with_fleet_path_hint() {
     assert!(dest.exists(), "expected {}, stdout: {stdout}", dest.display());
     // Copy-pasteable fleet-file reference, relative to the repo root.
     assert!(
-        stdout.contains("- path: ../platforms/macos/L1/hello/software/hello.package.yml"),
+        stdout.contains("- path: ../platforms/macos/site/hello/software/hello.package.yml"),
         "missing path hint, stdout: {stdout}"
     );
 

@@ -3056,7 +3056,7 @@ mod tests {
         let errs = lint_at(
             &SoftwareUrlRule,
             "- url: http://cdn.example.com/a.pkg\n  hash_sha256: abc\n",
-            "platforms/macos/L0/software/a.yml",
+            "platforms/macos/base/software/a.yml",
         );
         assert_eq!(errs.len(), 1);
         assert!(errs[0].message.contains("plain HTTP"));
@@ -3071,7 +3071,7 @@ mod tests {
         let errs = lint_at(
             &SoftwareSourceRule { snapshot: None, placeholders: Default::default(), referenced: Default::default() },
             "# com.fleetdm.fonts.corp (Corp-Fonts-1.0.pkg) version 1.0\n- hash_sha256: 3a673c556d864348df3702a806be41bcdf44721976c7aacac41682aa159a3be2\n",
-            "platforms/macos/L0/software/corp-fonts.yml",
+            "platforms/macos/base/software/corp-fonts.yml",
         );
         assert_eq!(errs.len(), 1, "got: {errs:?}");
         assert_eq!(errs[0].severity, Severity::Warning);
@@ -3085,7 +3085,7 @@ mod tests {
         let errs = lint_at(
             &SoftwareSourceRule { snapshot: None, placeholders: Default::default(), referenced: Default::default() },
             "- url: https://cdn.example.com/a.pkg\n  hash_sha256: abc\n",
-            "platforms/macos/L0/software/a.yml",
+            "platforms/macos/base/software/a.yml",
         );
         assert!(errs.is_empty(), "got: {errs:?}");
     }
@@ -3107,7 +3107,7 @@ mod tests {
         let errs = lint_at(
             &SoftwareSourceRule { snapshot: None, placeholders: Default::default(), referenced: Default::default() },
             "# com.example.fonts-corp (Corp-Fonts-1.0.1.pkg) version 1.0.1\n",
-            "platforms/macos/L0/software/corp-fonts.yml",
+            "platforms/macos/base/software/corp-fonts.yml",
         );
         assert_eq!(errs.len(), 1, "got: {errs:?}");
         assert_eq!(errs[0].severity, Severity::Error);

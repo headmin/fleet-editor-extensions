@@ -36,8 +36,8 @@ pre-commit hook, and the editor's on-save workspace pass.
 ### `name-matches-filename`
 
 The YAML `name:` key (or another key, via `key = "..."`) must equal the
-file's stem. Catches the classic rename drift where `FDN-DELTA.yml` still
-says `name: FDN - Old Name`.
+file's stem. Catches the classic rename drift where `ABC-DELTA.yml` still
+says `name: ABC - Old Name`.
 
 ```toml
 [[patterns]]
@@ -66,7 +66,7 @@ brand or environment literals out of shared payloads.
 
 ```toml
 [[patterns]]
-files = "platforms/macos/L0/**/*.mobileconfig"
+files = "platforms/macos/base/**/*.mobileconfig"
 assert = "content-must-not-match"
 regex = "(?i)(brand-a|brand-b)"
 why = "a brand literal leaked into a shared baseline payload"
@@ -95,7 +95,7 @@ completeness for baseline payloads.
 
 ```toml
 [[patterns]]
-files = "platforms/macos/L0/**"
+files = "platforms/macos/base/**"
 assert = "must-be-referenced"
 by = "fleets/*.yml"
 quantifier = "all"
@@ -121,7 +121,7 @@ folder shells left behind by renames.
 
 ```toml
 [[patterns]]
-files = "platforms/macos/L1/*"
+files = "platforms/macos/site/*"
 assert = "required-structure"
 entries = ["configuration-profiles"]
 why = "module renames left empty folders that globs still pointed at"

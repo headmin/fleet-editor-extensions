@@ -523,14 +523,14 @@ pub(crate) struct PathsArgs {
     pub(crate) label_stubs: Option<String>,
 
     /// Limit interactive wiring to fleet/team files matching this glob
-    /// (e.g. "fleets/acfg-*.yml" or "acfg-*"). Matched against each file's
+    /// (e.g. "fleets/team-*.yml" or "team-*"). Matched against each file's
     /// path and name.
     #[arg(long, value_name = "GLOB", requires = "unwired")]
     pub(crate) only: Option<String>,
 
     /// With --unwired: one tab-separated record per artifact
     /// (`path  section  wire-value`) instead of the YAML blocks, so the
-    /// report can be filtered — `flint paths --unwired --oneline | grep lisa`.
+    /// report can be filtered — `flint paths --unwired --oneline | grep pilot`.
     #[arg(long, requires = "unwired", conflicts_with = "interactive")]
     pub(crate) oneline: bool,
 

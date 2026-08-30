@@ -765,7 +765,7 @@ PROCEDURE add_fleet_field(field_name, parent_path, field_type, valid_values?):
   RUN: `target/release/flint check <fixture-with-the-new-field>` -> expect clean
 
   # Phase 9 — End-to-end on a real repo
-  RUN: `target/release/flint check /Users/henry/Code/GitHub/LGW-gitops`
+  RUN: `target/release/flint check <your-gitops-repo>`
   ASSERT no NEW errors vs the pre-change baseline.
 
   # Phase 10 — Bump (only if shipping)
@@ -828,7 +828,7 @@ PROCEDURE wire_unwired(dir):
   FLAGS:
     --label-stubs[=blank|comment]  blank labels → emit the empty key (=blank,
                                    default) or a commented stub (=comment)
-    --only <glob>                  limit target fleets (e.g. "fleets/acfg-*.yml")
+    --only <glob>                  limit target fleets (e.g. "fleets/team-*.yml")
 
 # Key facts
 - path: is a single file; paths: is a glob (`*`, `?`, `**`). A glob cannot be

@@ -32,10 +32,10 @@ exclude = ["platforms/_retired/**", "tools-scripts/**", "santa/**"]
 		why  string
 	}{
 		{"default.yml", false, "exact filename in include"},
-		{"fleets/FDN-GAMMA.yml", false, "include glob, one level"},
-		{"platforms/macos/L1/santa/x.mobileconfig", false,
+		{"fleets/ABC-GAMMA.yml", false, "include glob, one level"},
+		{"platforms/macos/site/santa/x.mobileconfig", false,
 			"anchored exclude 'santa/**' must NOT reach a nested santa dir"},
-		{"platforms/macos/L3/OS/software/a.yml", false, "include glob, deep"},
+		{"platforms/macos/brand/XX/software/a.yml", false, "include glob, deep"},
 		{"tools-scripts/precommit/x.yml", true, "excluded tree"},
 		{"tools-scripts/ddm-examples/app.json", true, "exclude beats nothing-else"},
 		{"platforms/_retired/old.yml", true, "exclude wins over include"},

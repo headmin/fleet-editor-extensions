@@ -261,7 +261,7 @@ impl LoadedSnapshot {
     /// Whether a VPP organization unit exists, NFC-normalized like Fleet
     /// (appconfig.go:2179 `norm.NFC.String`).
     ///
-    /// Normalization matters for real org-unit names: "OMT_FleetDM" is plain
+    /// Normalization matters for real org-unit names: "HQ_FleetDM" is plain
     /// ASCII, but accented names can be byte-different yet canonically equal,
     /// and Fleet would accept what a naive comparison rejects.
     pub fn knows_vpp_location(&self, location: &str) -> bool {

@@ -156,7 +156,7 @@ fn unwired_root(path: &std::path::Path) -> PathBuf {
 /// artifact makes the report a filter target:
 ///
 /// ```text
-/// flint paths --unwired --oneline | grep lisa
+/// flint paths --unwired --oneline | grep pilot
 /// ```
 ///
 /// Tabs, not spaces, so `cut -f2` works regardless of path length. No colour

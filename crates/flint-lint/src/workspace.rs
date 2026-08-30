@@ -110,6 +110,8 @@ pub fn workspace_rules() -> Vec<Box<dyn WorkspaceRule>> {
         Box::new(DuplicateContentRule),
         Box::new(OrphanedFileRule),
         Box::new(DuplicateIdentifierRule),
+        Box::new(ProfileWellFormedRule),
+        Box::new(DuplicateFleetNameRule),
     ]
 }
 
@@ -179,7 +181,14 @@ impl WorkspaceRule for DuplicateIdentifierRule {
             for r in refs {
                 let Some(content) = read(&r) else { continue };
                 if let Some(id) = super::profile::parse_mobileconfig(&content).identifier {
-                    by_id.entry(id).or_default().push((r, content));
+                    // Canonical form, not raw bytes: two profiles differing only
+                    // in XML escaping (`&quot;` vs `"`) decode identically and
+                    // Fleet delivers them the same, so comparing bytes reports
+                    // a divergence that does not exist.
+                    by_id
+                        .entry(id)
+                        .or_default()
+                        .push((r, super::profile::canonical_profile(&content)));
                 }
             }
             for (id, group) in by_id {
@@ -217,7 +226,7 @@ impl WorkspaceRule for DuplicateIdentifierRule {
 // ---------------------------------------------------------------------------
 
 /// A payload/script committed to the repo but referenced by nothing — dead
-/// weight that silently stops being applied (zsh rule L3-005; the
+/// weight that silently stops being applied (a zsh rule; the
 /// WorkspaceRule successor to `flint paths --unwired`'s CLI-only report,
 /// minus its hardcoded fleets/-only discovery). Warn: orphans are sometimes
 /// parked deliberately.
@@ -278,6 +287,48 @@ impl WorkspaceRule for OrphanedFileRule {
                 (f.clone(), err)
             })
             .collect()
+    }
+}
+
+// ---------------------------------------------------------------------------
+// profile-well-formed / payload-uuid-format: every profile in the repo
+// ---------------------------------------------------------------------------
+
+/// Validates every configuration profile and DDM declaration **in the repo**,
+/// not only the ones a fleet happens to reference.
+///
+/// A workspace rule rather than a per-file one for three reasons the per-file
+/// version got wrong: a profile pulled in by N fleets' globs produced N copies
+/// of the same finding; an artifact nothing references yet was never checked at
+/// all, so its defect surfaced only once someone wired it up; and the finding
+/// had nowhere to point but the fleet YAML. Reporting on the artifact fixes all
+/// three at once.
+pub struct ProfileWellFormedRule;
+
+impl WorkspaceRule for ProfileWellFormedRule {
+    fn code(&self) -> &'static str {
+        codes::PROFILE_WELL_FORMED
+    }
+
+    fn check(&self, ws: &Workspace) -> Vec<(PathBuf, LintError)> {
+        let mut findings = Vec::new();
+        for f in &ws.files {
+            let ext = f.extension().and_then(|e| e.to_str()).unwrap_or_default();
+            // `.json` is only this rule's business when it really is a DDM
+            // declaration — the repo is full of other JSON.
+            if ext == "json" {
+                let Ok(bytes) = std::fs::read(f) else { continue };
+                if !super::profile::looks_like_declaration(&bytes) {
+                    continue;
+                }
+            } else if ext != "mobileconfig" {
+                continue;
+            }
+            for err in super::profile::scan_and_report(f) {
+                findings.push((f.clone(), err));
+            }
+        }
+        findings
     }
 }
 
@@ -407,10 +458,104 @@ impl WorkspaceRule for CaseCollisionRule {
 // unregistered-script: policy run_script not under any controls.scripts
 // ---------------------------------------------------------------------------
 
-/// A policy's `run_script.path` must name a script some fleet registers
-/// under `controls.scripts`, or Fleet refuses the automation at apply time
-/// (zsh rule FL-009). Repo-wide check: registered anywhere counts.
+/// A policy's `run_script.path` must be registered under **that fleet's**
+/// `controls.scripts`, or Fleet refuses the automation at apply time
+/// (zsh rule FL-009).
+///
+/// Scoped per fleet, deliberately. This check used to accept a script
+/// registered by *any* fleet, so a script declared in one fleet satisfied a
+/// policy applied by another — which is exactly how `set-wifi-autojoin.sh`
+/// reached production: registered in one fleet, run by eight others.
+/// `fleetctl` validates per team ("was not defined in controls for ABC - GHI"),
+/// and this now matches it.
 pub struct UnregisteredScriptRule;
+
+/// A fleet config declares `controls:` or `policies:` at the top level; a
+/// policy file is a bare sequence and has neither.
+fn is_fleet_config(pf: &ParsedFile) -> bool {
+    pf.yaml.get("controls").is_some() || pf.yaml.get("policies").is_some()
+}
+
+/// The scripts one fleet registers under `controls.scripts`, resolved.
+fn registered_scripts(fleet: &ParsedFile, ws: &Workspace) -> std::collections::HashSet<PathBuf> {
+    let base = fleet.path.parent().unwrap_or(Path::new(""));
+    let mut out = std::collections::HashSet::new();
+    let Some(scripts) = fleet
+        .yaml
+        .get("controls")
+        .and_then(|c| c.get("scripts"))
+        .and_then(Value::as_sequence)
+    else {
+        return out;
+    };
+    for item in scripts {
+        if let Some(rel) = item.get("path").and_then(Value::as_str).or_else(|| item.as_str()) {
+            out.insert(normalize_path(&base.join(rel)));
+        }
+        if let Some(glob) = item.get("paths").and_then(Value::as_str) {
+            let pat = normalize_path(&base.join(glob));
+            let pat_s = pat.to_string_lossy().replace('\\', "/");
+            if let Some(matcher) = compile_glob(&pat_s) {
+                for f in &ws.files {
+                    if matcher.is_match(f.to_string_lossy().replace('\\', "/")) {
+                        out.insert(f.clone());
+                    }
+                }
+            }
+        }
+    }
+    out
+}
+
+/// Every policy this fleet applies, paired with the file that declares it —
+/// inline entries belong to the fleet, referenced ones to the policy file,
+/// because `run_script.path` resolves relative to whichever file it is written
+/// in.
+fn policy_sources<'a>(
+    fleet: &'a ParsedFile,
+    ws: &'a Workspace,
+    by_path: &std::collections::HashMap<PathBuf, &'a ParsedFile>,
+) -> Vec<(PathBuf, &'a Value)> {
+    let base = fleet.path.parent().unwrap_or(Path::new(""));
+    let mut out = Vec::new();
+    let Some(items) = fleet.yaml.get("policies").and_then(Value::as_sequence) else {
+        return out;
+    };
+    for item in items {
+        let single = item.get("path").and_then(Value::as_str);
+        let glob = item.get("paths").and_then(Value::as_str);
+        if single.is_none() && glob.is_none() {
+            // An inline policy: it lives in the fleet file itself.
+            out.push((fleet.path.clone(), item));
+            continue;
+        }
+        let mut targets: Vec<PathBuf> = Vec::new();
+        if let Some(rel) = single {
+            if !rel.contains('$') {
+                targets.push(normalize_path(&base.join(rel)));
+            }
+        }
+        if let Some(pattern) = glob {
+            if !pattern.contains('$') {
+                let pat = normalize_path(&base.join(pattern));
+                let pat_s = pat.to_string_lossy().replace('\\', "/");
+                if let Some(matcher) = compile_glob(&pat_s) {
+                    for f in &ws.files {
+                        if matcher.is_match(f.to_string_lossy().replace('\\', "/")) {
+                            targets.push(f.clone());
+                        }
+                    }
+                }
+            }
+        }
+        for t in targets {
+            if let Some(pf) = by_path.get(&t) {
+                out.push((pf.path.clone(), &pf.yaml));
+            }
+        }
+    }
+    out
+}
 
 impl WorkspaceRule for UnregisteredScriptRule {
     fn code(&self) -> &'static str {
@@ -418,72 +563,127 @@ impl WorkspaceRule for UnregisteredScriptRule {
     }
 
     fn check(&self, ws: &Workspace) -> Vec<(PathBuf, LintError)> {
-        // Registered set: every controls.scripts entry, resolved relative to
-        // its fleet file; `paths:` globs expand against the workspace set.
-        let mut registered: Vec<PathBuf> = Vec::new();
-        for pf in ws.parsed {
-            let base = pf.path.parent().unwrap_or(Path::new(""));
-            let Some(scripts) = pf
+        let by_path: std::collections::HashMap<PathBuf, &ParsedFile> = ws
+            .parsed
+            .iter()
+            .map(|pf| (normalize_path(&pf.path), pf))
+            .collect();
+
+        let mut findings = Vec::new();
+        for fleet in ws.parsed.iter().filter(|pf| is_fleet_config(pf)) {
+            let registered = registered_scripts(fleet, ws);
+            let fleet_label = fleet
                 .yaml
-                .get("controls")
-                .and_then(|c| c.get("scripts"))
-                .and_then(Value::as_sequence)
-            else {
-                continue;
-            };
-            for item in scripts {
-                let single = item
-                    .get("path")
-                    .and_then(Value::as_str)
-                    .or_else(|| item.as_str());
-                if let Some(rel) = single {
-                    registered.push(normalize_path(&base.join(rel)));
-                }
-                if let Some(glob) = item.get("paths").and_then(Value::as_str) {
-                    let pat = normalize_path(&base.join(glob));
-                    let pat_s = pat.to_string_lossy().replace('\\', "/");
-                    if let Some(matcher) = compile_glob(&pat_s) {
-                        for f in &ws.files {
-                            if matcher.is_match(f.to_string_lossy().replace('\\', "/")) {
-                                registered.push(f.clone());
-                            }
-                        }
+                .get("name")
+                .and_then(Value::as_str)
+                .map(str::to_string)
+                .unwrap_or_else(|| fleet.path.display().to_string());
+
+            let mut seen: std::collections::HashSet<PathBuf> = std::collections::HashSet::new();
+            for (src_path, src_yaml) in policy_sources(fleet, ws, &by_path) {
+                let src_base = src_path.parent().unwrap_or(Path::new("")).to_path_buf();
+                let mut run_scripts = Vec::new();
+                collect_run_scripts(src_yaml, &mut run_scripts);
+                for rel in run_scripts {
+                    if rel.contains('$') {
+                        continue;
                     }
+                    let resolved = normalize_path(&src_base.join(&rel));
+                    if registered.contains(&resolved) || !seen.insert(resolved.clone()) {
+                        continue;
+                    }
+                    let mut err = LintError::error(
+                        format!(
+                            "Policy runs '{}', but fleet '{}' does not register it under \
+                             'controls.scripts'",
+                            rel, fleet_label
+                        ),
+                        fleet.path.as_path(),
+                    )
+                    .with_help(format!(
+                        "Fleet only runs scripts the team itself registers — add it to \
+                         {}'s controls.scripts. Registering it in another fleet does not \
+                         count.",
+                        fleet
+                            .path
+                            .file_name()
+                            .and_then(|n| n.to_str())
+                            .unwrap_or("this fleet")
+                    ))
+                    .with_related(resolved);
+                    err.rule_code = Some(codes::UNREGISTERED_SCRIPT);
+                    if src_path == fleet.path {
+                        if let Some(span) = find_value_span(&fleet.source, "path", &rel) {
+                            err = err.with_location(span.0, span.1);
+                        }
+                    } else {
+                        err = err.with_related(src_path.clone());
+                    }
+                    findings.push((fleet.path.clone(), err));
+                }
+            }
+        }
+        findings
+    }
+}
+
+// ---------------------------------------------------------------------------
+// duplicate-fleet-name: two fleet files claiming the same team
+// ---------------------------------------------------------------------------
+
+/// Two fleet files declaring the same `name:` do not conflict — Fleet
+/// collapses them server-side and the second silently wins, so one team
+/// quietly ceases to exist. Nothing in either file is wrong, which is why no
+/// per-file rule can see it.
+///
+/// Quoted and unquoted forms compare equal because both parse to the same
+/// scalar, so `name: "ABC - ACME"` and `name: ABC - ACME` are one name.
+pub struct DuplicateFleetNameRule;
+
+impl WorkspaceRule for DuplicateFleetNameRule {
+    fn code(&self) -> &'static str {
+        codes::DUPLICATE_FLEET_NAME
+    }
+
+    fn check(&self, ws: &Workspace) -> Vec<(PathBuf, LintError)> {
+        let mut by_name: HashMap<&str, Vec<&PathBuf>> = HashMap::new();
+        for pf in ws.parsed.iter().filter(|pf| is_fleet_config(pf)) {
+            if let Some(name) = pf.yaml.get("name").and_then(Value::as_str) {
+                let trimmed = name.trim();
+                if !trimmed.is_empty() {
+                    by_name.entry(trimmed).or_default().push(&pf.path);
                 }
             }
         }
 
+        let mut dups: Vec<_> = by_name.into_iter().filter(|(_, v)| v.len() > 1).collect();
+        dups.sort_by_key(|(name, _)| *name);
+
         let mut findings = Vec::new();
-        for pf in ws.parsed {
-            let base = pf.path.parent().unwrap_or(Path::new(""));
-            let mut run_scripts = Vec::new();
-            collect_run_scripts(&pf.yaml, &mut run_scripts);
-            for rel in run_scripts {
-                if rel.contains('$') {
-                    continue;
-                }
-                let resolved = normalize_path(&base.join(&rel));
-                if registered.contains(&resolved) {
-                    continue;
-                }
+        for (name, mut files) in dups {
+            files.sort();
+            for (i, path) in files.iter().enumerate() {
+                let others: Vec<&PathBuf> =
+                    files.iter().enumerate().filter(|(j, _)| *j != i).map(|(_, p)| *p).collect();
                 let mut err = LintError::error(
                     format!(
-                        "Policy runs '{}', but no fleet registers it under 'controls.scripts'",
-                        rel
+                        "fleet name '{}' is also declared by '{}' — Fleet keeps only one of them",
+                        name,
+                        others[0].display()
                     ),
-                    pf.path.as_path(),
+                    path.as_path(),
                 )
                 .with_help(
-                    "Add the script to a fleet file's controls.scripts list — Fleet only \
-                     runs scripts that are registered"
+                    "Two files declaring one team do not conflict at apply time; the second \
+                     overwrites the first and a team silently disappears. Give one of them a \
+                     distinct name, or delete the copy."
                         .to_string(),
-                )
-                .with_related(resolved);
-                err.rule_code = Some(codes::UNREGISTERED_SCRIPT);
-                if let Some(span) = find_value_span(&pf.source, "path", &rel) {
-                    err = err.with_location(span.0, span.1);
+                );
+                err.rule_code = Some(codes::DUPLICATE_FLEET_NAME);
+                for o in others {
+                    err = err.with_related(o.clone());
                 }
-                findings.push((pf.path.clone(), err));
+                findings.push(((*path).clone(), err));
             }
         }
         findings
@@ -516,12 +716,21 @@ impl WorkspaceRule for DuplicateContentRule {
             if !PAYLOAD_EXTS.contains(&ext) {
                 continue;
             }
-            let Ok(content) = std::fs::read(f) else {
+            let Ok(raw) = std::fs::read(f) else {
                 continue;
             };
-            if content.is_empty() {
+            if raw.is_empty() {
                 continue;
             }
+            // Compare profiles by canonical form so a copy that differs only in
+            // XML escaping or whitespace is still recognised as the duplicate
+            // it is; other payload types stay byte-exact.
+            let content = match (ext, std::str::from_utf8(&raw)) {
+                ("mobileconfig", Ok(text)) => {
+                    super::profile::canonical_profile(text).into_bytes()
+                }
+                _ => raw,
+            };
             let mut hasher = DefaultHasher::new();
             content.hash(&mut hasher);
             by_key
@@ -546,12 +755,16 @@ impl WorkspaceRule for DuplicateContentRule {
                 if twins.is_empty() {
                     continue;
                 }
+                let same_bytes = std::fs::read(path).ok().is_some_and(|a| {
+                    std::fs::read(twins[0]).ok().is_some_and(|b| a == b)
+                });
+                let how = if same_bytes {
+                    "byte-identical to"
+                } else {
+                    "identical to, apart from XML escaping or whitespace,"
+                };
                 let mut err = LintError::warning(
-                    format!(
-                        "'{}' is byte-identical to '{}'",
-                        path.display(),
-                        twins[0].display()
-                    ),
+                    format!("'{}' is {how} '{}'", path.display(), twins[0].display()),
                     path.as_path(),
                 )
                 .with_help(
@@ -711,14 +924,14 @@ mod tests {
 controls:
   apple_settings:
     configuration_profiles:
-      - paths: ../platforms/macos/L1/vpn/configuration-profiles/*.mobileconfig
+      - paths: ../platforms/macos/site/vpn/configuration-profiles/*.mobileconfig
 "#,
         );
         let files_hit = vec![PathBuf::from(
-            "platforms/macos/L1/vpn/configuration-profiles/tunnel.mobileconfig",
+            "platforms/macos/site/vpn/configuration-profiles/tunnel.mobileconfig",
         )];
         let files_miss = vec![PathBuf::from(
-            "platforms/macos/L1/openvpn/configuration-profiles/tunnel.mobileconfig",
+            "platforms/macos/site/openvpn/configuration-profiles/tunnel.mobileconfig",
         )];
         let binding = [fleet];
 
@@ -935,5 +1148,334 @@ mod dup_id_tests {
         assert!(findings[0].0.to_string_lossy().ends_with("one.yml"));
         assert_eq!(findings[0].1.related.len(), 2);
         assert!(findings[0].1.message.contains("com.example.wifi"));
+    }
+}
+
+#[cfg(test)]
+mod profile_wellformed_tests {
+    use super::*;
+    use std::fs;
+    use tempfile::TempDir;
+
+    const BAD: &str = "<plist><dict><key>N</key><string>Foo & Bar</string></dict></plist>";
+    const FLEET: &str = "controls:\n  apple_settings:\n    configuration_profiles:\n      - paths: ../profiles/*.mobileconfig\n";
+
+    fn repo(fleets: &[&str], profiles: &[(&str, &str)]) -> TempDir {
+        let tmp = TempDir::new().unwrap();
+        fs::create_dir_all(tmp.path().join("profiles")).unwrap();
+        fs::create_dir_all(tmp.path().join("fleets")).unwrap();
+        for (name, body) in profiles {
+            fs::write(tmp.path().join("profiles").join(name), body).unwrap();
+        }
+        for f in fleets {
+            fs::write(tmp.path().join("fleets").join(f), FLEET).unwrap();
+        }
+        tmp
+    }
+
+    fn parsed_fleets(tmp: &TempDir, fleets: &[&str]) -> Vec<ParsedFile> {
+        fleets
+            .iter()
+            .map(|f| ParsedFile {
+                path: tmp.path().join("fleets").join(f),
+                source: FLEET.to_string(),
+                yaml: serde_yaml::from_str(FLEET).unwrap(),
+            })
+            .collect()
+    }
+
+    /// The per-file version emitted one copy per referencing fleet; with 33
+    /// fleets globbing a shared directory that was 33 identical errors.
+    #[test]
+    fn one_bad_profile_is_reported_once_however_many_fleets_reference_it() {
+        let fleets = ["a.yml", "b.yml", "c.yml"];
+        let tmp = repo(&fleets, &[("bad.mobileconfig", BAD)]);
+        let parsed = parsed_fleets(&tmp, &fleets);
+        let ws = Workspace::build(tmp.path(), &parsed);
+
+        let found = ProfileWellFormedRule.check(&ws);
+        assert_eq!(found.len(), 1, "one profile ⇒ one finding, got: {found:?}");
+        assert!(found[0].0.ends_with("bad.mobileconfig"));
+    }
+
+    /// The per-file version only ever saw profiles a fleet referenced, so a
+    /// defect sat undetected until someone wired the file up.
+    #[test]
+    fn a_profile_no_fleet_references_is_still_checked() {
+        let tmp = repo(&[], &[("never-wired.mobileconfig", BAD)]);
+        let ws = Workspace::build(tmp.path(), &[]);
+
+        let found = ProfileWellFormedRule.check(&ws);
+        assert_eq!(found.len(), 1, "got: {found:?}");
+        assert_eq!(found[0].1.rule_code, Some(codes::PROFILE_WELL_FORMED));
+    }
+
+    #[test]
+    fn clean_repo_reports_nothing() {
+        let good = "<plist><dict>\
+                    <key>PayloadUUID</key><string>95702CD6-A76F-466C-9F07-711416585D76</string>\
+                    </dict></plist>";
+        let tmp = repo(&["a.yml"], &[("ok.mobileconfig", good)]);
+        let parsed = parsed_fleets(&tmp, &["a.yml"]);
+        let ws = Workspace::build(tmp.path(), &parsed);
+        assert!(ProfileWellFormedRule.check(&ws).is_empty());
+    }
+
+    /// `.json` that is not a DDM declaration must not be dragged in.
+    #[test]
+    fn unrelated_json_in_the_repo_is_ignored() {
+        let tmp = repo(&[], &[]);
+        fs::write(
+            tmp.path().join("profiles/automatic-enrollment-ABC.dep.json"),
+            r#"{"profile_name":"ABC","await_device_configured":true}"#,
+        )
+        .unwrap();
+        fs::write(tmp.path().join("package-lock.json"), r#"{"lockfileVersion":3}"#).unwrap();
+        let ws = Workspace::build(tmp.path(), &[]);
+        assert!(ProfileWellFormedRule.check(&ws).is_empty());
+    }
+}
+
+#[cfg(test)]
+mod duplicate_semantics_tests {
+    use super::*;
+    use std::fs;
+    use tempfile::TempDir;
+
+    const FLEET: &str = "controls:\n  apple_settings:\n    configuration_profiles:\n      - paths: ../profiles/*.mobileconfig\n";
+
+    fn profile(id: &str, uuid: &str, desc: &str) -> String {
+        format!(
+            "<plist version=\"1.0\"><dict>\
+             <key>PayloadIdentifier</key><string>{id}</string>\
+             <key>PayloadUUID</key><string>{uuid}</string>\
+             <key>Desc</key><string>{desc}</string>\
+             </dict></plist>"
+        )
+    }
+
+    fn build(profiles: &[(&str, String)]) -> (TempDir, Vec<ParsedFile>) {
+        let tmp = TempDir::new().unwrap();
+        fs::create_dir_all(tmp.path().join("profiles")).unwrap();
+        fs::create_dir_all(tmp.path().join("fleets")).unwrap();
+        for (name, body) in profiles {
+            fs::write(tmp.path().join("profiles").join(name), body).unwrap();
+        }
+        let fleet = tmp.path().join("fleets/a.yml");
+        fs::write(&fleet, FLEET).unwrap();
+        let parsed = vec![ParsedFile {
+            path: fleet,
+            source: FLEET.to_string(),
+            yaml: serde_yaml::from_str(FLEET).unwrap(),
+        }];
+        (tmp, parsed)
+    }
+
+    /// Regression: the rule compared raw bytes, so two profiles differing only
+    /// in XML escaping were reported as having "different content" when they
+    /// decode identically and Fleet delivers them the same.
+    #[test]
+    fn duplicate_identifier_ignores_escaping_only_differences() {
+        let escaped = profile("com.x.support", "A1B2C3D4-1111-2222-3333-444455556666", "Call &quot;SD&quot;");
+        let literal = escaped.replace("&quot;", "\"");
+        assert_ne!(escaped, literal, "fixture must differ in bytes");
+        let (tmp, parsed) = build(&[("a.mobileconfig", escaped), ("b.mobileconfig", literal)]);
+        let ws = Workspace::build(tmp.path(), &parsed);
+
+        let found = DuplicateIdentifierRule.check(&ws);
+        assert!(found.is_empty(), "escaping is not a content difference: {found:?}");
+    }
+
+    #[test]
+    fn duplicate_identifier_still_reports_real_differences() {
+        let a = profile("com.x.support", "A1B2C3D4-1111-2222-3333-444455556666", "Call SD");
+        let b = profile("com.x.support", "B1B2C3D4-1111-2222-3333-444455556666", "Call HELPDESK");
+        let (tmp, parsed) = build(&[("a.mobileconfig", a), ("b.mobileconfig", b)]);
+        let ws = Workspace::build(tmp.path(), &parsed);
+
+        let found = DuplicateIdentifierRule.check(&ws);
+        assert_eq!(found.len(), 1, "got: {found:?}");
+        assert_eq!(found[0].1.rule_code, Some(codes::DUPLICATE_IDENTIFIER));
+    }
+
+    /// The duplicate scan now catches copies a byte comparison missed.
+    #[test]
+    fn duplicate_content_catches_semantic_duplicates() {
+        let escaped = profile("com.x.support", "A1B2C3D4-1111-2222-3333-444455556666", "Call &quot;SD&quot;");
+        let literal = escaped.replace("&quot;", "\"");
+        let (tmp, parsed) = build(&[("a.mobileconfig", escaped), ("b.mobileconfig", literal)]);
+        let ws = Workspace::build(tmp.path(), &parsed);
+
+        let found = DuplicateContentRule.check(&ws);
+        assert_eq!(found.len(), 2, "one finding per twin: {found:?}");
+        let msg = &found[0].1.message;
+        assert!(
+            msg.contains("apart from XML escaping"),
+            "must not claim byte-identical: {msg}"
+        );
+    }
+
+    #[test]
+    fn duplicate_content_still_says_byte_identical_when_it_is() {
+        let body = profile("com.x.support", "A1B2C3D4-1111-2222-3333-444455556666", "Call SD");
+        let (tmp, parsed) = build(&[("a.mobileconfig", body.clone()), ("b.mobileconfig", body)]);
+        let ws = Workspace::build(tmp.path(), &parsed);
+
+        let found = DuplicateContentRule.check(&ws);
+        assert_eq!(found.len(), 2, "got: {found:?}");
+        assert!(found[0].1.message.contains("byte-identical"), "got: {}", found[0].1.message);
+    }
+}
+
+#[cfg(test)]
+mod per_fleet_scope_tests {
+    use super::*;
+    use super::tests_support::parsed;
+
+    /// The regression this rescope exists for: a script registered by one
+    /// fleet used to satisfy a policy applied by another. That is precisely
+    /// how `set-wifi-autojoin.sh` reached production three times.
+    #[test]
+    fn registration_in_another_fleet_no_longer_counts() {
+        let registrar = parsed(
+            "fleets/acme.yml",
+            "controls:\n  scripts:\n    - path: ../scripts/wifi.sh\n",
+        );
+        let runner = parsed(
+            "fleets/ghi.yml",
+            r#"
+name: ABC - GHI
+policies:
+  - name: wifi autojoin
+    query: SELECT 1;
+    run_script:
+      path: ../scripts/wifi.sh
+"#,
+        );
+        let binding = [registrar, runner];
+        let ws = Workspace::from_files(vec![PathBuf::from("scripts/wifi.sh")], &binding);
+
+        let findings = UnregisteredScriptRule.check(&ws);
+        assert_eq!(findings.len(), 1, "got: {findings:?}");
+        assert!(findings[0].0.ends_with("ghi.yml"), "reported on the fleet that must fix it");
+        assert!(findings[0].1.message.contains("ABC - GHI"), "got: {}", findings[0].1.message);
+        assert!(findings[0].1.message.contains("wifi.sh"));
+    }
+
+    #[test]
+    fn registration_in_the_same_fleet_is_accepted() {
+        let fleet = parsed(
+            "fleets/ghi.yml",
+            r#"
+name: ABC - GHI
+controls:
+  scripts:
+    - path: ../scripts/wifi.sh
+policies:
+  - name: wifi autojoin
+    query: SELECT 1;
+    run_script:
+      path: ../scripts/wifi.sh
+"#,
+        );
+        let binding = [fleet];
+        let ws = Workspace::from_files(vec![PathBuf::from("scripts/wifi.sh")], &binding);
+        assert!(UnregisteredScriptRule.check(&ws).is_empty());
+    }
+
+    /// A policy pulled in from its own file resolves `run_script.path`
+    /// relative to *that* file, not to the fleet.
+    #[test]
+    fn referenced_policy_file_resolves_against_its_own_directory() {
+        let fleet = parsed(
+            "fleets/ghi.yml",
+            "name: ABC - GHI\npolicies:\n  - path: ../policies/maint.yml\n",
+        );
+        let policy = parsed(
+            "policies/maint.yml",
+            "- name: wifi\n  query: SELECT 1;\n  run_script:\n    path: ../scripts/wifi.sh\n",
+        );
+        let binding = [fleet, policy];
+        let ws = Workspace::from_files(vec![PathBuf::from("scripts/wifi.sh")], &binding);
+
+        let findings = UnregisteredScriptRule.check(&ws);
+        assert_eq!(findings.len(), 1, "got: {findings:?}");
+        assert_eq!(findings[0].1.related[0], PathBuf::from("scripts/wifi.sh"));
+    }
+
+    /// One shared policy file, two fleets, registered in only one: the fleet
+    /// that is actually broken is the one reported.
+    #[test]
+    fn shared_policy_file_reports_only_the_fleet_missing_it() {
+        let ok = parsed(
+            "fleets/ok.yml",
+            "name: OK\ncontrols:\n  scripts:\n    - path: ../scripts/wifi.sh\npolicies:\n  - path: ../policies/maint.yml\n",
+        );
+        let broken = parsed(
+            "fleets/broken.yml",
+            "name: BROKEN\npolicies:\n  - path: ../policies/maint.yml\n",
+        );
+        let policy = parsed(
+            "policies/maint.yml",
+            "- name: wifi\n  query: SELECT 1;\n  run_script:\n    path: ../scripts/wifi.sh\n",
+        );
+        let binding = [ok, broken, policy];
+        let ws = Workspace::from_files(vec![PathBuf::from("scripts/wifi.sh")], &binding);
+
+        let findings = UnregisteredScriptRule.check(&ws);
+        assert_eq!(findings.len(), 1, "got: {findings:?}");
+        assert!(findings[0].1.message.contains("BROKEN"), "got: {}", findings[0].1.message);
+    }
+}
+
+#[cfg(test)]
+mod duplicate_fleet_name_tests {
+    use super::*;
+    use super::tests_support::parsed;
+
+    /// Quoted and unquoted forms are the same name — `365c712` had to fix
+    /// exactly this in the shell guard that was meant to catch it.
+    #[test]
+    fn same_name_quoted_and_unquoted_is_one_fleet() {
+        let a = parsed("fleets/acme.yml", "name: \"ABC - ACME\"\npolicies: []\n");
+        let b = parsed("fleets/acme-copy.yml", "name: ABC - ACME\npolicies: []\n");
+        let binding = [a, b];
+        let ws = Workspace::from_files(vec![], &binding);
+
+        let findings = DuplicateFleetNameRule.check(&ws);
+        assert_eq!(findings.len(), 2, "one finding per file: {findings:?}");
+        assert!(findings[0].1.message.contains("ABC - ACME"));
+        assert_eq!(findings[0].1.severity, crate::error::Severity::Error);
+        // Each finding points at the *other* file, whichever order they sort in.
+        for (path, err) in &findings {
+            assert!(
+                err.related.iter().all(|r| r != path),
+                "a file must not be its own twin: {err:?}"
+            );
+            assert_eq!(err.related.len(), 1, "got: {err:?}");
+        }
+        let reported: std::collections::HashSet<_> =
+            findings.iter().map(|(p, _)| p.clone()).collect();
+        assert_eq!(reported.len(), 2, "both files reported");
+    }
+
+    #[test]
+    fn distinct_fleet_names_are_clean() {
+        let a = parsed("fleets/acme.yml", "name: ABC - ACME\npolicies: []\n");
+        let b = parsed("fleets/ghi.yml", "name: ABC - GHI\npolicies: []\n");
+        let binding = [a, b];
+        let ws = Workspace::from_files(vec![], &binding);
+        assert!(DuplicateFleetNameRule.check(&ws).is_empty());
+    }
+
+    /// A policy file is a bare sequence and declares no fleet — it must not be
+    /// dragged into the comparison.
+    #[test]
+    fn policy_files_are_not_fleets() {
+        let fleet = parsed("fleets/acme.yml", "name: ABC - ACME\npolicies: []\n");
+        let policy = parsed("policies/a.yml", "- name: ABC - ACME\n  query: SELECT 1;\n");
+        let binding = [fleet, policy];
+        let ws = Workspace::from_files(vec![], &binding);
+        assert!(DuplicateFleetNameRule.check(&ws).is_empty());
     }
 }

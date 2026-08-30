@@ -1122,7 +1122,7 @@ mod tests {
         assert!(FleetLintConfig::default().files.include.is_empty());
         assert!(
             !FleetLintConfig::default()
-                .is_out_of_scope_file(Path::new("platforms/macos/L1/scripts/x.sh")),
+                .is_out_of_scope_file(Path::new("platforms/macos/site/scripts/x.sh")),
             "with no config, a script must be in scope for the workspace rules"
         );
     }

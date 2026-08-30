@@ -57,6 +57,15 @@ pub const YAML_INDENTATION: &str = "yaml-indentation";
 pub const YAML_COLONS: &str = "yaml-colons";
 pub const YAML_EMPTY_VALUES: &str = "yaml-empty-values";
 pub const DUPLICATE_PAYLOAD_UUID: &str = "duplicate-payload-uuid";
+/// A `.mobileconfig` does not parse as XML — fleetctl refuses the apply, and
+/// every other profile-level rule goes dark for that file.
+pub const PROFILE_WELL_FORMED: &str = "profile-well-formed";
+
+// --- Extra code emitted by ProfileWellFormedRule beyond its own name --------
+/// A `PayloadUUID` is not syntactically a UUID. Advisory and never fixable:
+/// the UUID is part of profile identity, so rewriting it re-delivers the
+/// profile to every enrolled host.
+pub const PAYLOAD_UUID_FORMAT: &str = "payload-uuid-format";
 
 // --- Extra codes emitted by PathExistsRule beyond its own name -------------
 pub const PATH_CASE: &str = "path-case";
@@ -83,6 +92,10 @@ pub const DUPLICATE_CONTENT: &str = "duplicate-content";
 pub const ORPHANED_FILE: &str = "orphaned-file";
 /// Same PayloadIdentifier in two profiles of one fleet with different content.
 pub const DUPLICATE_IDENTIFIER: &str = "duplicate-identifier";
+/// Two fleet files declaring the same `name:`. They do not conflict — they
+/// collapse server-side, the second silently winning, and one team ceases to
+/// exist.
+pub const DUPLICATE_FLEET_NAME: &str = "duplicate-fleet-name";
 
 // --- Declarative patterns (ADR-010 Phase 2; [[patterns]] in .fleetlint.toml)
 pub const PATTERN_NAME_MATCHES_FILENAME: &str = "pattern/name-matches-filename";
@@ -130,6 +143,9 @@ pub const CROSS_FILE: &[&str] = &[
     DUPLICATE_CONTENT,
     ORPHANED_FILE,
     DUPLICATE_IDENTIFIER,
+    PROFILE_WELL_FORMED,
+    PAYLOAD_UUID_FORMAT,
+    DUPLICATE_FLEET_NAME,
 ];
 
 /// Registry metadata for one diagnostic code.
@@ -210,6 +226,12 @@ pub static REGISTRY: &[RuleMeta] = &[
     meta!(YAML_COLONS, "yaml", None, true, false),
     meta!(YAML_EMPTY_VALUES, "yaml", None, false, false),
     meta!(DUPLICATE_PAYLOAD_UUID, "semantic", None, false, false),
+    // Not fixable: a malformed profile needs an author's judgement about the
+    // intended text, not a mechanical substitution.
+    meta!(PROFILE_WELL_FORMED, "cross-file", None, false, false),
+    // Deliberately NOT fixable — see the constant's docs. Rewriting a
+    // PayloadUUID makes Fleet re-deliver the profile to every enrolled host.
+    meta!(PAYLOAD_UUID_FORMAT, "cross-file", None, false, false),
     // PathExistsRule's extra codes.
     meta!(PATH_CASE, "structural", None, true, false),
     meta!(PATH_EMPTY, "structural", None, false, false),
@@ -227,6 +249,9 @@ pub static REGISTRY: &[RuleMeta] = &[
     meta!(DUPLICATE_CONTENT, "cross-file", None, false, false),
     meta!(ORPHANED_FILE, "cross-file", None, false, false),
     meta!(DUPLICATE_IDENTIFIER, "cross-file", None, false, false),
+    // Not fixable: which of the two fleets should be renamed is the author's
+    // call, and renaming the wrong one silently retires a different team.
+    meta!(DUPLICATE_FLEET_NAME, "cross-file", None, false, false),
     meta!(PATTERN_NAME_MATCHES_FILENAME, "pattern", None, false, false),
     meta!(PATTERN_FILENAME, "pattern", None, false, false),
     meta!(PATTERN_CONTENT_MUST_MATCH, "pattern", None, false, false),
@@ -271,6 +296,8 @@ mod tests {
             );
         }
         let extra = [
+            PROFILE_WELL_FORMED,
+            PAYLOAD_UUID_FORMAT,
             PATH_CASE,
             PATH_EMPTY,
             PATH_IS_FILE,

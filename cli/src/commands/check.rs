@@ -44,6 +44,63 @@ fn print_fix_hint(results: &[(PathBuf, linter::error::LintReport)]) {
     println!("  {} {}", "↳".cyan(), hint);
 }
 
+/// Suggest the commands that follow from THIS run.
+///
+/// A summary that ends in a count leaves the reader to work out what to do
+/// next, and the answer depends on which rules fired — orphans want a
+/// different command from broken paths, and a snapshot-derived block wants a
+/// refresh rather than an edit. Each line below is emitted only when a finding
+/// of that kind is actually present, so the list stays short and never
+/// suggests a command that would print nothing.
+fn print_next_steps(results: &[(PathBuf, linter::error::LintReport)], errors: usize) {
+    use colored::Colorize;
+    use linter::codes;
+
+    let has = |code: &str| {
+        results.iter().any(|(_, r)| {
+            r.errors
+                .iter()
+                .chain(&r.warnings)
+                .chain(&r.infos)
+                .any(|e| e.rule_code == Some(code))
+        })
+    };
+
+    let mut steps: Vec<String> = Vec::new();
+    if has(codes::ORPHANED_FILE) {
+        steps.push(
+            "flint paths --unwired --oneline    files nothing references (add | grep <name>)"
+                .to_string(),
+        );
+    }
+    if has(codes::PATH_EXISTS) {
+        steps.push("flint paths                        where broken references moved to".to_string());
+    }
+    // Only reachable with a snapshot, and the remedy is server state rather
+    // than an edit, so it must not be lumped in with --fix.
+    if results.iter().any(|(_, r)| {
+        r.errors
+            .iter()
+            .any(|e| e.message == linter::snapshot::HASH_NOT_UPLOADED)
+    }) {
+        steps.push(
+            "flint dry-run --refresh-snapshot   re-read the server before judging uploads"
+                .to_string(),
+        );
+    }
+    if errors == 0 {
+        steps.push("flint dry-run .                    would `fleetctl gitops` accept this?".to_string());
+    }
+
+    if steps.is_empty() {
+        return;
+    }
+    println!("\n{}", "Next:".bold());
+    for s in steps {
+        println!("  {s}");
+    }
+}
+
 pub(crate) fn run(args: CheckArgs) -> anyhow::Result<()> {
     let CheckArgs {
         paths,
@@ -257,6 +314,7 @@ pub(crate) fn run(args: CheckArgs) -> anyhow::Result<()> {
         print!("{}", report.render(source.as_deref()));
         if !fix {
             print_fix_hint(&results);
+            print_next_steps(&results, total_errors);
         }
     } else {
         println!("{} Linting {} path(s)...\n", "🔍".blue(), lint_paths.len());
@@ -274,10 +332,24 @@ pub(crate) fn run(args: CheckArgs) -> anyhow::Result<()> {
         }
 
         println!("\n{}", "=".repeat(60));
-        println!("{} Linted {} file(s)", "Summary:".bold(), files_linted);
-        println!("  {} error(s)", total_errors.to_string().red());
-        println!("  {} warning(s)", total_warnings.to_string().yellow());
-        println!("  {} info", total_infos.to_string().blue());
+        // Verdict first: the counts answer "how much?", but the reader's
+        // actual question is "am I clear?". Zero rows are omitted — three
+        // lines of "0" push the one number that matters out of the eye's
+        // path, and their absence already says zero.
+        let headline = if total_errors > 0 {
+            format!("{} — {} error(s)", "BLOCKED".red().bold(), total_errors)
+        } else if total_warnings > 0 {
+            format!("{} — no errors", "OK".green().bold())
+        } else {
+            format!("{} — clean", "OK".green().bold())
+        };
+        println!("{headline}   ({files_linted} file(s) linted)");
+        if total_warnings > 0 {
+            println!("  {} warning(s)", total_warnings.to_string().yellow());
+        }
+        if total_infos > 0 {
+            println!("  {} info", total_infos.to_string().blue());
+        }
         if skipped_by_config > 0 {
             println!(
                 "  {}",
@@ -298,6 +370,7 @@ pub(crate) fn run(args: CheckArgs) -> anyhow::Result<()> {
         }
         if !fix {
             print_fix_hint(&results);
+            print_next_steps(&results, total_errors);
         }
     }
 

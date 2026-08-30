@@ -193,7 +193,7 @@ Interactive wiring asks per fleet (`[y]es / [a]ll-remaining / [n]o / [s]kip /
 | Flag | Effect |
 |---|---|
 | `--label-stubs[=blank\|comment]` | on blank label answers, emit the empty key (`blank`, default) or a commented stub (`comment`) |
-| `--only <glob>` | limit target fleets, e.g. `--only 'fleets/acfg-*.yml'` |
+| `--only <glob>` | limit target fleets, e.g. `--only 'fleets/team-*.yml'` |
 
 Each artifact is routed to the right section using current Fleet keys
 (`controls.apple_settings.configuration_profiles`, `controls.scripts`,

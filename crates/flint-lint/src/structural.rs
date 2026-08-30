@@ -533,10 +533,10 @@ controls:
         // Sequence-rooted package file (the shape in the wild)
         let yaml = r#"
 - hash_sha256: 704b0366c7223dca64785716f73a235cacfde93a2d4a68053521e580471c4c62
-  display_name: "LUNA"
-  description: "LUNA configuration management"
+  display_name: "DEMOAPP"
+  description: "DEMOAPP configuration management"
 "#;
-        let errors = rule.check(&config, Path::new("platforms/macos/L1/luna/software/luna.package.yml"), yaml);
+        let errors = rule.check(&config, Path::new("platforms/macos/site/demoapp/software/demoapp.package.yml"), yaml);
         assert!(
             errors.iter().any(|e| e.message.contains("description")),
             "expected unknown-key error for 'description', got: {:?}",
@@ -544,19 +544,19 @@ controls:
         );
 
         // Mapping-rooted single package file
-        let yaml2 = "url: https://example.com/luna.pkg\ndescription: nope\n";
-        let errors2 = rule.check(&config, Path::new("software/luna.package.yml"), yaml2);
+        let yaml2 = "url: https://example.com/demoapp.pkg\ndescription: nope\n";
+        let errors2 = rule.check(&config, Path::new("software/demoapp.package.yml"), yaml2);
         assert!(errors2.iter().any(|e| e.message.contains("description")));
 
         // Valid package file stays clean
         let yaml3 = r#"
 - hash_sha256: 704b0366c7223dca64785716f73a235cacfde93a2d4a68053521e580471c4c62
-  display_name: "LUNA"
+  display_name: "DEMOAPP"
   self_service: true
   categories:
     - Productivity
 "#;
-        let errors3 = rule.check(&config, Path::new("software/luna.package.yml"), yaml3);
+        let errors3 = rule.check(&config, Path::new("software/demoapp.package.yml"), yaml3);
         assert!(errors3.is_empty(), "valid package flagged: {:?}", errors3);
     }
 

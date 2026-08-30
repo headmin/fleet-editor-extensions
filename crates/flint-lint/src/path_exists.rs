@@ -224,8 +224,12 @@ fn check_path(
 
     let span = find_path_value_line(source, path_val);
 
+    // `related` carries the missing target so `flint check --staged` blocks the
+    // commit that DELETES a referenced file: the finding sits on an unstaged
+    // fleet YAML, and only this link puts it in staged scope (ADR-010).
     let mut err = LintError::error(format!("path reference not found: {path_val}"), file)
-        .with_context(path_val.to_string());
+        .with_context(path_val.to_string())
+        .with_related(resolved.clone());
     if let Some(s) = span {
         err = err.with_span(s);
     }
@@ -674,7 +678,7 @@ mod tests {
         }
         let file_path = tmp.path().join("fleets/team.yml");
         fs::create_dir_all(file_path.parent().unwrap()).unwrap();
-        let yaml = "controls:\n  macos_settings:\n    custom_settings:\n      - path: ../lib/profiles/\n        labels_include_any: [Opt-in - Lisa]\n        labels_exclude_any: []\n";
+        let yaml = "controls:\n  macos_settings:\n    custom_settings:\n      - path: ../lib/profiles/\n        labels_include_any: [Opt-in - Pilot]\n        labels_exclude_any: []\n";
         fs::write(&file_path, yaml).unwrap();
 
         let errors = PathExistsRule::default().check(&FleetConfig::default(), &file_path, yaml);
@@ -704,11 +708,11 @@ mod tests {
         assert!(!r.contains("README"));
         assert_eq!(r.matches("- path:").count(), 2);
         // Each expanded entry carries the label rule verbatim.
-        assert_eq!(r.matches("labels_include_any: [Opt-in - Lisa]").count(), 2);
+        assert_eq!(r.matches("labels_include_any: [Opt-in - Pilot]").count(), 2);
         assert_eq!(r.matches("labels_exclude_any: []").count(), 2);
         // Original indentation is preserved.
         assert!(r.contains("      - path: ../lib/profiles/a.mobileconfig"));
-        assert!(r.contains("        labels_include_any: [Opt-in - Lisa]"));
+        assert!(r.contains("        labels_include_any: [Opt-in - Pilot]"));
     }
 
     #[test]
@@ -825,23 +829,23 @@ mod tests {
     fn moved_target_suggests_fix() {
         let tmp = TempDir::new().unwrap();
         // Reference points at the old location; the file actually lives elsewhere.
-        let yaml = "software:\n  packages:\n    - path: ../platforms/macos/software/L0/supportapp.yml\n";
+        let yaml = "software:\n  packages:\n    - path: ../platforms/macos/software/base/supportapp.yml\n";
         let errors = run(
             &tmp,
-            "fleets/fdn.yml",
+            "fleets/abc.yml",
             yaml,
-            &["platforms/macos/L0/software/supportapp.yml"],
+            &["platforms/macos/base/software/supportapp.yml"],
         );
         assert_eq!(errors.len(), 1, "got: {errors:?}");
         let e = &errors[0];
         assert!(e.message.contains("path reference not found"));
         assert_eq!(
             e.context.as_deref(),
-            Some("../platforms/macos/software/L0/supportapp.yml")
+            Some("../platforms/macos/software/base/supportapp.yml")
         );
         assert_eq!(
             e.suggestion(),
-            Some("../platforms/macos/L0/software/supportapp.yml")
+            Some("../platforms/macos/base/software/supportapp.yml")
         );
         assert_eq!(e.fix_safety(), Some(FixSafety::Safe));
         assert!(e.line().is_some() && e.column().is_some());
@@ -918,13 +922,13 @@ mod tests {
   platform: darwin
   query: \"SELECT 1 FROM apps WHERE bundle_identifier = 'com.paloaltonetworks.GlobalProtect';\"
   install_software:
-    package_path: ../../L0/software/corp-fonts.yml
+    package_path: ../../base/software/corp-fonts.yml
 ";
         let errors = run(
             &tmp,
             "platforms/macos/policies/autoinstalls/gp.yml",
             yaml,
-            &["platforms/macos/L0/software/corp-fonts.yml"],
+            &["platforms/macos/base/software/corp-fonts.yml"],
         );
         assert!(errors.is_empty(), "got: {errors:?}");
     }
@@ -939,22 +943,22 @@ mod tests {
   platform: darwin
   query: \"SELECT 1;\"
   install_software:
-    package_path: ../../L1/vpn-globalprotect/software/corp-fonts.yml
+    package_path: ../../site/vpn-globalprotect/software/corp-fonts.yml
 ";
         let errors = run(
             &tmp,
             "platforms/macos/policies/autoinstalls/gp.yml",
             yaml,
-            &["platforms/macos/L0/software/corp-fonts.yml"],
+            &["platforms/macos/base/software/corp-fonts.yml"],
         );
         assert_eq!(errors.len(), 1, "got: {errors:?}");
         let e = &errors[0];
         assert!(e.message.contains("path reference not found"));
         assert_eq!(
             e.context.as_deref(),
-            Some("../../L1/vpn-globalprotect/software/corp-fonts.yml")
+            Some("../../site/vpn-globalprotect/software/corp-fonts.yml")
         );
-        assert!(e.suggestion().unwrap().ends_with("L0/software/corp-fonts.yml"));
+        assert!(e.suggestion().unwrap().ends_with("base/software/corp-fonts.yml"));
         assert_eq!(e.fix_safety(), Some(FixSafety::Safe));
     }
 

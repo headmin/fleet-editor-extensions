@@ -1565,7 +1565,7 @@ policies:
     #[test]
     fn test_detect_file_type_nested_content_dirs() {
         assert_eq!(
-            detect_file_type(Path::new("software/macos/L1/slack.yml")),
+            detect_file_type(Path::new("software/macos/site/slack.yml")),
             FileType::Software
         );
         assert_eq!(
@@ -1574,7 +1574,7 @@ policies:
         );
         // A fleet config is unaffected — no content-dir ancestor.
         assert_eq!(
-            detect_file_type(Path::new("fleets/FDN-ALPHA.yml")),
+            detect_file_type(Path::new("fleets/ABC-ALPHA.yml")),
             FileType::FleetConfig
         );
     }
@@ -1844,7 +1844,7 @@ config:
         // needs `is_out_of_scope`, and it has to honor BOTH styles: a denylist
         // repo writes `exclude`, an allowlist repo writes `include`.
         let script = Path::new("tools-scripts/runscripts/scripts/install-rosetta.sh");
-        let kept = Path::new("platforms/macos/L1/scripts/real.sh");
+        let kept = Path::new("platforms/macos/site/scripts/real.sh");
 
         // Denylist style.
         let mut cfg = FleetLintConfig::default();
