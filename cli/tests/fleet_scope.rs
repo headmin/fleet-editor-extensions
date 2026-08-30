@@ -94,6 +94,29 @@ fn fleet_glob_scopes_the_report_and_counts_the_rest() {
     let (code, out) = run(&dir, &["check", ".", "--fleet", "CFG-A"]);
     assert_eq!(code, 0, "{out}");
     assert!(out.contains("outside --fleet 'CFG-A' not shown"), "the rest is counted, not hidden:\n{out}");
+
+    // JSON must carry the same count — a scoped view that silently drops
+    // findings would be worse than no scoping.
+    let (_, out) = run(&dir, &["check", ".", "--fleet", "CFG-A", "--format", "json"]);
+    let v: serde_json::Value = serde_json::from_str(out.trim()).expect("json");
+    assert_eq!(v["summary"]["scope"]["target"], "--fleet 'CFG-A'", "{out}");
+    assert_eq!(v["summary"]["scope"]["findings_outside_not_shown"], 1, "{out}");
+    assert_eq!(v["summary"]["errors"], 0, "{out}");
+}
+
+/// The relative-path trap: `flint check fleets/X.yml` from the repo root
+/// used to load the config with a RELATIVE root, whose include globs then
+/// rejected every absolute path of the repo-rooted lint — zero files, "clean".
+#[test]
+fn a_relative_fleet_file_under_an_include_scope_is_still_judged() {
+    let dir = repo("relinclude");
+    write(
+        &dir.join(".fleetlint.toml"),
+        "[files]\ninclude = [\"default.yml\", \"fleets/**\", \"platforms/**\"]\n",
+    );
+    let (code, out) = run(&dir, &["check", "fleets/CFG-B.yml"]);
+    assert_eq!(code, 1, "{out}");
+    assert!(out.contains("zoom/darwin"), "{out}");
 }
 
 #[test]

@@ -169,7 +169,11 @@ pub(crate) fn run(args: CheckArgs) -> anyhow::Result<()> {
     // discovered in or above it is applied — `Linter::new()` skips it
     // (issue #5). When a pre-commit hook passes many staged files they
     // share one repo, so the first file's ancestors find the config.
-    let mut linter = Linter::from_path(&lint_paths[0]);
+    // Absolute on purpose: a RELATIVE first path makes the discovered config
+    // root relative too, and `[files] include` globs anchored there reject
+    // every absolute path a repo-rooted lint produces — a scoped run then
+    // saw zero files and reported a clean fleet.
+    let mut linter = Linter::from_path(&lexical_normalize(&lint_paths[0]));
 
     // Merge any `--exclude` globs into the loaded config (creating a
     // default config if the repo has no .fleetlint.toml), so they apply
@@ -324,15 +328,30 @@ pub(crate) fn run(args: CheckArgs) -> anyhow::Result<()> {
                 lint_report_to_json(&file_path.display().to_string(), report)
             })
             .collect();
+        let mut summary = serde_json::json!({
+            "files_linted": files_linted,
+            "errors": total_errors,
+            "warnings": total_warnings,
+            "infos": total_infos,
+        });
+        // A narrowed report must say so in every format: text prints the
+        // "N finding(s) outside … not shown" line, so JSON carries the same
+        // count — otherwise a scoped view drops findings without a trace.
+        if let Some((label, dropped)) = &scope_context {
+            summary["scope"] = serde_json::json!({
+                "target": label,
+                "findings_outside_not_shown": dropped,
+            });
+        }
+        if let Some(dropped) = staged_context {
+            summary["staged"] = serde_json::json!({
+                "pre_existing_elsewhere_not_shown": dropped,
+            });
+        }
         let wrapper = serde_json::json!({
             "version": env!("CARGO_PKG_VERSION"),
             "files": file_outputs,
-            "summary": {
-                "files_linted": files_linted,
-                "errors": total_errors,
-                "warnings": total_warnings,
-                "infos": total_infos,
-            }
+            "summary": summary,
         });
         println!("{}", serde_json::to_string_pretty(&wrapper)?);
     } else if github_mode {

@@ -23,7 +23,10 @@
 - **`flint check --fleet <glob>`** scopes the report to one fleet (glob matched
   against the fleet file's path, file name, stem and `name:`). Analysis stays
   repo-wide, as with `--staged`; findings elsewhere are counted, not blocking;
-  a glob that matches nothing is an error, never a clean run.
+  a glob that matches nothing is an error, never a clean run. Every format
+  says when a report was narrowed: text prints the count, `--format json`
+  carries `summary.scope.findings_outside_not_shown` (and
+  `summary.staged.pre_existing_elsewhere_not_shown` for `--staged`).
 - **`flint check fleets/X.yml` and `flint check fleets/` analyse from the repo
   root.** A single fleet file used to be linted in isolation — the cross-file
   pass never ran, so the fleet above linted clean — and a sub-directory rooted
