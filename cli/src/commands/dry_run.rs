@@ -15,6 +15,7 @@ pub(crate) fn run(args: DryRunArgs) -> anyhow::Result<()> {
         refresh_snapshot,
         assume_uploaded,
         against,
+        oracle,
     } = args;
 
     use colored::Colorize;
@@ -197,10 +198,103 @@ pub(crate) fn run(args: DryRunArgs) -> anyhow::Result<()> {
                 format!("+ {advisory} advisory warning(s) (run with --strict to gate on these too)").dimmed()
             );
         }
-        std::process::exit(2);
     }
 
+    // --oracle: is anything we just blocked on something Fleet's own parser
+    // would accept? That is the false positive that stalls automation, and
+    // this catches it on the tree being gated. Advisory — it never changes
+    // the verdict or the exit code, which is why it prints after both.
+    if let Some(bin) = oracle.as_deref() {
+        if !json {
+            audit_against_oracle(bin, &lint_root, &blocking);
+        }
+    }
+
+    if !blocking.is_empty() {
+        std::process::exit(2);
+    }
     Ok(())
+}
+
+/// Compare this run's blocking findings with Fleet's parser on the same tree.
+fn audit_against_oracle(
+    bin: &std::path::Path,
+    lint_root: &std::path::Path,
+    blocking: &[(&PathBuf, &linter::error::LintError)],
+) {
+    use crate::commands::history::{print_diff_human, rel, run_oracle, CommitRef, Diff, EXPECTED_FLINT_ONLY};
+    use colored::Colorize;
+    use std::collections::{BTreeMap, BTreeSet};
+
+    let root = lint_root.canonicalize().unwrap_or_else(|_| lint_root.to_path_buf());
+    let verdicts = match run_oracle(bin, &root) {
+        Ok(Some(v)) => v,
+        Ok(None) => {
+            println!("\n  {} the oracle found no YAML to judge in this tree", "·".dimmed());
+            return;
+        }
+        Err(e) => {
+            println!("\n  {} oracle audit skipped: {e}", "!".yellow());
+            return;
+        }
+    };
+
+    let mut ours: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+    for (f, e) in blocking {
+        if let Some(code) = e.rule_code {
+            ours.entry(rel(&root, f)).or_default().insert(code.to_string());
+        }
+    }
+    let here = CommitRef {
+        sha: "WORKTREE".into(),
+        short: "worktree".into(),
+        subject: "the tree being gated".into(),
+    };
+    let mut diff = Diff::default();
+    diff.absorb(&here, &ours, &verdicts.blocking, &verdicts.no_opinion);
+    print_diff_human(&diff);
+
+    // Say what was NOT judged. Fleet's parser reads a software or policy
+    // fragment only through the fleet that references it, so a blocking
+    // finding on such a file is outside this comparison — and a "no false
+    // positive" verdict that quietly skipped 29 of 29 findings would be the
+    // very over-claim this audit exists to catch.
+    let unaudited: usize = blocking
+        .iter()
+        .filter(|(f, _)| verdicts.no_opinion.contains(&rel(&root, f)))
+        .count();
+    let unaudited_files = ours.keys().filter(|f| verdicts.no_opinion.contains(*f)).count();
+    if unaudited > 0 {
+        println!(
+            "\n  {} {unaudited} blocking finding(s) on {unaudited_files} file(s) were not \
+             audited: Fleet's parser judges a software or policy fragment only through the \
+             fleet that references it.",
+            "·".dimmed()
+        );
+    }
+
+    let review: Vec<&String> = diff
+        .flint_only
+        .keys()
+        .filter(|code| !EXPECTED_FLINT_ONLY.iter().any(|(c, _)| c == code))
+        .collect();
+    println!();
+    let audited = blocking.len() - unaudited;
+    if review.is_empty() {
+        println!(
+            "  {} of {audited} audited blocking finding(s), none blocks where Fleet would \
+             accept — no false positive is gating this tree.",
+            "✓".green()
+        );
+    } else {
+        println!(
+            "  {} {} rule(s) block where Fleet's parser accepts: {} — review before letting \
+             them gate automation.",
+            "!".yellow(),
+            review.len(),
+            review.iter().map(|s| s.as_str()).collect::<Vec<_>>().join(", ")
+        );
+    }
 }
 
 /// The git repository containing `start`.

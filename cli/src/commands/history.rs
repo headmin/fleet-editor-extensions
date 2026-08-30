@@ -105,10 +105,10 @@ fn git(dir: &Path, args: &[&str]) -> Result<String> {
 
 /// One commit's identity, oldest first.
 #[derive(Clone)]
-struct CommitRef {
-    sha: String,
-    short: String,
-    subject: String,
+pub(crate) struct CommitRef {
+    pub(crate) sha: String,
+    pub(crate) short: String,
+    pub(crate) subject: String,
 }
 
 /// First-parent history, oldest → newest. First-parent because a merge's
@@ -541,14 +541,14 @@ struct OracleOut {
 /// Run the oracle over a materialised tree and return each file's blocking
 /// messages, keyed by the same repo-relative path flint findings use.
 /// Fleet's verdicts on one tree: what it blocked, and what it declined to judge.
-struct OracleVerdicts {
-    blocking: BTreeMap<String, Vec<String>>,
+pub(crate) struct OracleVerdicts {
+    pub(crate) blocking: BTreeMap<String, Vec<String>>,
     /// Paths Fleet's parser has no opinion on. Excluded from the diff on BOTH
     /// sides — a fragment is not an acceptance.
-    no_opinion: BTreeSet<String>,
+    pub(crate) no_opinion: BTreeSet<String>,
 }
 
-fn run_oracle(bin: &Path, dir: &Path) -> Result<Option<OracleVerdicts>> {
+pub(crate) fn run_oracle(bin: &Path, dir: &Path) -> Result<Option<OracleVerdicts>> {
     let out = Command::new(bin)
         .arg("--repo")
         .arg(dir)
@@ -605,7 +605,7 @@ fn run_oracle(bin: &Path, dir: &Path) -> Result<Option<OracleVerdicts>> {
 
 /// A path relative to the materialised tree, so flint's and the oracle's
 /// answers are keyed the same way regardless of scratch-directory naming.
-fn rel(base: &Path, file: &Path) -> String {
+pub(crate) fn rel(base: &Path, file: &Path) -> String {
     file.strip_prefix(base)
         .unwrap_or(file)
         .to_string_lossy()
@@ -614,7 +614,7 @@ fn rel(base: &Path, file: &Path) -> String {
 }
 
 /// One (commit, file) where the two tools disagreed.
-struct Occurrence {
+pub(crate) struct Occurrence {
     commit: String,
     file: String,
     detail: String,
@@ -624,17 +624,35 @@ struct Occurrence {
 /// that a 358-commit run stays readable.
 const EXAMPLES: usize = 3;
 
+/// Codes flint blocks on that Fleet's OFFLINE parser cannot see, so their
+/// appearing as "flint blocked, Fleet accepted" is expected, not a false
+/// positive. Each names where Fleet actually enforces it.
+pub(crate) const EXPECTED_FLINT_ONLY: &[(&str, &str)] = &[
+    (
+        linter::codes::PROFILE_WELL_FORMED,
+        "Fleet rejects a malformed profile server-side at apply time, outside GitOpsFromFile",
+    ),
+    (
+        linter::codes::DUPLICATE_FLEET_NAME,
+        "a per-file parser cannot see two files claiming one team; Fleet collapses them silently",
+    ),
+    (
+        linter::codes::SOFTWARE_SOURCE,
+        "a snapshot-derived claim about server state; the offline parser has no server",
+    ),
+];
+
 #[derive(Default)]
-struct Diff {
+pub(crate) struct Diff {
     /// (commit, file) pairs where both called it blocking.
     agreed: usize,
     /// flint said blocking, Fleet did not — keyed by flint's rule code. The
     /// expensive direction: a rule claiming Fleet rejects what Fleet accepts
     /// sends someone to edit working config.
-    flint_only: BTreeMap<String, (usize, Vec<Occurrence>)>,
+    pub(crate) flint_only: BTreeMap<String, (usize, Vec<Occurrence>)>,
     /// Fleet said blocking, flint was silent — keyed by a normalised message.
     /// This is the gap list, measured rather than argued.
-    fleet_only: BTreeMap<String, (usize, Vec<Occurrence>)>,
+    pub(crate) fleet_only: BTreeMap<String, (usize, Vec<Occurrence>)>,
     /// Trees with no YAML for Fleet to parse — the early history of a repo.
     no_input: usize,
     /// Commits where the oracle itself failed. Reported, never swallowed: a
@@ -643,7 +661,7 @@ struct Diff {
 }
 
 impl Diff {
-    fn absorb(
+    pub(crate) fn absorb(
         &mut self,
         commit: &CommitRef,
         flint: &BTreeMap<String, BTreeSet<String>>,
@@ -742,7 +760,7 @@ fn normalise(message: &str) -> String {
     truncate(trimmed, 90)
 }
 
-fn print_diff_human(diff: &Diff) {
+pub(crate) fn print_diff_human(diff: &Diff) {
     println!("\n{}", "Against Fleet's own parser".bold());
     println!(
         "{}\n",
@@ -807,7 +825,20 @@ fn print_diff_human(diff: &Diff) {
         let mut rows: Vec<_> = diff.flint_only.iter().collect();
         rows.sort_by_key(|(_, (n, _))| std::cmp::Reverse(*n));
         for (code, (n, ex)) in rows {
-            println!("      {} {}", format!("×{n}").yellow(), code.bold());
+            match EXPECTED_FLINT_ONLY.iter().find(|(c, _)| c == code) {
+                Some((_, why)) => println!(
+                    "      {} {}  {}",
+                    format!("×{n}").dimmed(),
+                    code.dimmed(),
+                    format!("expected — {why}").dimmed()
+                ),
+                None => println!(
+                    "      {} {}  {}",
+                    format!("×{n}").yellow(),
+                    code.bold(),
+                    "REVIEW — possible false positive".yellow()
+                ),
+            }
             for o in ex.iter().take(1) {
                 println!("          {} {}", o.commit.dimmed(), o.file.dimmed());
             }

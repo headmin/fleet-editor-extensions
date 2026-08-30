@@ -316,6 +316,19 @@ pub(crate) struct DryRunArgs {
     #[arg(long, value_name = "REF")]
     pub(crate) against: Option<String>,
 
+    /// Audit this run's blocking findings against Fleet's own parser, so a
+    /// rule that blocks where Fleet would accept is caught before it blocks
+    /// automation.
+    ///
+    /// Runs `gitops-oracle` (dev-only, not shipped) over the same tree and
+    /// reports two lists: findings flint blocks on that Fleet's parser
+    /// accepts — each marked either "expected" (a check Fleet enforces
+    /// server-side, which the offline parser cannot see) or "REVIEW" (a
+    /// possible false positive) — and complaints Fleet raises that flint is
+    /// silent on. Advisory: it never changes the verdict or exit code.
+    #[arg(long, value_name = "PATH")]
+    pub(crate) oracle: Option<PathBuf>,
+
     /// Refresh `.fleet-snapshot.json` from the Fleet server before linting.
     ///
     /// A snapshot can prove something EXISTS on the server; it cannot prove

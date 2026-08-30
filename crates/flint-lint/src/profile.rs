@@ -26,6 +26,11 @@ pub struct ProfileInfo {
     /// `com.apple.loginitems.managed`) — the meaningful "what does this do",
     /// vs. the always-`Configuration` top-level type.
     pub payload_types: Vec<String>,
+    /// `PayloadUUID` of each payload inside `PayloadContent`, with its index.
+    /// Every payload carries its own UUID and Fleet delivers all of them, so
+    /// a malformed one here is as real as a malformed one at the top level —
+    /// and templated profiles stamp both from the same brand token.
+    pub nested_uuids: Vec<(usize, String)>,
 }
 
 /// Parse the **top-level** payload keys from a `.mobileconfig` XML plist.
@@ -46,6 +51,9 @@ pub fn parse_mobileconfig(xml: &str) -> ProfileInfo {
     let mut depth: i32 = 0;
     let mut pending_key: Option<String> = None;
     let mut idx = 0;
+    // Index of the current payload dict inside PayloadContent. Payloads are
+    // the dicts opened at depth 2 (plist > dict > array > dict).
+    let mut payload_index: usize = 0;
 
     while let Some(rel) = xml[idx..].find('<') {
         let lt = idx + rel;
@@ -67,6 +75,11 @@ pub fn parse_mobileconfig(xml: &str) -> ProfileInfo {
                         && !info.payload_types.iter().any(|t| t == chardata)
                     {
                         info.payload_types.push(chardata.to_string());
+                    } else if depth == 3 && k == "PayloadUUID" && !chardata.is_empty() {
+                        // Direct child of a payload dict only — deeper dicts
+                        // are payload settings, not payload identity.
+                        info.nested_uuids
+                            .push((payload_index.saturating_sub(1), chardata.to_string()));
                     }
                 }
             }
@@ -93,6 +106,9 @@ pub fn parse_mobileconfig(xml: &str) -> ProfileInfo {
                 if close {
                     depth -= 1;
                 } else if !self_close {
+                    if name == "dict" && depth == 2 {
+                        payload_index += 1;
+                    }
                     depth += 1;
                 }
             }
@@ -1011,22 +1027,44 @@ pub(crate) fn scan_bytes_and_report(path: &Path, bytes: &[u8]) -> Vec<LintError>
             )]
         }
         ProfileScan::Declaration(_) => Vec::new(),
-        ProfileScan::Xml(info) => match info.uuid.as_deref() {
-            Some(uuid) if !is_valid_payload_uuid(uuid) => vec![LintError::warning(
+        ProfileScan::Xml(info) => {
+            // Every UUID in the profile, top level and nested, in one finding.
+            // Templated profiles stamp both from the same brand token, so a
+            // per-UUID finding would report each file twice for one mistake.
+            let mut bad: Vec<String> = Vec::new();
+            if let Some(uuid) = info.uuid.as_deref().filter(|u| !is_valid_payload_uuid(u)) {
+                bad.push(format!("'{uuid}' (top level)"));
+            }
+            for (i, uuid) in &info.nested_uuids {
+                if !is_valid_payload_uuid(uuid) {
+                    bad.push(format!("'{uuid}' (PayloadContent[{i}])"));
+                }
+            }
+            if bad.is_empty() {
+                return Vec::new();
+            }
+            let message = if bad.len() == 1 {
                 format!(
-                    "{name} has PayloadUUID '{uuid}', which is not a valid UUID \
-                     (expected 8-4-4-4-12 hexadecimal)"
-                ),
-                report_on,
-            )
-            .with_rule_code(crate::codes::PAYLOAD_UUID_FORMAT)
-            .with_help(
-                "Advisory, and never auto-fixed: Fleet accepts this today, and a PayloadUUID \
-                 is part of the profile's identity — rewriting it makes Fleet re-deliver the \
-                 profile to every enrolled host in the team.",
-            )],
-            _ => Vec::new(),
-        },
+                    "{name} has PayloadUUID {}, which is not a valid UUID \
+                     (expected 8-4-4-4-12 hexadecimal)",
+                    bad[0]
+                )
+            } else {
+                format!(
+                    "{name} has {} PayloadUUIDs that are not valid UUIDs (expected \
+                     8-4-4-4-12 hexadecimal): {}",
+                    bad.len(),
+                    bad.join(", ")
+                )
+            };
+            vec![LintError::warning(message, report_on)
+                .with_rule_code(crate::codes::PAYLOAD_UUID_FORMAT)
+                .with_help(
+                    "Advisory, and never auto-fixed: Fleet accepts this today, and a PayloadUUID \
+                     is part of the profile's identity — rewriting it makes Fleet re-deliver the \
+                     profile to every enrolled host in the team.",
+                )]
+        }
     }
 }
 
@@ -1386,6 +1424,84 @@ mod tests {
         // A bare `&` and an unknown entity are left alone rather than eaten.
         assert_eq!(decode_entities("A & B"), "A & B");
         assert_eq!(decode_entities("&nbsp;"), "&nbsp;");
+    }
+
+    // -----------------------------------------------------------------------
+    // nested PayloadUUIDs
+    // -----------------------------------------------------------------------
+
+    /// Payloads inside PayloadContent carry their own UUIDs, each indexed.
+    #[test]
+    fn nested_uuids_are_captured_with_their_index() {
+        let info = parse_mobileconfig(SAMPLE);
+        assert_eq!(info.uuid.as_deref(), Some("TOP-UUID-9999"), "top level unchanged");
+        assert_eq!(info.nested_uuids, vec![(0, "INNER-UUID-1111".to_string())]);
+    }
+
+    #[test]
+    fn nested_uuids_index_each_payload_and_ignore_deeper_dicts() {
+        let xml = "<plist><dict>\
+            <key>PayloadContent</key><array>\
+              <dict><key>PayloadUUID</key><string>A</string>\
+                    <key>Settings</key><dict><key>PayloadUUID</key><string>NOT-A-PAYLOAD</string></dict></dict>\
+              <dict><key>PayloadUUID</key><string>B</string></dict>\
+            </array>\
+            <key>PayloadUUID</key><string>TOP</string>\
+            </dict></plist>";
+        let info = parse_mobileconfig(xml);
+        assert_eq!(info.uuid.as_deref(), Some("TOP"));
+        assert_eq!(info.nested_uuids, vec![(0, "A".to_string()), (1, "B".to_string())]);
+    }
+
+    /// The real shape: the template stamps the brand token into BOTH the
+    /// top-level and the nested UUID. One finding, both named.
+    #[test]
+    fn one_finding_lists_every_bad_uuid_in_the_profile() {
+        let tmp = TempDir::new().unwrap();
+        let body = "<?xml version=\"1.0\"?>\n<plist><dict>\n\
+                    <key>PayloadContent</key><array><dict>\n\
+                    <key>PayloadUUID</key><string>ACMEIO01-0001-4A01-8B01-000000000005</string>\n\
+                    </dict></array>\n\
+                    <key>PayloadUUID</key><string>ACMEIO01-0001-4A01-8B01-000000000002</string>\n\
+                    </dict></plist>";
+        let p = write(&tmp, "general-information-ACMEIO.mobileconfig", body.as_bytes());
+        let errs = scan_and_report(&p);
+        assert_eq!(errs.len(), 1, "one finding per profile, not per UUID: {errs:?}");
+        let m = &errs[0].message;
+        assert!(m.contains("2 PayloadUUIDs"), "got: {m}");
+        assert!(m.contains("(top level)") && m.contains("(PayloadContent[0])"), "got: {m}");
+        assert_eq!(errs[0].rule_code, Some(crate::codes::PAYLOAD_UUID_FORMAT));
+        assert!(errs[0].fix.is_none(), "never auto-fixed");
+    }
+
+    /// A nested-only defect is still reported — the gap this closes.
+    #[test]
+    fn a_bad_nested_uuid_under_a_valid_top_level_is_reported() {
+        let tmp = TempDir::new().unwrap();
+        let body = "<plist><dict>\
+                    <key>PayloadContent</key><array><dict>\
+                    <key>PayloadUUID</key><string>OSB00001-0001-4A01-8B01-000000000004</string>\
+                    </dict></array>\
+                    <key>PayloadUUID</key><string>95702CD6-A76F-466C-9F07-711416585D76</string>\
+                    </dict></plist>";
+        let p = write(&tmp, "x.mobileconfig", body.as_bytes());
+        let errs = scan_and_report(&p);
+        assert_eq!(errs.len(), 1, "got: {errs:?}");
+        assert!(errs[0].message.contains("PayloadContent[0]"), "got: {}", errs[0].message);
+        assert!(!errs[0].message.contains("2 PayloadUUIDs"));
+    }
+
+    #[test]
+    fn valid_nested_uuids_are_silent() {
+        let tmp = TempDir::new().unwrap();
+        let body = "<plist><dict>\
+                    <key>PayloadContent</key><array><dict>\
+                    <key>PayloadUUID</key><string>A1B2C3D4-1111-2222-3333-444455556666</string>\
+                    </dict></array>\
+                    <key>PayloadUUID</key><string>95702CD6-A76F-466C-9F07-711416585D76</string>\
+                    </dict></plist>";
+        let p = write(&tmp, "x.mobileconfig", body.as_bytes());
+        assert!(scan_and_report(&p).is_empty());
     }
 
     // -----------------------------------------------------------------------

@@ -372,9 +372,12 @@ func collectFiles(repo string, args []string) ([]string, error) {
 			return err
 		}
 		if d.IsDir() {
-			// Skip VCS and dependency dirs; also skip dot-dirs generally.
+			// Skip VCS and dependency dirs; also skip dot-dirs generally —
+			// but never the root we were pointed at. A scratch directory
+			// named `.tmpXXXX` (tempfile's default) used to make `--repo`
+			// report "no input files" for a perfectly good tree.
 			name := d.Name()
-			if name != "." && strings.HasPrefix(name, ".") {
+			if path != repo && strings.HasPrefix(name, ".") {
 				return filepath.SkipDir
 			}
 			if name == "node_modules" {
