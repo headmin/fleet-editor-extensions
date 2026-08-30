@@ -178,6 +178,15 @@ pub(crate) struct CheckArgs {
     #[arg(long)]
     pub(crate) staged: bool,
 
+    /// Scope the report to one fleet. Analysis stays repo-wide — a fleet is
+    /// judged through everything it references — but only findings on fleet
+    /// files whose path, file name, stem or `name:` matches GLOB, or that
+    /// point at such a file via `related`, are reported and affect the exit
+    /// code. Findings elsewhere are summarized, not blocking. E.g.
+    /// `--fleet CFG-LHA`, `--fleet 'fleets/CFG-*.yml'`, `--fleet 'CFG - *'`.
+    #[arg(long, value_name = "GLOB")]
+    pub(crate) fleet: Option<String>,
+
     /// Use terraform-style exit codes: 0 = no findings, 1 = engine error,
     /// 2 = findings detected (any severity). Without this flag, only
     /// errors trigger a non-zero exit. Ignored when --hook-mode is set.

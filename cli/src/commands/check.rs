@@ -109,6 +109,7 @@ pub(crate) fn run(args: CheckArgs) -> anyhow::Result<()> {
         mut format,
         hook_mode,
         staged,
+        fleet,
         detailed_exitcodes,
         git,
         heading,
@@ -195,7 +196,21 @@ pub(crate) fn run(args: CheckArgs) -> anyhow::Result<()> {
     // flint at exactly one file.
     let single_file = lint_paths.len() == 1 && lint_paths[0].is_file();
 
+    // Scoped runs analyse from the repo root and narrow the REPORT, the
+    // shape `--staged` has always had. A single fleet file used to be linted
+    // in isolation, so the cross-file pass never ran and a fleet whose
+    // patch policies had lost their apps linted clean; `flint check fleets/`
+    // rooted the workspace at that directory, so every `../platforms/…` glob
+    // "matched no files". Both were false answers to the question asked.
+    let scope = Scope::decide(&lint_paths, fleet.as_deref(), &linter);
+
+    if let Some(sc) = &scope {
+        results.extend(linter.lint_directory(&sc.root, None)?);
+    }
     for p in &lint_paths {
+        if scope.is_some() {
+            break;
+        }
         if p.is_file() {
             // A profile or DDM declaration is not YAML and is normally judged
             // by the repo-wide pass through the fleet that references it.
@@ -245,6 +260,37 @@ pub(crate) fn run(args: CheckArgs) -> anyhow::Result<()> {
         }
         results.retain(|(_, r)| !(r.errors.is_empty() && r.warnings.is_empty() && r.infos.is_empty()));
         staged_context = Some(dropped);
+    }
+
+    // Report scoping for --fleet / a single fleet file / a sub-directory.
+    let mut scope_context: Option<(String, usize)> = None;
+    if let Some(sc) = &scope {
+        let matched = sc.matched(&results)?;
+        let covers = |p: &std::path::Path| sc.covers(&matched, p);
+        let mut dropped = 0usize;
+        for (path, report) in &mut results {
+            let file_in = covers(path);
+            let keep = |e: &linter::LintError| {
+                file_in || covers(&e.file) || e.related.iter().any(|r| covers(r))
+            };
+            for list in [&mut report.errors, &mut report.warnings, &mut report.infos] {
+                let before = list.len();
+                list.retain(&keep);
+                dropped += before - list.len();
+            }
+        }
+        results.retain(|(p, r)| covers(p) || !(r.errors.is_empty() && r.warnings.is_empty() && r.infos.is_empty()));
+        if let ScopeTarget::File(f) = &sc.target {
+            // Single-file rendering shows results[0]: make sure that is the
+            // file asked for, and that it is present even when clean.
+            let nf = lexical_normalize(f);
+            if let Some(i) = results.iter().position(|(p, _)| lexical_normalize(p) == nf) {
+                results.swap(0, i);
+            } else {
+                results.insert(0, (f.clone(), linter::error::LintReport::new()));
+            }
+        }
+        scope_context = Some((sc.label(), dropped));
     }
 
     // Apply fixes if requested.
@@ -380,6 +426,18 @@ pub(crate) fn run(args: CheckArgs) -> anyhow::Result<()> {
                 );
             }
         }
+        if let Some((label, dropped)) = &scope_context {
+            if *dropped > 0 {
+                println!(
+                    "  {}",
+                    format!(
+                        "{dropped} finding(s) outside {label} not shown (not blocking — \
+                         run `flint check <repo>` to see all)"
+                    )
+                    .dimmed()
+                );
+            }
+        }
         print_repeats(&results);
         if !fix {
             print_fix_hint(&results);
@@ -483,6 +541,130 @@ fn print_repeats(results: &[(PathBuf, linter::error::LintReport)]) {
         println!("  {}  {sev}  {msg}", format!("×{}", files.len()).bold());
         println!("        {}", format!("{}{tail}", shown.join(", ")).dimmed());
     }
+}
+
+/// What a scoped `flint check` reports on. Analysis always runs from `root`.
+enum ScopeTarget {
+    /// `--fleet GLOB`: fleet files matching by path, name, stem or `name:`.
+    Fleet(String),
+    /// `flint check fleets/X.yml`: that fleet file.
+    File(PathBuf),
+    /// `flint check fleets/` (or any sub-directory of the repo): files under it.
+    Dir(PathBuf),
+}
+
+struct Scope {
+    root: PathBuf,
+    target: ScopeTarget,
+}
+
+impl Scope {
+    /// Decide whether this invocation is a scoped run. `None` keeps the
+    /// per-path behaviour (a repo root, several files, a non-fleet file).
+    fn decide(paths: &[PathBuf], fleet: Option<&str>, linter: &linter::Linter) -> Option<Scope> {
+        let first = paths.first()?;
+        // Absolute first: walking a RELATIVE path upward ends at "" before
+        // reaching the repo's `.git`, and a lint rooted at "" finds nothing.
+        let root = linter::discover_gitops_root(&lexical_normalize(first));
+        if let Some(g) = fleet {
+            return Some(Scope { root, target: ScopeTarget::Fleet(g.to_string()) });
+        }
+        if paths.len() != 1 {
+            return None;
+        }
+        if first.is_file() {
+            // A fleet file is judged through everything it references, so it
+            // needs the whole repo in view. Anything else keeps the
+            // single-file lint; `[files]` exclusions are honoured as before.
+            let is_yaml = matches!(
+                first.extension().and_then(|e| e.to_str()),
+                Some("yml") | Some("yaml")
+            );
+            // Placement is judged on the absolute path: run from inside
+            // `fleets/`, the argument `CFG-A.yml` has no parent component.
+            let abs = lexical_normalize(first);
+            if is_yaml
+                && linter::cross_reference::is_team_file(&abs)
+                && linter.config().should_lint_file(first)
+                && lexical_normalize(&root) != abs.parent()?.to_path_buf()
+            {
+                return Some(Scope { root, target: ScopeTarget::File(first.clone()) });
+            }
+            return None;
+        }
+        if first.is_dir() && lexical_normalize(&root) != lexical_normalize(first) {
+            return Some(Scope { root, target: ScopeTarget::Dir(first.clone()) });
+        }
+        None
+    }
+
+    /// The fleet files `--fleet` selects, normalized. Errors when nothing
+    /// matches: a typo must not read as "clean".
+    fn matched(
+        &self,
+        results: &[(PathBuf, linter::error::LintReport)],
+    ) -> anyhow::Result<std::collections::HashSet<PathBuf>> {
+        let mut set = std::collections::HashSet::new();
+        let ScopeTarget::Fleet(glob) = &self.target else {
+            return Ok(set);
+        };
+        let root = lexical_normalize(&self.root);
+        for (path, _) in results {
+            if !linter::cross_reference::is_team_file(path) {
+                continue;
+            }
+            let norm = lexical_normalize(path);
+            let rel = norm
+                .strip_prefix(&root)
+                .unwrap_or(&norm)
+                .to_string_lossy()
+                .replace('\\', "/");
+            let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+            let stem = path.file_stem().and_then(|n| n.to_str()).unwrap_or("");
+            let declared = std::fs::read_to_string(path)
+                .ok()
+                .and_then(|s| declared_name(&s))
+                .unwrap_or_default();
+            let m = |t: &str| !t.is_empty() && linter::unwired::glob_match(glob, t);
+            if m(&rel) || m(name) || m(stem) || m(&declared) {
+                set.insert(norm);
+            }
+        }
+        if set.is_empty() {
+            anyhow::bail!(
+                "no fleet file matches --fleet '{glob}' under {} (matched against path, file name, stem and `name:`)",
+                self.root.display()
+            );
+        }
+        Ok(set)
+    }
+
+    /// Whether a finding's file is inside the scope.
+    fn covers(&self, matched: &std::collections::HashSet<PathBuf>, p: &std::path::Path) -> bool {
+        let n = lexical_normalize(p);
+        match &self.target {
+            ScopeTarget::Fleet(_) => matched.contains(&n),
+            ScopeTarget::File(f) => n == lexical_normalize(f),
+            ScopeTarget::Dir(d) => n.starts_with(lexical_normalize(d)),
+        }
+    }
+
+    fn label(&self) -> String {
+        match &self.target {
+            ScopeTarget::Fleet(g) => format!("--fleet '{g}'"),
+            ScopeTarget::File(f) => f.display().to_string(),
+            ScopeTarget::Dir(d) => format!("{}/", d.display().to_string().trim_end_matches('/')),
+        }
+    }
+}
+
+/// The top-level `name:` of a fleet file, quotes stripped.
+fn declared_name(source: &str) -> Option<String> {
+    source.lines().find_map(|l| {
+        let v = l.strip_prefix("name:")?.trim();
+        let v = v.split(" #").next().unwrap_or(v).trim();
+        Some(v.trim_matches(|c| c == '"' || c == '\'').to_string())
+    })
 }
 
 /// The staged file set, absolute + lexically normalized. `--no-renames` is

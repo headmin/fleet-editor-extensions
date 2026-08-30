@@ -1,5 +1,35 @@
 # Changelog
 
+## v0.3.1 (Unreleased)
+
+### Fixed — two silent passes
+
+- **Patch policies are checked against the team's Fleet-maintained apps.**
+  `install-software-team` looked only at policies that *install* something, so
+  a `type: patch` policy with no `install_software` was never resolved. Fleet
+  rejects every patch policy whose app the team does not list — "<slug> is
+  specified in the patch policy, but it isn't specified under
+  software.fleet_maintained_apps" — one error per policy; a team whose
+  `fleet_maintained_apps` list was trimmed linted clean and failed the dry-run
+  with 44 of them. Now an error on the fleet file, same rule.
+- **A fragment that is not YAML is an error on every file kind.** Only fleet
+  configs got the `yaml-syntax` verdict; a policy, label, query or software file
+  with a stray `: ` inside a value linted clean and `dry-run` passed, while
+  `fleetctl gitops` failed on it. Duplicate keys remain accepted (Fleet's parser
+  accepts them).
+
+### New — check one fleet
+
+- **`flint check --fleet <glob>`** scopes the report to one fleet (glob matched
+  against the fleet file's path, file name, stem and `name:`). Analysis stays
+  repo-wide, as with `--staged`; findings elsewhere are counted, not blocking;
+  a glob that matches nothing is an error, never a clean run.
+- **`flint check fleets/X.yml` and `flint check fleets/` analyse from the repo
+  root.** A single fleet file used to be linted in isolation — the cross-file
+  pass never ran, so the fleet above linted clean — and a sub-directory rooted
+  the workspace at itself, so every `../platforms/…` glob "matched no files".
+  Both now run the whole repo and narrow the report to the target.
+
 ## v0.3.0 (Unreleased)
 
 ### Removed: the legacy generator spellings

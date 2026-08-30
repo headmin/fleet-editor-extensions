@@ -65,8 +65,18 @@ flint check . --fix --unsafe-fixes
 flint check . --format json       # structured output for CI
 flint check . --exclude '**/tools-scripts/fleet-templates/**'   # skip a folder
 flint check wifi.mobileconfig     # scan one profile (or DDM .json) directly
+flint check --fleet CFG-LHA       # one fleet: repo-wide analysis, report scoped to it
+flint check fleets/CFG-LHA.yml    # same thing, by file
 flint list-rules                  # show enforced rules
 ```
+
+**One fleet at a time.** A fleet is judged through everything it references,
+so `--fleet <glob>` (matched against the fleet file's path, file name, stem and
+`name:`) and pointing `check` at a single fleet file both analyse the whole repo
+and narrow the *report* — the same shape `--staged` has. Findings elsewhere are
+counted, not blocking. A glob that matches no fleet is an error, never a clean
+run. Pointing `check` at a sub-directory (`fleets/`, `platforms/`) works the
+same way: analysis from the repo root, report limited to files under it.
 
 `flint check <profile>` runs the profile-level rules (`profile-well-formed`,
 `payload-uuid-format`) on a single `.mobileconfig` or DDM declaration without a
@@ -126,7 +136,9 @@ on `flint check <dir>` (it needs the whole repo to resolve references):
 - `install-software-team` — a fleet/team whose policy auto-installs a package
   that *that team* doesn't include in its `software` list (resolving
   `package_path`/`hash_sha256`/`fleet_maintained_app_slug`/`app_store_id`, and
-  policies pulled in by a `paths:` glob). The install-on-fail can't run for that
+  policies pulled in by a `paths:` glob), or whose **patch policy** names a
+  Fleet-maintained app missing from `software.fleet_maintained_apps` — Fleet
+  rejects every such patch policy, whether or not it installs the app. The install-on-fail can't run for that
   team, and gitops reports `package not found with hash`. Covers `fleets/` and
   `teams/`.
 - `app-store-vpp` — `software.app_store_apps` declared but no
