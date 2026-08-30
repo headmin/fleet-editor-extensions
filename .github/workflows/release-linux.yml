@@ -223,3 +223,6 @@ jobs:
           # Deliberately strict: a silently-empty upload is how the Linux
           # assets went missing for two releases running.
           fail_on_unmatched_files: true
+          # Keep a hand-created draft a draft; the action's default (false)
+          # would publish the release the moment the tag is pushed.
+          draft: true

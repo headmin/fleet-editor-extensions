@@ -32,9 +32,36 @@ pub(crate) struct PathExistsRule {
     /// this cache, every file containing a broken reference re-walked the
     /// whole workspace to build suggestions (ADR-010 Phase 1 perf fix).
     index_cache: std::sync::Mutex<Option<(PathBuf, std::sync::Arc<BasenameIndex>)>>,
+    /// Every path some config file references — the engine fills it once per
+    /// directory lint. Decides whether a broken reference can fail an apply
+    /// at all: one inside a fragment nothing references is never read.
+    pub(crate) referenced: super::rules::ReferencedPaths,
 }
 
 impl PathExistsRule {
+    pub(crate) fn with_referenced(referenced: super::rules::ReferencedPaths) -> Self {
+        Self {
+            referenced,
+            ..Default::default()
+        }
+    }
+
+    /// A policy/software/profile fragment that no fleet references. Fleet
+    /// reads a fragment only through a `path:` in a fleet or the global
+    /// config, so a broken reference INSIDE such a file cannot fail an apply
+    /// — flint's own false-positive audit surfaced exactly this: a retired
+    /// policy with a dead path, blocking, where Fleet had no opinion. Unknown
+    /// wiring (a single-file lint) is not demoted; the conservative default
+    /// there is the existing error.
+    fn is_unwired_fragment(&self, file: &Path) -> bool {
+        !matches!(
+            super::engine::detect_file_type(file),
+            super::engine::FileType::FleetConfig
+        ) && self
+            .referenced
+            .get()
+            .is_some_and(|set| !set.contains(&super::util::normalize_path(file)))
+    }
     /// The cached basename index for `file`'s workspace root, building it
     /// on first use and rebuilding only if the root changes.
     fn cached_index(&self, file: &Path) -> std::sync::Arc<BasenameIndex> {
@@ -76,8 +103,17 @@ impl Rule for PathExistsRule {
         // built it is cached on the rule for every later file.
         let mut index: Option<std::sync::Arc<BasenameIndex>> = None;
         let build_index = |f: &Path| self.cached_index(f);
+        let unwired_fragment = self.is_unwired_fragment(file);
         for path_val in collect_path_values(&yaml) {
-            check_path(file, &path_val, source, &mut index, &build_index, &mut errors);
+            check_path(
+                file,
+                &path_val,
+                source,
+                &mut index,
+                &build_index,
+                unwired_fragment,
+                &mut errors,
+            );
         }
         errors
     }
@@ -91,11 +127,28 @@ fn check_path(
     source: &str,
     index: &mut Option<std::sync::Arc<BasenameIndex>>,
     build_index: &dyn Fn(&Path) -> std::sync::Arc<BasenameIndex>,
+    unwired_fragment: bool,
     errors: &mut Vec<LintError>,
 ) {
     if !is_checkable(path_val) {
         return;
     }
+
+    // Every finding below is a claim that Fleet would reject this reference.
+    // Fleet reads a fragment only through a fleet that includes it, so inside
+    // a fragment nothing references the claim is untrue — Fleet never sees the
+    // line — and the finding is a warning that says so. One place decides
+    // this for all three shapes (missing, directory, directory-with-labels).
+    let apply_failure = |msg: String| -> LintError {
+        if unwired_fragment {
+            LintError::warning(
+                format!("{msg} — in a file no fleet references, so Fleet never reads it"),
+                file,
+            )
+        } else {
+            LintError::error(msg, file)
+        }
+    };
 
     let base = match file.parent() {
         Some(p) => p,
@@ -122,10 +175,9 @@ fn check_path(
                 if let Some((block, count)) =
                     build_dir_expansion(source, s.line, path_val, &resolved)
                 {
-                    let err = LintError::error(
-                        format!("path reference points to a directory, not a file: {path_val}"),
-                        file,
-                    )
+                    let err = apply_failure(format!(
+                        "path reference points to a directory, not a file: {path_val}"
+                    ))
                     .with_context(path_val.to_string())
                     .with_rule_code(crate::codes::PATH_IS_FILE)
                     .with_help(format!(
@@ -144,10 +196,9 @@ fn check_path(
             } else {
                 format!("{path_val}/*")
             };
-            let mut err = LintError::error(
-                format!("path reference points to a directory, not a file: {path_val}"),
-                file,
-            )
+            let mut err = apply_failure(format!(
+                "path reference points to a directory, not a file: {path_val}"
+            ))
             .with_context(path_val.to_string())
             .with_rule_code(crate::codes::PATH_IS_FILE)
             .with_help(format!(
@@ -227,7 +278,7 @@ fn check_path(
     // `related` carries the missing target so `flint check --staged` blocks the
     // commit that DELETES a referenced file: the finding sits on an unstaged
     // fleet YAML, and only this link puts it in staged scope (ADR-010).
-    let mut err = LintError::error(format!("path reference not found: {path_val}"), file)
+    let mut err = apply_failure(format!("path reference not found: {path_val}"))
         .with_context(path_val.to_string())
         .with_related(resolved.clone());
     if let Some(s) = span {
@@ -853,6 +904,99 @@ mod tests {
         );
         assert_eq!(e.fix_safety(), Some(FixSafety::Safe));
         assert!(e.line().is_some() && e.column().is_some());
+    }
+
+    fn wired(paths: &[&Path]) -> super::super::rules::ReferencedPaths {
+        let r: super::super::rules::ReferencedPaths = Default::default();
+        r.set(paths.iter().map(|p| crate::util::normalize_path(p)).collect()).unwrap();
+        r
+    }
+
+    /// A broken reference inside a fragment no fleet includes cannot fail an
+    /// apply — Fleet never reads the file — so it must not block.
+    #[test]
+    fn broken_reference_in_an_unwired_fragment_is_a_warning() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let pol = tmp.path().join("platforms/macos/policies/retired.yml");
+        std::fs::create_dir_all(pol.parent().unwrap()).unwrap();
+        let yaml = "- name: x\n  query: SELECT 1;\n  run_script:\n    path: ../scripts/gone.sh\n";
+        std::fs::write(&pol, yaml).unwrap();
+        let other = tmp.path().join("platforms/macos/policies/live.yml");
+        let rule = PathExistsRule::with_referenced(wired(&[&other]));
+        let errs = rule.check(&FleetConfig::default(), &pol, yaml);
+        let nf: Vec<_> = errs.iter().filter(|e| e.message.contains("not found")).collect();
+        assert_eq!(nf.len(), 1, "got: {errs:?}");
+        assert_eq!(nf[0].severity, Severity::Warning);
+        assert!(nf[0].message.contains("no fleet references"), "got: {}", nf[0].message);
+    }
+
+    /// A `path:` at a directory is the other shape Fleet would reject — and
+    /// equally unseen inside a fragment no fleet includes.
+    #[test]
+    fn directory_reference_in_an_unwired_fragment_is_a_warning() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let pol = tmp.path().join("platforms/macos/policies/retired.yml");
+        std::fs::create_dir_all(pol.parent().unwrap()).unwrap();
+        std::fs::create_dir_all(tmp.path().join("platforms/macos/scripts")).unwrap();
+        let yaml = "- name: x\n  query: SELECT 1;\n  run_script:\n    path: ../scripts\n";
+        std::fs::write(&pol, yaml).unwrap();
+        let other = tmp.path().join("platforms/macos/policies/live.yml");
+
+        let unwired = PathExistsRule::with_referenced(wired(&[&other]))
+            .check(&FleetConfig::default(), &pol, yaml);
+        let dir: Vec<_> = unwired.iter().filter(|e| e.message.contains("directory")).collect();
+        assert_eq!(dir.len(), 1, "got: {unwired:?}");
+        assert_eq!(dir[0].severity, Severity::Warning);
+        assert_eq!(dir[0].rule_code, Some(crate::codes::PATH_IS_FILE));
+        assert!(dir[0].message.contains("no fleet references"), "got: {}", dir[0].message);
+
+        let wired_rule = PathExistsRule::with_referenced(wired(&[&pol]))
+            .check(&FleetConfig::default(), &pol, yaml);
+        assert!(
+            wired_rule.iter().any(|e| e.message.contains("directory") && e.severity == Severity::Error),
+            "wired fragment must still block: {wired_rule:?}"
+        );
+    }
+
+    /// The same reference in a fragment a fleet DOES include still blocks.
+    #[test]
+    fn broken_reference_in_a_wired_fragment_stays_an_error() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let pol = tmp.path().join("platforms/macos/policies/live.yml");
+        std::fs::create_dir_all(pol.parent().unwrap()).unwrap();
+        let yaml = "- name: x\n  query: SELECT 1;\n  run_script:\n    path: ../scripts/gone.sh\n";
+        std::fs::write(&pol, yaml).unwrap();
+        let rule = PathExistsRule::with_referenced(wired(&[&pol]));
+        let errs = rule.check(&FleetConfig::default(), &pol, yaml);
+        assert!(errs.iter().any(|e| e.message.contains("not found") && e.severity == Severity::Error), "got: {errs:?}");
+    }
+
+    /// A fleet file is an entry point Fleet reads directly: never demoted,
+    /// whatever the referenced set says.
+    #[test]
+    fn broken_reference_in_a_fleet_file_is_never_demoted() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let fleet = tmp.path().join("fleets/ABC-X.yml");
+        std::fs::create_dir_all(fleet.parent().unwrap()).unwrap();
+        let yaml = "name: ABC - X\ncontrols:\n  scripts:\n    - path: ../scripts/gone.sh\n";
+        std::fs::write(&fleet, yaml).unwrap();
+        let rule = PathExistsRule::with_referenced(wired(&[]));
+        let errs = rule.check(&FleetConfig::default(), &fleet, yaml);
+        assert!(errs.iter().any(|e| e.message.contains("not found") && e.severity == Severity::Error), "got: {errs:?}");
+    }
+
+    /// Unknown wiring — a single-file lint never fills the set — keeps the
+    /// existing error: the conservative default is not to weaken a check on
+    /// information that is absent.
+    #[test]
+    fn unknown_wiring_keeps_the_error() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let pol = tmp.path().join("platforms/macos/policies/p.yml");
+        std::fs::create_dir_all(pol.parent().unwrap()).unwrap();
+        let yaml = "- name: x\n  query: SELECT 1;\n  run_script:\n    path: ../scripts/gone.sh\n";
+        std::fs::write(&pol, yaml).unwrap();
+        let errs = PathExistsRule::default().check(&FleetConfig::default(), &pol, yaml);
+        assert!(errs.iter().any(|e| e.message.contains("not found") && e.severity == Severity::Error), "got: {errs:?}");
     }
 
     #[test]

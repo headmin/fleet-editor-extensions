@@ -45,7 +45,7 @@ pub(crate) fn generate_index(cmd: &clap::Command, writer: &mut impl Write) -> Re
     )?;
     writeln!(
         buf,
-        "3. Run `{name} help-ai --sop <tool>` for step-by-step workflows (lint, migrate, lsp)"
+        "3. Run `{name} help-ai --sop <tool>` for step-by-step workflows (lint, migrate, lsp, paths, history, …)"
     )?;
     writeln!(
         buf,
@@ -83,7 +83,7 @@ pub(crate) fn generate_index(cmd: &clap::Command, writer: &mut impl Write) -> Re
     )?;
     writeln!(
         buf,
-        "- lint, validate, check, fix YAML files → `--sop lint`"
+        "- lint, validate, check, fix YAML files or a profile; offline dry-run of a merge → `--sop lint`"
     )?;
     writeln!(
         buf,
@@ -104,6 +104,10 @@ pub(crate) fn generate_index(cmd: &clap::Command, writer: &mut impl Write) -> Re
     writeln!(
         buf,
         "- fix broken path: refs (moved files), or wire unwired profiles/scripts/software → `--sop paths`"
+    )?;
+    writeln!(
+        buf,
+        "- replay rules over git history, mine guardrails, gate rule quality in CI → `--sop history`"
     )?;
     writeln!(
         buf,
@@ -146,6 +150,10 @@ pub(crate) fn generate_index(cmd: &clap::Command, writer: &mut impl Write) -> Re
     writeln!(
         buf,
         "- `--sop paths`       — fix broken path: refs (--fix) + report/wire unwired artifacts"
+    )?;
+    writeln!(
+        buf,
+        "- `--sop history`     — replay today's rules over past commits (--oracle, --suggest-patterns, --gate)"
     )?;
     writeln!(
         buf,
@@ -400,8 +408,9 @@ pub(crate) fn generate_sop(tool: &str, writer: &mut impl Write) -> Result<()> {
         "add-field" | "addfield" | "extend" | "schema" => SOP_ADD_FIELD,
         "paths" | "path" | "unwired" | "wire" => SOP_PATHS,
         "software" | "pkg" | "app" | "profile" | "query" | "new" | "generate" => SOP_SOFTWARE,
+        "history" | "replay" | "gate" | "oracle" => SOP_HISTORY,
         _ => bail!(
-            "Unknown SOP: '{tool}'. Available: lint, migrate, lsp, hooks, author, add-field, paths, software"
+            "Unknown SOP: '{tool}'. Available: lint, migrate, lsp, hooks, author, add-field, paths, software, history"
         ),
     };
     writer.write_all(sop.as_bytes())?;
@@ -424,6 +433,13 @@ PROCEDURE lint_repo(path):
   # Phase 2 — Run the linter
   RUN: `flint check <path>`
   CAPTURE: stdout + exit code
+  IF path is a .mobileconfig or a DDM .json:
+    `flint check <profile>` scans that one artifact directly (profile-well-formed,
+    payload-uuid-format) — no fleet file needed. Wiring/reference rules still
+    need the directory lint.
+  SEVERITY: flint reports the coupling it can see, not the failure it cannot
+    verify — a finding inside a fragment no fleet wires is a WARNING; the same
+    finding inside a wired fragment is an ERROR.
 
   # Phase 3 — Classify exit
   IF exit == 0:
@@ -449,7 +465,21 @@ PROCEDURE lint_repo(path):
   PARSE: { version, files: [{ counts, diagnostics: [{...}] }], summary }
   EXIT_CODE_CONTRACT: 0 = clean, 1 = errors, 2 = flint crash
 
-  # Phase 5 — Inspect what flint enforces
+  # Phase 5 — Whole-repo gate before push / merge (offline, no server)
+  RUN: `flint dry-run <repo>`                   # verdict: would `fleetctl gitops` pass?
+  EXIT_CODE_CONTRACT (dry-run): 0 = pass, 2 = blocking errors; `--strict` blocks on warnings too
+  RUN: `flint dry-run <repo> --against <REF>`   # lint the MERGE of HEAD and REF, without producing it —
+                                                # catches a defect that exists only in the combination
+                                                # (one branch deleted files another began referencing).
+                                                # A textual conflict is reported and blocks (exit 2).
+  RUN: `flint dry-run <repo> --oracle <PATH>`   # dev/CI only (`gitops-oracle`, not shipped): audits the
+                                                # blocking findings against Fleet's own parser —
+                                                # "expected" = Fleet enforces it server-side,
+                                                # "REVIEW" = possible false positive. Advisory: never
+                                                # changes the verdict or exit code.
+  A clean dry-run means flint found nothing — weaker than fleetctl accepting the apply.
+
+  # Phase 6 — Inspect what flint enforces
   RUN: `flint list-rules`              # table view
   RUN: `flint list-rules --format json` # for programmatic use
 
@@ -473,6 +503,19 @@ exclude = ["node_modules", "target"]
 [deprecations]
 fleet_version = "4.85.0"             # target version for deprecation checks
 future_names = true                  # opt in to new naming (reports, settings, fleets)
+
+[orphans]
+# Artifacts kept on purpose although no fleet references them. Silences
+# `orphaned-file` for the match and nothing else — unlike [files] exclude,
+# which would take the file out of scope for every rule.
+allow = ["profiles/archive/**"]
+
+[fleet.env]
+# Names this repo supplies to fleetctl. `env-var-resolvable` warns on any
+# `${VAR}` that is neither set here, in the environment, nor server-resolved
+# (`$FLEET_SECRET_*`, `$FLEET_VAR_*`). fleetctl expands the RAW file text,
+# comments included, so one unset name fails the whole file.
+FLEET_BOOTSTRAP_TOKEN = "op://Vault/Item/field"
 ```
 
 # Key flags
@@ -793,13 +836,19 @@ PROCEDURE fix_broken_paths(dir):
   READS as before→after blocks grouped by file:
     L<line>  - <old path>   (not found)
              + <new path>   (moved here)   # unique basename match → auto-fixable
-    L<line>  ? <old path>   (reason)        # ambiguous or genuinely missing
+             ↳ renamed in <sha> "<subject>"           # git confirms the move
+    L<line>  ? <old path>   (reason)        # ambiguous or genuinely missing, then what git knows:
+             renamed to <new> in <sha> "<subject>"    # recorded rename → --fix rewrites it
+             deleted in <sha> "<subject>"             # gone: drop the reference or restore the file
   ALSO surfaced as the `path-exists` lint rule in `flint check` and the editor.
+  SEVERITY: inside a fragment no fleet wires, path-exists / path-is-file are
+    WARNINGS (flint reports the coupling it can see); wired → ERROR.
 
   # Phase 2 — Apply
   RUN: `flint paths <dir> --fix`
-  EFFECT: rewrites every UNAMBIGUOUS reference (single basename match) in place.
-  Ambiguous (multiple candidates) / missing (no candidate) are left for manual fix.
+  EFFECT: rewrites every UNAMBIGUOUS reference in place — a single basename
+  match on disk, OR a rename git recorded (followed up to 5 hops: old → mid → new).
+  Ambiguous (multiple candidates) / deleted / missing are left for manual fix.
   In the editor: a quick-fix lightbulb offers each candidate; a "Fix all N
   references to <file>" action repairs every referrer across the workspace.
 
@@ -833,6 +882,9 @@ PROCEDURE wire_unwired(dir):
 # Key facts
 - path: is a single file; paths: is a glob (`*`, `?`, `**`). A glob cannot be
   label-scoped — per-path labels require the per-file style.
+- An artifact kept on purpose (archive, template) is declared, not excluded:
+  `.fleetlint.toml` → `[orphans] allow = ["profiles/archive/**"]` silences
+  `orphaned-file` for it and nothing else.
 - Inserts land after the last REAL entry of the section (never below trailing
   commented-out blocks), and convert an inline `key: []` to a block first.
 "#;
@@ -909,6 +961,77 @@ PROCEDURE scaffold_new(kind):
 - software.fleet_maintained_apps entries use `slug: <app>/<platform>` (e.g.
   `slug: santa/darwin`), optionally `setup_experience: true`, labels, version.
 - An inline comment after the slug is fine: `slug: santa/darwin # Santa`.
+"#;
+
+const SOP_HISTORY: &str = r#"# SOP: Rule history — replay, mine, diff, gate
+
+Four questions over the repo's git history, all read-only (each commit is
+reconstructed into a scratch directory; the working copy is never touched):
+  A. replay   — which rules WOULD have fired on past commits, and how often?
+  B. mine     — which conventions were repaired by hand, repeatedly, with no rule?
+  C. diff     — where does flint's blocking verdict disagree with Fleet's parser?
+  D. gate     — has rule quality regressed since the stored baseline? (CI)
+
+PROCEDURE replay(repo):
+  RUN: `flint history <repo> --max 400`        # last 400 first-parent commits (default 200)
+  OR:  `flint history <repo> --since <REF>`    # REF (exclusive) .. HEAD
+  READS per rule code, ranked:
+    <code>  ×N closed windows, <M> commit(s)
+        <sha> <subject>  →  fixed in <sha> <subject>
+        <sha> <subject>  →  still firing at HEAD
+  A "red window" is a run of commits in which the code fired; it CLOSES at the
+  commit that made it stop. Only CLOSED windows score — an open one describes
+  current state, not a repeated mistake. ×2 or more closed = repeat failure,
+  which is the ranking that matters.
+  "Not replayed" lists codes that cannot be judged from history (software-source
+  depends on server state at that commit, which is gone).
+  FLAGS:
+    --scope-as-committed   use each tree's OWN .fleetlint.toml instead of today's
+                           ("what would flint have said at the time")
+    --no-reuse             recompute every commit (reuse of unchanged trees is
+                           output-identical; this proves it or bisects a difference)
+    --json                 the form an agent consumes
+
+PROCEDURE suggest_patterns(repo):
+  RUN: `flint history <repo> --suggest-patterns [--min-occurrences 2]`
+  EFFECT: mines commits that look like remediation and proposes `[[patterns]]`
+  guardrails for conventions repaired at least N times (one repair is an anecdote).
+  OUTPUT is heuristic, emitted COMMENTED OUT, and never written to any config.
+  FOR EACH suggestion: REVIEW it, THEN paste into `.fleetlint.toml` `[[patterns]]`,
+  THEN `flint check <repo>` to confirm it fires where intended.
+
+PROCEDURE oracle_diff(repo, oracle):
+  ASSERT oracle is a built `gitops-oracle` binary (dev/CI only — not shipped)
+  RUN: `flint history <repo> --oracle <oracle>`
+  EFFECT: each replayed tree also goes through Fleet's own parser
+  (`spec.GitOpsFromFile`, what `fleetctl gitops` calls) and blocking claims are
+  diffed BOTH ways:
+    flint blocked, Fleet accepted — per rule code, each marked
+      "expected — <why>"   Fleet enforces it server-side, outside the parser:
+                           profile-well-formed, duplicate-fleet-name, software-source
+      "REVIEW"             possible false positive — a false claim sends someone
+                           to edit working config; fix the rule or narrow it
+    Fleet blocked, flint silent — the gap list, measured rather than argued
+  For a single tree (a PR, not history) use `flint dry-run --oracle <oracle>`.
+
+PROCEDURE gate(repo, baseline):
+  RUN: `flint history <repo> --gate <baseline.json> [--oracle <oracle>]`
+  IF baseline does not exist: it is written and the run PASSES
+  ELSE: exit 2 IF a rule NEWLY blocks where Fleet accepts, or Fleet complains
+        about something flint has NEWLY gone silent on, or a rule no longer
+        catches what it used to.
+  Only new KEYS gate. Counts move with the range replayed, so they are reported
+  and never failed on.
+  IF a change is understood and intended:
+    RUN: `flint history <repo> --gate <baseline.json> --update-baseline`
+    COMMIT the baseline with the rule change that explains it.
+  NEVER update the baseline to silence a gate you have not explained.
+
+# Key facts
+- Default replay applies TODAY'S config to every tree, so scope is held fixed;
+  a directory the repo has since declared out of scope cannot pollute history.
+- Reconstruction uses `git archive` per commit — read-only, safe on a dirty tree.
+- `--json` on every mode; `--gate` exits 2 on regression, 0 otherwise.
 "#;
 
 // ── JSON mode ────────────────────────────────────────────────────────
@@ -1191,7 +1314,17 @@ mod tests {
 
     #[test]
     fn test_all_sops_use_procedural_format() {
-        for tool in ["lint", "migrate", "lsp", "hooks", "author", "add-field"] {
+        for tool in [
+            "lint",
+            "migrate",
+            "lsp",
+            "hooks",
+            "author",
+            "add-field",
+            "paths",
+            "software",
+            "history",
+        ] {
             let mut out = Vec::new();
             generate_sop(tool, &mut out)
                 .unwrap_or_else(|e| panic!("SOP '{tool}' missing: {e}"));
@@ -1213,6 +1346,9 @@ mod tests {
             "pre-commit",  // hooks
             "yaml",        // author
             "addfield",    // add-field
+            "unwired",     // paths
+            "generate",    // software
+            "replay",      // history
         ] {
             let mut out = Vec::new();
             generate_sop(alias, &mut out)

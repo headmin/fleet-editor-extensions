@@ -5,7 +5,7 @@ go 1.26.5
 require (
 	github.com/BurntSushi/toml v1.2.0
 	github.com/bmatcuk/doublestar/v4 v4.10.0
-	github.com/fleetdm/fleet/v4 v4.90.0
+	github.com/fleetdm/fleet/v4 v4.90.1
 	github.com/hashicorp/go-multierror v1.1.1
 	gopkg.in/yaml.v3 v3.0.1
 )

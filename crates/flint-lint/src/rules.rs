@@ -74,7 +74,9 @@ impl RuleSet {
         }));
         set.add_rule(Box::new(super::structural::StructuralValidationRule));
         set.add_rule(Box::new(super::self_reference::SelfReferenceRule));
-        set.add_rule(Box::new(super::path_exists::PathExistsRule::default()));
+        set.add_rule(Box::new(super::path_exists::PathExistsRule::with_referenced(
+            opts.referenced.clone(),
+        )));
         set.add_rule(Box::new(super::profile::DuplicatePayloadUuidRule));
         set.add_rule(Box::new(super::deprecation_rule::DeprecationRule::new(
             opts.version,

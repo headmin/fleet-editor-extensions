@@ -151,6 +151,8 @@ github.com/felixge/httpsnoop v1.0.4 h1:NFTV2Zj1bL4mc9sqWACXbQFVBBg2W3GPvqp8/ESS2
 github.com/felixge/httpsnoop v1.0.4/go.mod h1:m8KPJKqk1gH5J9DgRY2ASl2lWCfGKXixSwevea8zH2U=
 github.com/fleetdm/fleet/v4 v4.90.0 h1:0at2ERGra4nielAO7h92cZPnZw+JbheNjGdsO8VJGTI=
 github.com/fleetdm/fleet/v4 v4.90.0/go.mod h1:jB4a443KGzQ+1ScbzANPta3x7w3GCLKLq/vlgNOBwtM=
+github.com/fleetdm/fleet/v4 v4.90.1 h1:sDJ/lLxeuC9L1H9Xaxfyx42Xhwp9PF4TCe+6ooRx9ic=
+github.com/fleetdm/fleet/v4 v4.90.1/go.mod h1:jB4a443KGzQ+1ScbzANPta3x7w3GCLKLq/vlgNOBwtM=
 github.com/frankban/quicktest v1.14.6 h1:7Xjx+VpznH+oBnejlPUj8oUpdxnVs4f8XU8WnHkI4W8=
 github.com/frankban/quicktest v1.14.6/go.mod h1:4ptaffx2x8+WTWXmUCuVU6aPUX1/Mz7zb5vbUoiM6w0=
 github.com/fsnotify/fsnotify v1.4.7/go.mod h1:jwhsz4b93w/PPRr/qN1Yymfu8t87LnFCMoQvtojpjFo=

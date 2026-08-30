@@ -1,0 +1,39 @@
+# Runs flint's Tier 2 harness: the real `fleetctl gitops --dry-run` against a
+# mocked Fleet datastore. Needs no services — the mock replaces MySQL and
+# redistest.NopRedis() replaces Redis.
+name: tier2-harness
+
+on:
+  pull_request:
+    paths:
+      - 'crates/flint-lint/**'
+      - 'tools/tier2-harness/**'
+      - 'tools/gitops-oracle/go.mod'   # the Fleet version pin
+  workflow_dispatch:
+
+jobs:
+  harness:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: tools/gitops-oracle/go.mod
+
+      # Fleet is ~264 MB in the module cache; caching it keeps the job short.
+      # Keyed on the pin, so bumping the Fleet version busts the cache.
+      - name: Cache Fleet module
+        uses: actions/cache@v4
+        with:
+          path: ~/go/pkg/mod
+          key: fleet-mod-${{ hashFiles('tools/gitops-oracle/go.mod') }}
+
+      - name: Run Tier 2 harness
+        env:
+          # Fleet tags a module version the moment it releases; sum.golang.org
+          # indexes it only after the proxy first serves it, so a fresh pin
+          # (v4.90.1 on 2026-08-30) 404s in the checksum DB for a while. Skip
+          # the DB for this one module — go.sum still pins the exact hash.
+          GONOSUMDB: github.com/fleetdm/fleet/v4
+        run: ./tools/tier2-harness/run.sh

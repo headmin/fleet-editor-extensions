@@ -78,7 +78,40 @@ reported and never failed on.
   references is checked at all. Consequence: these rules no longer run on a
   single-file lint (`flint check one.yml`), only on a directory lint.
 
-## v0.2.0 (Unreleased)
+## v0.2.2 (2026-08-13)
+
+- **`secret-hygiene` inspects URL query strings.** A credential riding in a URL
+  (`macos_bootstrap_package: "https://…/bootstrap?token=<literal>"`) was
+  invisible because only named credential fields were checked. `$VAR` and
+  `op://` stay silent.
+- **`flint dry-run --refresh-snapshot`** re-captures `.fleet-snapshot.json`
+  before linting, so "hash is not uploaded" means *now* rather than at capture
+  time; `[fleet] refresh_snapshot = true` opts a repo in for every run.
+- **`--assume-uploaded`** treats every package as already on the server — for
+  mid-upload work when refreshing is not possible.
+- **`flint fleet doctor`** diagnoses the Fleet connection; config errors are
+  reported loudly instead of silently falling back to defaults.
+- **`flint paths --unwired --oneline` and `--prompt`**: one tab-separated record
+  per orphan (a `grep` target), or a ready-to-run instruction per artifact for an
+  agent.
+- Fixes: an absolute path no longer falls out of `[files] include` scope, and
+  `flint check <one file>` no longer panics when that file is filtered out.
+
+## v0.2.1 (2026-08-11)
+
+- **Schema tracks Fleet v4.90.0** (`controls.name_template`,
+  `*_settings.assets`); a fleet file's own `mdm:` block is accepted.
+- **Every key Fleet resolves as a path is a file reference.** `path-exists` and
+  the orphan scan shared no list and neither matched Fleet, so live ADE
+  enrollment profiles under `apple_setup_assistant` were reported as orphans
+  while a typo in the same key linted clean.
+- **`--fix` promises match what it applies**: six codes that advertised fixes
+  the applier never emitted are no longer marked fixable, and `check` now says
+  when a finding is auto-fixable.
+- osquery table matrix synced to 5.23.1; the docs index leads with the
+  check → dry-run → fix loop.
+
+## v0.2.0 (2026-08-09)
 
 ### New: one generator verb — `flint gen`
 

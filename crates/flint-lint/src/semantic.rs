@@ -1776,6 +1776,9 @@ impl Rule for SoftwareSourceRule {
                 } else {
                     LintError::info(msg, file)
                 }
+                // The value, as context: Fleet's own complaint names the value
+                // and not the file, so this is what lets the two be matched.
+                .with_context(hash.to_string())
                 .with_rule_code(crate::codes::SOFTWARE_SOURCE)
                 .with_help(if wired {
                     "A fleet references this file, so fleetctl gitops reads this value and \

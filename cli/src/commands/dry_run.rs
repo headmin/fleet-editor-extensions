@@ -217,6 +217,12 @@ pub(crate) fn run(args: DryRunArgs) -> anyhow::Result<()> {
 }
 
 /// Compare this run's blocking findings with Fleet's parser on the same tree.
+///
+/// Entry files (fleets, the global config) are compared directly. A software
+/// or policy FRAGMENT is judged by Fleet only through the fleet that references
+/// it, and Fleet reports the problem on that fleet, naming the fragment's path
+/// or the offending value — so a blocking claim on a fragment is corroborated
+/// when some entry file's Fleet error names it. Nothing is left unaudited.
 fn audit_against_oracle(
     bin: &std::path::Path,
     lint_root: &std::path::Path,
@@ -239,10 +245,16 @@ fn audit_against_oracle(
         }
     };
 
-    let mut ours: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+    // Split flint's blocking claims: entry files go through the file-level
+    // diff; fragments are judged through their parents below.
+    let mut entry_claims: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+    let mut fragment_claims: Vec<(String, &linter::error::LintError)> = Vec::new();
     for (f, e) in blocking {
-        if let Some(code) = e.rule_code {
-            ours.entry(rel(&root, f)).or_default().insert(code.to_string());
+        let r = rel(&root, f);
+        if verdicts.no_opinion.contains(&r) {
+            fragment_claims.push((r, e));
+        } else if let Some(code) = e.rule_code {
+            entry_claims.entry(r).or_default().insert(code.to_string());
         }
     }
     let here = CommitRef {
@@ -251,49 +263,125 @@ fn audit_against_oracle(
         subject: "the tree being gated".into(),
     };
     let mut diff = Diff::default();
-    diff.absorb(&here, &ours, &verdicts.blocking, &verdicts.no_opinion);
+    diff.absorb(&here, &entry_claims, &verdicts.blocking, &verdicts.no_opinion);
     print_diff_human(&diff);
 
-    // Say what was NOT judged. Fleet's parser reads a software or policy
-    // fragment only through the fleet that references it, so a blocking
-    // finding on such a file is outside this comparison — and a "no false
-    // positive" verdict that quietly skipped 29 of 29 findings would be the
-    // very over-claim this audit exists to catch.
-    let unaudited: usize = blocking
-        .iter()
-        .filter(|(f, _)| verdicts.no_opinion.contains(&rel(&root, f)))
-        .count();
-    let unaudited_files = ours.keys().filter(|f| verdicts.no_opinion.contains(*f)).count();
-    if unaudited > 0 {
+    // Fragments, through their parents.
+    let fleet_msgs: Vec<&str> = verdicts.blocking.values().flatten().map(String::as_str).collect();
+    let mut corroborated = 0usize;
+    let mut fragment_only: BTreeMap<String, (usize, Vec<String>)> = BTreeMap::new();
+    for (r, e) in &fragment_claims {
+        if fragment_corroborated(&fleet_msgs, r, e.context.as_deref()) {
+            corroborated += 1;
+        } else if let Some(code) = e.rule_code {
+            let slot = fragment_only.entry(code.to_string()).or_insert((0, Vec::new()));
+            slot.0 += 1;
+            if slot.1.len() < 2 {
+                slot.1.push(r.clone());
+            }
+        }
+    }
+    if !fragment_claims.is_empty() {
         println!(
-            "\n  {} {unaudited} blocking finding(s) on {unaudited_files} file(s) were not \
-             audited: Fleet's parser judges a software or policy fragment only through the \
-             fleet that references it.",
-            "·".dimmed()
+            "\n  {}  {}",
+            "Fragments, judged through the fleets that reference them".bold(),
+            format!("({} blocking finding(s))", fragment_claims.len()).dimmed()
         );
+        if corroborated > 0 {
+            println!(
+                "      {} {corroborated} corroborated — Fleet names the fragment or its value in an \
+                 error on the referencing fleet",
+                "✓".green()
+            );
+        }
+        for (code, (n, ex)) in &fragment_only {
+            match EXPECTED_FLINT_ONLY.iter().find(|(c, _)| c == code) {
+                Some((_, why)) => println!(
+                    "      {} {}  {}",
+                    format!("×{n}").dimmed(),
+                    code.dimmed(),
+                    format!("expected — {why}").dimmed()
+                ),
+                None => println!(
+                    "      {} {}  {}",
+                    format!("×{n}").yellow(),
+                    code.bold(),
+                    "REVIEW — no fleet's Fleet error names this fragment".yellow()
+                ),
+            }
+            for r in ex {
+                println!("          {}", r.dimmed());
+            }
+        }
     }
 
-    let review: Vec<&String> = diff
+    // The verdict, over EVERYTHING flint blocked on.
+    let review: BTreeSet<&str> = diff
         .flint_only
         .keys()
+        .chain(fragment_only.keys())
+        .map(String::as_str)
         .filter(|code| !EXPECTED_FLINT_ONLY.iter().any(|(c, _)| c == code))
         .collect();
     println!();
-    let audited = blocking.len() - unaudited;
     if review.is_empty() {
         println!(
-            "  {} of {audited} audited blocking finding(s), none blocks where Fleet would \
-             accept — no false positive is gating this tree.",
-            "✓".green()
+            "  {} of {} blocking finding(s), none blocks where Fleet would accept — no false \
+             positive is gating this tree.",
+            "✓".green(),
+            blocking.len()
         );
     } else {
         println!(
-            "  {} {} rule(s) block where Fleet's parser accepts: {} — review before letting \
-             them gate automation.",
+            "  {} {} rule(s) block where Fleet's parser gives no matching error: {} — review \
+             before letting them gate automation.",
             "!".yellow(),
             review.len(),
-            review.iter().map(|s| s.as_str()).collect::<Vec<_>>().join(", ")
+            review.iter().copied().collect::<Vec<_>>().join(", ")
         );
+    }
+}
+
+/// Whether any Fleet error on an entry file is about this fragment: it names
+/// the fragment's basename, or the finding's own value (a hash, a path) when
+/// that value is specific enough to mean something.
+fn fragment_corroborated(fleet_msgs: &[&str], fragment_rel: &str, context: Option<&str>) -> bool {
+    let base = fragment_rel.rsplit('/').next().unwrap_or(fragment_rel);
+    let ctx = context.map(str::trim).filter(|c| c.len() >= 8);
+    fleet_msgs
+        .iter()
+        .any(|m| m.contains(base) || ctx.is_some_and(|c| m.contains(c)))
+}
+
+#[cfg(test)]
+mod fragment_audit_tests {
+    use super::fragment_corroborated;
+
+    #[test]
+    fn a_fleet_error_naming_the_fragment_path_corroborates() {
+        let msgs = ["failed to read software package file ../platforms/macos/site/x/guides-1.0.yml: no such file"];
+        assert!(fragment_corroborated(&msgs, "platforms/macos/site/x/guides-1.0.yml", None));
+    }
+
+    /// Fleet's hash complaint names the VALUE, not the file — the finding's
+    /// context carries the same value.
+    #[test]
+    fn a_fleet_error_naming_the_findings_value_corroborates() {
+        let msgs = ["hash_sha256 value \"PLACEHOLDER_REPLACE_WITH_ACTUAL_CFC_HASH\" must be a valid lower-case hex"];
+        assert!(fragment_corroborated(&msgs, "platforms/macos/brand/GHI/software/GHI-customization.yml", Some("PLACEHOLDER_REPLACE_WITH_ACTUAL_CFC_HASH")));
+    }
+
+    #[test]
+    fn short_or_missing_context_cannot_corroborate_by_itself() {
+        let msgs = ["something about abc"];
+        assert!(!fragment_corroborated(&msgs, "platforms/x/dock.yml", Some("abc")));
+        assert!(!fragment_corroborated(&msgs, "platforms/x/dock.yml", None));
+    }
+
+    #[test]
+    fn unrelated_fleet_errors_do_not_corroborate() {
+        let msgs = ["unknown key \"foo\" in \"controls\""];
+        assert!(!fragment_corroborated(&msgs, "platforms/x/dock.yml", Some("9689e6c8e3aff27f")));
     }
 }
 
