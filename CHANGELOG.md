@@ -18,6 +18,12 @@
   `fleetctl gitops` failed on it. Duplicate keys remain accepted (Fleet's parser
   accepts them).
 
+- **Editor block snippets resolve `{base}`.** The data-driven "macOS/Windows/
+  Linux package" completions left the `{base}` template marker in the inserted
+  text — VS Code rendered the tabstop default literally as
+  `{base}/macos/software/app.yml`. It now resolves against the current file and
+  workspace (`../platforms` or `../lib`), like the glob completions always did.
+
 ### New — check one fleet
 
 - **`flint check --fleet <glob>`** scopes the report to one fleet (glob matched
