@@ -24,6 +24,14 @@
   `{base}/macos/software/app.yml`. It now resolves against the current file and
   workspace (`../platforms` or `../lib`), like the glob completions always did.
 
+- **`env-var-resolvable` fixes comment references itself.** fleetctl expands
+  `${VAR}` in the RAW file text — comments included — so an unset name in a
+  comment aborts the whole apply, and hand-rewording comments to dodge it is
+  exactly the error-prone edit it invites. A reference that lives only in a
+  comment now carries a Safe fix: `flint check --fix` escapes it to `\${VAR}`,
+  which fleetctl and flint both treat as a literal. Value references are
+  semantics and are never auto-escaped.
+
 ### New — check one fleet
 
 - **`flint check --fleet <glob>`** scopes the report to one fleet (glob matched

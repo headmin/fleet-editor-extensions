@@ -2130,7 +2130,7 @@ impl Rule for EnvVarResolvableRule {
     fn check(&self, _config: &FleetConfig, file: &Path, source: &str) -> Vec<LintError> {
         let mut seen = std::collections::HashSet::new();
         let mut errors = Vec::new();
-        for (line_no, name, in_comment) in env_refs(source) {
+        for (line_no, token, name, in_comment) in env_refs(source) {
             if !seen.insert(name.clone()) {
                 continue;
             }
@@ -2145,19 +2145,37 @@ impl Rule for EnvVarResolvableRule {
             } else {
                 ""
             };
-            errors.push(
-                LintError::warning(
-                    format!("'${{{name}}}' is not set in this environment{where_}"),
-                    file,
-                )
-                .with_rule_code(crate::codes::ENV_VAR_RESOLVABLE)
-                .with_location(line_no, 1)
-                .with_help(format!(
-                    "fleetctl expands the raw file text before parsing any YAML, so one unset \
-                     name fails the WHOLE file. Provide {name} where gitops runs, declare it \
-                     under [fleet] env, or escape the literal as \\${{{name}}}."
-                )),
-            );
+            let mut err = LintError::warning(
+                format!("'${{{name}}}' is not set in this environment{where_}"),
+                file,
+            )
+            .with_rule_code(crate::codes::ENV_VAR_RESOLVABLE)
+            .with_location(line_no, 1)
+            .with_help(format!(
+                "fleetctl expands the raw file text before parsing any YAML, so one unset \
+                 name fails the WHOLE file. Provide {name} where gitops runs, declare it \
+                 under [fleet] env, or escape the literal as \\${{{name}}}."
+            ));
+            // A reference that lives ONLY in a comment can be escaped
+            // mechanically: `\${NAME}` is a literal to fleetctl and changes
+            // nothing anyone reads. Guarded so the line-based applier
+            // (first occurrence of `old`) can never touch a same-token VALUE
+            // reference earlier on the line — that one has semantics.
+            if in_comment {
+                let line_txt = source.lines().nth(line_no - 1).unwrap_or("");
+                let first = line_txt.find(token.as_str());
+                let cpos = line_txt.find('#');
+                if let (Some(p), Some(c)) = (first, cpos) {
+                    if p >= c {
+                        err = err.with_fix(crate::error::Fix::Replace {
+                            old: Some(token.clone()),
+                            new: format!("\\{token}"),
+                            safety: crate::error::FixSafety::Safe,
+                        });
+                    }
+                }
+            }
+            errors.push(err);
         }
         errors
     }
@@ -2168,7 +2186,7 @@ impl Rule for EnvVarResolvableRule {
 ///
 /// Deliberately reads raw source rather than parsed YAML: the comment case is
 /// the whole point, and a parser would have discarded it.
-fn env_refs(source: &str) -> Vec<(usize, String, bool)> {
+fn env_refs(source: &str) -> Vec<(usize, String, String, bool)> {
     let mut out = Vec::new();
     for (idx, line) in source.lines().enumerate() {
         let comment_at = line.find('#');
@@ -2203,7 +2221,9 @@ fn env_refs(source: &str) -> Vec<(usize, String, bool)> {
             }
             if let Ok(name) = std::str::from_utf8(&bytes[start..j]) {
                 let in_comment = comment_at.is_some_and(|c| i > c);
-                out.push((idx + 1, name.to_string(), in_comment));
+                let token_end = if braced { j + 1 } else { j };
+                let token = String::from_utf8_lossy(&bytes[i..token_end]).into_owned();
+                out.push((idx + 1, token, name.to_string(), in_comment));
             }
             i = j + 1;
         }
@@ -3403,6 +3423,46 @@ mod tests {
         assert!(env_check(&rule, "url: ${FLEET_BOOTSTRAP_TOKEN}\n").is_empty());
     }
 
+    /// A reference that exists only inside a comment gets a Safe escape fix;
+    /// applying it renders the line inert for fleetctl and silent for flint.
+    #[test]
+    fn comment_only_reference_gets_a_safe_escape_fix() {
+        let src = "controls:\n  # Host uses the ${SOME_UNSET_NAME_XYZ} env var here.\n";
+        let errs = env_check(&env_rule(), src);
+        assert_eq!(errs.len(), 1, "{errs:?}");
+        match errs[0].fix.as_ref() {
+            Some(crate::error::Fix::Replace { old, new, safety }) => {
+                assert_eq!(old.as_deref(), Some("${SOME_UNSET_NAME_XYZ}"));
+                assert_eq!(new, "\\${SOME_UNSET_NAME_XYZ}");
+                assert_eq!(*safety, crate::error::FixSafety::Safe);
+            }
+            other => panic!("expected Safe Replace, got {other:?}"),
+        }
+        // Round-trip: apply, then the escaped text no longer fires.
+        let (fixed, n) =
+            crate::fix::apply_fixes(src, errs.iter(), crate::fix::ApplyMode::SafeOnly);
+        assert_eq!(n, 1);
+        assert!(fixed.contains("\\${SOME_UNSET_NAME_XYZ}"), "{fixed}");
+        assert!(env_check(&env_rule(), &fixed).is_empty(), "escaped ref must be silent");
+    }
+
+    /// A VALUE reference is semantics — never auto-escaped.
+    #[test]
+    fn value_reference_gets_no_fix() {
+        let errs = env_check(&env_rule(), "url: ${SOME_UNSET_NAME_XYZ}\n");
+        assert_eq!(errs.len(), 1);
+        assert!(errs[0].fix.is_none(), "{:?}", errs[0].fix);
+    }
+
+    /// Same token in the value AND the comment: the applier edits the first
+    /// occurrence on the line, which is the value — so no fix is attached.
+    #[test]
+    fn shared_token_before_the_comment_blocks_the_fix() {
+        let errs = env_check(&env_rule(), "url: ${SOME_UNSET_NAME_XYZ} # via ${SOME_UNSET_NAME_XYZ}\n");
+        assert_eq!(errs.len(), 1, "deduped by name");
+        assert!(errs[0].fix.is_none(), "{:?}", errs[0].fix);
+    }
+
     /// `$FLEET_SECRET_*` and `$FLEET_VAR_*` are resolved by Fleet on the
     /// server, not by environment expansion.
     #[test]
@@ -3426,7 +3486,7 @@ mod tests {
     fn env_refs_finds_both_spellings_and_ignores_bare_dollars() {
         let found: Vec<String> = env_refs("a: $ONE ${TWO} $ $% end\n")
             .into_iter()
-            .map(|(_, n, _)| n)
+            .map(|(_, _, n, _)| n)
             .collect();
         assert_eq!(found, vec!["ONE".to_string(), "TWO".to_string()]);
     }
