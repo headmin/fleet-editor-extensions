@@ -125,7 +125,7 @@ strings manufactures disagreements.
 `go.mod` pins a published Fleet version:
 
 ```
-require github.com/fleetdm/fleet/v4 v4.90.0
+require github.com/fleetdm/fleet/v4 v4.93.0
 ```
 
 No `replace`, no local checkout, no machine-specific path — `go build` works
@@ -158,7 +158,7 @@ Because the version is one line, build twice and diff:
 
 ```bash
 go build -o oracle-current .                                  # server version
-go mod edit -require=github.com/fleetdm/fleet/v4@v4.90.0
+go mod edit -require=github.com/fleetdm/fleet/v4@v4.94.0
 GOSUMDB=off go mod tidy && go build -o oracle-next .
 ./oracle-current -repo REPO > now.json
 ./oracle-next    -repo REPO > next.json
