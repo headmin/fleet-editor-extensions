@@ -393,7 +393,12 @@ impl Rule for LabelMembershipRule {
 /// Vitals that Fleet's `parseHostVitalCriteria()` currently registers.
 /// Anything else fails server-side with `unknown vital <name>`.
 /// Keep this in sync with the `hostVitals` map in Fleet's Go source.
-const KNOWN_HOST_VITALS: &[&str] = &["end_user_idp_group", "end_user_idp_department"];
+const KNOWN_HOST_VITALS: &[&str] = &[
+    "end_user_idp_group",
+    "end_user_idp_department",
+    // Paired with `custom_host_vital_id` (Fleet v4.91.0).
+    "custom_host_vital",
+];
 
 /// Validate a host_vital_criteria node.
 ///
