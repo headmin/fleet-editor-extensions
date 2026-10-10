@@ -143,6 +143,9 @@ fn profile_item() -> SchemaNode {
 fn macos_updates() -> SchemaNode {
     mapping(vec![
         ("deadline", leaf()),
+        // Only with `minimum_version: latest` — fleet/app.go
+        // (AppleOSUpdateSettings.DeadlineDays), added in Fleet v4.91.0.
+        ("deadline_days", leaf()),
         ("minimum_version", leaf()),
         ("update_new_hosts", boolean_leaf()),
     ])
@@ -155,8 +158,11 @@ fn windows_updates() -> SchemaNode {
     ])
 }
 
-fn os_settings() -> SchemaNode {
-    mapping(vec![
+/// Profile keys shared by the Apple and Windows `*_settings` sections, plus
+/// the platform's own keys (`extra`) — fleet/app.go MacOSSettings /
+/// WindowsSettings at Fleet v4.93.0.
+fn os_settings(extra: Vec<(&'static str, SchemaNode)>) -> SchemaNode {
+    let mut node = mapping(vec![
         ("custom_settings", array(profile_item())),
         ("configuration_profiles", array(profile_item())), // rename of custom_settings
         // Apple DDM asset (com.apple.asset) declarations — fleet/app.go
@@ -164,13 +170,28 @@ fn os_settings() -> SchemaNode {
         // `[]MDMProfileSpec` shape as the profiles above, so it accepts the
         // same `path:` and label-scoping entries.
         ("assets", array(profile_item())),
-        // Hidden managed local admin account for Windows Autopilot/OOBE —
-        // fleet/app.go (ManagedLocalAccountSettings), windows_settings only
-        // in Fleet; shared here because flint uses one schema per *_settings.
-        (
-            "managed_local_account_settings",
-            mapping(vec![("enabled", boolean_leaf())]),
-        ),
+    ]);
+    if let SchemaNode::Mapping(children) = &mut node {
+        children.extend(extra);
+    }
+    node
+}
+
+fn apple_settings() -> SchemaNode {
+    os_settings(vec![
+        ("enable_disk_encryption", boolean_leaf()),
+        ("enable_escrow_disk_encryption_key", boolean_leaf()),
+    ])
+}
+
+fn windows_settings() -> SchemaNode {
+    os_settings(vec![
+        // Hidden managed local admin account for Autopilot/OOBE. Was
+        // `managed_local_account_settings.enabled` in v4.91 only; Fleet
+        // v4.92.0 renamed it with no alias (fleet#52079).
+        ("enable_managed_local_account", boolean_leaf()),
+        ("enable_disk_encryption", boolean_leaf()),
+        ("require_bitlocker_pin", boolean_leaf()),
     ])
 }
 
@@ -336,9 +357,16 @@ fn controls_schema() -> SchemaNode {
         ("ios_updates", macos_updates()),
         ("ipados_updates", macos_updates()),
         ("windows_updates", windows_updates()),
-        ("macos_settings", os_settings()),
-        ("apple_settings", os_settings()), // rename of macos_settings
-        ("windows_settings", os_settings()),
+        ("macos_settings", apple_settings()),
+        ("apple_settings", apple_settings()), // rename of macos_settings
+        ("windows_settings", windows_settings()),
+        // fleet/app.go LinuxSettings (Fleet v4.93.0).
+        (
+            "linux_settings",
+            mapping(vec![("enable_escrow_disk_encryption_key", boolean_leaf())]),
+        ),
+        // Apple Business-only enrollment — pkg/spec/gitops.go, Fleet v4.93.0.
+        ("only_allow_apple_business_enrollment", boolean_leaf()),
         ("android_settings", android_settings_schema()),
         ("macos_setup", macos_setup()),
         ("setup_experience", macos_setup()), // rename of macos_setup
@@ -395,6 +423,11 @@ fn policy_inline_strict() -> SchemaNode {
         ("type", leaf()),
         ("fleet_maintained_app_slug", leaf()),
         ("version", leaf()),
+        // Patch timing (fleet/policies.go, Fleet v4.93.0).
+        ("patch_when_closed", boolean_leaf()),
+        ("notify_before_patching", boolean_leaf()),
+        // Policy automation: resend a profile on failure (gitops.go, v4.93.0).
+        ("resend_configuration_profile", leaf()),
         // install_software can be either:
         //   - a mapping (PolicyInstallSoftware fields per gitops.go:231-236), or
         //   - boolean `true` for patch policies to install the FMA on fail.
@@ -457,6 +490,10 @@ fn host_vital_criteria() -> SchemaNode {
     mapping(vec![
         ("vital", leaf()),
         ("value", leaf()),
+        ("operator", leaf()),
+        // Selects which custom vital `vital: custom_host_vital` matches
+        // (fleet/labels.go HostVitalCriteria, Fleet v4.91.0).
+        ("custom_host_vital_id", leaf()),
         ("and", array(open_mapping())),
         ("or", array(open_mapping())),
     ])
@@ -502,6 +539,29 @@ fn integrations_strict() -> SchemaNode {
             ])),
         ),
     ])
+}
+
+/// `org_settings.integrations`: the shared keys plus the org-only ones from
+/// fleet/integrations.go Integrations (Fleet v4.93.0). Fleets get the much
+/// smaller TeamSpecIntegrations, so these stay out of `integrations_strict`.
+fn org_integrations() -> SchemaNode {
+    let mut node = integrations_strict();
+    if let SchemaNode::Mapping(children) = &mut node {
+        children.extend([
+            (
+                "google_workspace",
+                array(mapping(vec![
+                    ("domain", leaf()),
+                    ("impersonated_user_email", leaf()),
+                    ("api_key_json", leaf()),
+                ])),
+            ),
+            ("certificates_idp_introspection_urls", array(leaf())),
+            ("certificates_idp_client_ids", array(leaf())),
+            ("certificates_disable_host_end_user_binding", boolean_leaf()),
+        ]);
+    }
+    node
 }
 
 // Webhook sub-schemas shared between org and per-fleet webhook settings.
@@ -558,6 +618,14 @@ fn webhook_settings_per_fleet() -> SchemaNode {
         ("activities_webhook", activities_webhook()),
         ("failing_policies_webhook", failing_policies_webhook()),
         ("host_status_webhook", host_status_webhook()),
+        // Per-fleet only (yaml-files.md §host_activities_webhook, v4.93.0).
+        (
+            "host_activities_webhook",
+            mapping(vec![
+                ("enable_host_activities_webhook", boolean_leaf()),
+                ("destination_url", leaf()),
+            ]),
+        ),
         ("interval", leaf()),
     ])
 }
@@ -581,6 +649,20 @@ fn features_schema() -> SchemaNode {
                 ("vulnerabilities", boolean_leaf()),
             ]),
         ),
+        // Vulnerability exposure chart defaults (app.go
+        // VulnExposureFilterSettings, Fleet v4.89.0).
+        (
+            "vulnerability_exposure_historical_reporting",
+            mapping(vec![
+                ("software_filters", array(leaf())),
+                ("cvss_min", leaf()),
+                ("cvss_max", leaf()),
+                ("epss_min", leaf()),
+                ("epss_max", leaf()),
+                ("has_known_exploit", boolean_leaf()),
+                ("exclude_vulnerabilities", array(leaf())),
+            ]),
+        ),
     ])
 }
 
@@ -592,6 +674,7 @@ fn org_settings_strict() -> SchemaNode {
             mapping(vec![
                 ("transparency_url", leaf()),
                 ("alternative_browser_host", leaf()),
+                ("sso_enabled", boolean_leaf()),
             ]),
         ),
         (
@@ -651,8 +734,17 @@ fn org_settings_strict() -> SchemaNode {
                 ("sso_server_url", leaf()),
             ]),
         ),
-        ("integrations", integrations_strict()),
+        ("integrations", org_integrations()),
         ("certificate_authorities", open_mapping()),
+        // Entra app-registration credentials (pkg/spec/gitops.go, v4.93.0).
+        (
+            "microsoft_graph_credentials",
+            array(mapping(vec![
+                ("tenant_id", leaf()),
+                ("client_id", leaf()),
+                ("client_secret", leaf()),
+            ])),
+        ),
         ("webhook_settings", webhook_settings_strict()),
         ("mdm", open_mapping()),
         (
@@ -690,6 +782,7 @@ fn org_settings_strict() -> SchemaNode {
             mapping(vec![
                 ("activity_expiry_enabled", boolean_leaf()),
                 ("activity_expiry_window", leaf()),
+                ("preserve_host_activities_on_reenrollment", boolean_leaf()),
             ]),
         ),
         ("yara_rules", array(open_mapping())),
@@ -738,8 +831,8 @@ fn fleet_mdm_schema() -> SchemaNode {
         ("ios_updates", macos_updates()),
         ("ipados_updates", macos_updates()),
         ("windows_updates", windows_updates()),
-        ("macos_settings", os_settings()),
-        ("windows_settings", os_settings()),
+        ("macos_settings", apple_settings()),
+        ("windows_settings", windows_settings()),
         ("android_settings", android_settings_schema()),
         ("macos_setup", macos_setup()),
     ])
@@ -915,6 +1008,9 @@ pub(crate) static KEY_REGISTRY: Lazy<KeyRegistry> = Lazy::new(|| {
     reg.register("apple_settings", "controls"); // rename of macos_settings
     reg.register("windows_settings", "controls");
     reg.register("android_settings", "controls");
+    reg.register("linux_settings", "controls");
+    reg.register("enable_escrow_disk_encryption_key", "controls.linux_settings");
+    reg.register("only_allow_apple_business_enrollment", "controls");
     reg.register("macos_setup", "controls");
     reg.register("setup_experience", "controls"); // rename of macos_setup
     reg.register("macos_migration", "controls");
@@ -930,6 +1026,12 @@ pub(crate) static KEY_REGISTRY: Lazy<KeyRegistry> = Lazy::new(|| {
     // of the Apple section (Fleet v4.90.0).
     reg.register("assets", "controls.macos_settings");
     reg.register("assets", "controls.apple_settings");
+    for parent in &["controls.macos_settings", "controls.apple_settings"] {
+        reg.register("enable_disk_encryption", parent);
+        reg.register("enable_escrow_disk_encryption_key", parent);
+    }
+    reg.register("enable_disk_encryption", "controls.windows_settings");
+    reg.register("require_bitlocker_pin", "controls.windows_settings");
 
     // controls.android_settings children
     reg.register("custom_settings", "controls.android_settings");
@@ -951,12 +1053,15 @@ pub(crate) static KEY_REGISTRY: Lazy<KeyRegistry> = Lazy::new(|| {
     // controls.macos_updates / ios_updates / ipados_updates children
     reg.register("deadline", "controls.macos_updates");
     reg.register("minimum_version", "controls.macos_updates");
+    reg.register("deadline_days", "controls.macos_updates");
     reg.register("update_new_hosts", "controls.macos_updates");
     reg.register("deadline", "controls.ios_updates");
     reg.register("minimum_version", "controls.ios_updates");
+    reg.register("deadline_days", "controls.ios_updates");
     reg.register("update_new_hosts", "controls.ios_updates");
     reg.register("deadline", "controls.ipados_updates");
     reg.register("minimum_version", "controls.ipados_updates");
+    reg.register("deadline_days", "controls.ipados_updates");
     reg.register("update_new_hosts", "controls.ipados_updates");
 
     // controls.windows_updates children
@@ -1014,10 +1119,34 @@ pub(crate) static KEY_REGISTRY: Lazy<KeyRegistry> = Lazy::new(|| {
     // features.historical_data children (app.go HistoricalDataSettings)
     reg.register("uptime", "org_settings.features.historical_data");
     reg.register("vulnerabilities", "org_settings.features.historical_data");
+    reg.register(
+        "vulnerability_exposure_historical_reporting",
+        "org_settings.features",
+    );
+    for k in [
+        "software_filters",
+        "cvss_min",
+        "cvss_max",
+        "epss_min",
+        "epss_max",
+        "has_known_exploit",
+        "exclude_vulnerabilities",
+    ] {
+        reg.register(
+            k,
+            "org_settings.features.vulnerability_exposure_historical_reporting",
+        );
+    }
 
     // org_settings.fleet_desktop children
     reg.register("transparency_url", "org_settings.fleet_desktop");
     reg.register("alternative_browser_host", "org_settings.fleet_desktop");
+    reg.register("sso_enabled", "org_settings.fleet_desktop");
+
+    reg.register("microsoft_graph_credentials", "org_settings");
+    for k in ["tenant_id", "client_id", "client_secret"] {
+        reg.register(k, "org_settings.microsoft_graph_credentials[]");
+    }
 
     // org_settings.host_expiry_settings children
     reg.register("host_expiry_enabled", "org_settings.host_expiry_settings");
@@ -1089,6 +1218,10 @@ pub(crate) static KEY_REGISTRY: Lazy<KeyRegistry> = Lazy::new(|| {
         "activity_expiry_window",
         "org_settings.activity_expiry_settings",
     );
+    reg.register(
+        "preserve_host_activities_on_reenrollment",
+        "org_settings.activity_expiry_settings",
+    );
 
     // webhook_settings is valid under org_settings, settings, and team_settings
     reg.register("webhook_settings", "org_settings");
@@ -1106,6 +1239,21 @@ pub(crate) static KEY_REGISTRY: Lazy<KeyRegistry> = Lazy::new(|| {
     reg.register("interval", "org_settings.webhook_settings");
     reg.register("interval", "settings.webhook_settings");
     reg.register("interval", "team_settings.webhook_settings");
+    // Per-fleet only (v4.93.0).
+    for (settings, hook) in [
+        (
+            "settings.webhook_settings",
+            "settings.webhook_settings.host_activities_webhook",
+        ),
+        (
+            "team_settings.webhook_settings",
+            "team_settings.webhook_settings.host_activities_webhook",
+        ),
+    ] {
+        reg.register("host_activities_webhook", settings);
+        reg.register("enable_host_activities_webhook", hook);
+        reg.register("destination_url", hook);
+    }
 
     // Org-only per yaml-files.md:1151 ("Can only be configured for 'All fleets'").
     reg.register("vulnerabilities_webhook", "org_settings.webhook_settings");
@@ -1223,6 +1371,13 @@ pub(crate) static KEY_REGISTRY: Lazy<KeyRegistry> = Lazy::new(|| {
     reg.register("google_calendar", "org_settings.integrations");
     reg.register("jira", "org_settings.integrations");
     reg.register("zendesk", "org_settings.integrations");
+    reg.register("google_workspace", "org_settings.integrations");
+    reg.register("certificates_idp_introspection_urls", "org_settings.integrations");
+    reg.register("certificates_idp_client_ids", "org_settings.integrations");
+    reg.register(
+        "certificates_disable_host_end_user_binding",
+        "org_settings.integrations",
+    );
 
     // Policy fields. Authoritative source: pkg/spec/gitops.go:206-225 +
     // server/fleet/policies.go:448-485. Cross-validated against
@@ -1252,6 +1407,9 @@ pub(crate) static KEY_REGISTRY: Lazy<KeyRegistry> = Lazy::new(|| {
     reg.register("type", "policies[]");
     reg.register("fleet_maintained_app_slug", "policies[]");
     reg.register("version", "policies[]");
+    reg.register("patch_when_closed", "policies[]");
+    reg.register("notify_before_patching", "policies[]");
+    reg.register("resend_configuration_profile", "policies[]");
     reg.register("path", "policies[]");
     reg.register("paths", "policies[]");
     // install_software leaf fields (PolicyInstallSoftware in gitops.go:231-236)
@@ -1290,6 +1448,8 @@ pub(crate) static KEY_REGISTRY: Lazy<KeyRegistry> = Lazy::new(|| {
     // host_vital_criteria fields (documented: vital + value only)
     reg.register("vital", "labels[].criteria");
     reg.register("value", "labels[].criteria");
+    reg.register("operator", "labels[].criteria");
+    reg.register("custom_host_vital_id", "labels[].criteria");
     // and/or are rejected by Fleet today but registered so the semantic
     // rule owns the diagnostic instead of the structural rule.
     reg.register("and", "labels[].criteria");
@@ -1314,15 +1474,8 @@ pub(crate) static KEY_REGISTRY: Lazy<KeyRegistry> = Lazy::new(|| {
         reg.register("activation", parent);
     }
 
-    // Windows managed local admin account (fleet/app.go)
-    reg.register(
-        "managed_local_account_settings",
-        "controls.windows_settings",
-    );
-    reg.register(
-        "enabled",
-        "controls.windows_settings.managed_local_account_settings",
-    );
+    // Windows managed local admin account (fleet/app.go, v4.92.0 name)
+    reg.register("enable_managed_local_account", "controls.windows_settings");
 
     // software children
     reg.register("packages", "software");

@@ -143,10 +143,14 @@ pub fn complete_at_with_context(
         CompletionContext::LabelField => complete_label_fields(line, col_idx),
         CompletionContext::CriteriaField => complete_criteria_fields(line, col_idx),
         CompletionContext::SoftwareSection => complete_software_section(),
-        CompletionContext::SoftwarePackageField => complete_software_package_fields(line, col_idx),
-        CompletionContext::AppStoreAppField => complete_app_store_app_fields(line, col_idx),
+        CompletionContext::SoftwarePackageField => {
+            completions_from_data("packages", line, col_idx, current_file, workspace_root)
+        }
+        CompletionContext::AppStoreAppField => {
+            completions_from_data("app_store_apps", line, col_idx, current_file, workspace_root)
+        }
         CompletionContext::FleetMaintainedAppField => {
-            complete_fleet_maintained_app_fields(line, col_idx)
+            completions_from_data("fleet_maintained_apps", line, col_idx, current_file, workspace_root)
         }
         CompletionContext::ControlsSection => complete_controls_section(),
         CompletionContext::MacOSCustomSettingField => complete_custom_setting_fields(line, col_idx),
@@ -154,7 +158,7 @@ pub fn complete_at_with_context(
             complete_custom_setting_fields(line, col_idx)
         }
         CompletionContext::SetupExperienceField => {
-            completions_from_data("setup_experience", line, col_idx)
+            completions_from_data("setup_experience", line, col_idx, current_file, workspace_root)
         }
         CompletionContext::DeviceSettingsSection => complete_device_settings_section(),
         CompletionContext::ConfigurationProfileField => complete_path_ref_fields(),
@@ -1000,21 +1004,6 @@ fn complete_software_section() -> Vec<CompletionItem> {
     items
 }
 
-/// Complete software.packages array item fields (data-driven from completions.toml).
-fn complete_software_package_fields(line: &str, col_idx: usize) -> Vec<CompletionItem> {
-    completions_from_data("packages", line, col_idx)
-}
-
-/// Complete software.app_store_apps array item fields (data-driven from completions.toml).
-fn complete_app_store_app_fields(line: &str, col_idx: usize) -> Vec<CompletionItem> {
-    completions_from_data("app_store_apps", line, col_idx)
-}
-
-/// Complete software.fleet_maintained_apps array item fields (data-driven from completions.toml).
-fn complete_fleet_maintained_app_fields(line: &str, col_idx: usize) -> Vec<CompletionItem> {
-    completions_from_data("fleet_maintained_apps", line, col_idx)
-}
-
 /// Complete controls section keys.
 ///
 /// Returns both bare field completions and block snippets that expand into
@@ -1337,7 +1326,13 @@ fn complete_glob_patterns(
 ///
 /// This is the data-driven replacement for the per-context `complete_*_fields()`
 /// functions. It reads fields and blocks from `completions.toml`.
-fn completions_from_data(context: &str, line: &str, col_idx: usize) -> Vec<CompletionItem> {
+fn completions_from_data(
+    context: &str,
+    line: &str,
+    col_idx: usize,
+    current_file: Option<&Path>,
+    workspace_root: Option<&Path>,
+) -> Vec<CompletionItem> {
     // Check if we're in a value position for boolean fields
     if let Some(key) = get_key_at_cursor(line, col_idx) {
         match key.as_str() {
@@ -1359,13 +1354,23 @@ fn completions_from_data(context: &str, line: &str, col_idx: usize) -> Vec<Compl
         ));
     }
 
-    // Block snippets from TOML
+    // Block snippets from TOML. `{base}` must be resolved HERE, the same way
+    // glob patterns resolve it: it is a template marker, not VS Code snippet
+    // syntax, and unresolved it lands literally in the buffer as
+    // `{base}/macos/software/app.yml` — malformed YAML the user then edits
+    // around.
     for block in blocks_for_context(context) {
         let snippet = block.snippet.strip_prefix('\n').unwrap_or(&block.snippet);
+        let snippet = match (current_file, workspace_root) {
+            (Some(file), Some(root)) => {
+                super::completion_data::resolve_base(snippet, file, root)
+            }
+            _ => snippet.replace("{base}", "../platforms"),
+        };
         items.push(create_block_completion(
             &block.name,
             &block.description,
-            snippet,
+            &snippet,
         ));
     }
 
@@ -2545,5 +2550,29 @@ mod tests {
             .collect();
         assert!(field_labels.contains(&"path"));
         assert!(field_labels.contains(&"config"));
+    }
+    /// The `{base}` marker in completions.toml block snippets is a template
+    /// placeholder, not snippet syntax: unresolved, VS Code renders the
+    /// tabstop default literally as `{base}/macos/software/app.yml`.
+    #[test]
+    fn package_block_snippets_resolve_base() {
+        let src = "software:\n  packages:\n    - ";
+        let pos = Position { line: 2, character: 6 };
+        // No workspace context: falls back to ../platforms.
+        let items = complete_at(src, pos);
+        let blocks: Vec<_> = items
+            .iter()
+            .filter(|c| c.insert_text.as_deref().unwrap_or("").contains("path: "))
+            .collect();
+        assert!(!blocks.is_empty(), "no package block snippets offered");
+        for c in &blocks {
+            let t = c.insert_text.as_deref().unwrap();
+            assert!(!t.contains("{base}"), "unresolved {{base}} in {:?}: {t}", c.label);
+        }
+        assert!(
+            blocks.iter().any(|c| c.insert_text.as_deref().unwrap().contains("../platforms/macos/software/app.yml")),
+            "fallback should be ../platforms: {:?}",
+            blocks.iter().map(|c| c.insert_text.as_deref()).collect::<Vec<_>>()
+        );
     }
 }

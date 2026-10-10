@@ -1,7 +1,7 @@
 # ============================================================================
 # Fleet Maintained Apps — slug registry for completion and validation
 # Auto-generated from fleet/ee/maintained-apps/outputs/apps.json
-# (1145 apps, 2026-08-09, fleet 1b3288426f)
+# (1164 apps, 2026-10-10, fleet 2b77376bcb)
 # Slug format: {name}/{platform} (e.g., slack/darwin)
 #
 # DO NOT EDIT BY HAND. Regenerate with:
@@ -58,10 +58,6 @@ platforms = ["darwin"]
 
 [[fma]]
 name = "ableton-live-suite"
-platforms = ["darwin"]
-
-[[fma]]
-name = "abstract"
 platforms = ["darwin"]
 
 [[fma]]
@@ -322,7 +318,7 @@ platforms = ["windows"]
 
 [[fma]]
 name = "anydesk"
-platforms = ["darwin"]
+platforms = ["darwin","windows"]
 
 [[fma]]
 name = "anydo"
@@ -446,6 +442,10 @@ platforms = ["windows"]
 
 [[fma]]
 name = "azul-zulu-25-jre"
+platforms = ["windows"]
+
+[[fma]]
+name = "azure-cli"
 platforms = ["windows"]
 
 [[fma]]
@@ -946,7 +946,7 @@ platforms = ["darwin"]
 
 [[fma]]
 name = "connect-fonts"
-platforms = ["darwin"]
+platforms = ["darwin","windows"]
 
 [[fma]]
 name = "copilot-money"
@@ -1234,7 +1234,7 @@ platforms = ["darwin"]
 
 [[fma]]
 name = "displaylink"
-platforms = ["darwin"]
+platforms = ["darwin","windows"]
 
 [[fma]]
 name = "dngrep"
@@ -1267,6 +1267,14 @@ platforms = ["darwin"]
 [[fma]]
 name = "dot"
 platforms = ["darwin"]
+
+[[fma]]
+name = "dotpeek"
+platforms = ["windows"]
+
+[[fma]]
+name = "dottrace"
+platforms = ["windows"]
 
 [[fma]]
 name = "doughnut"
@@ -1319,6 +1327,10 @@ platforms = ["darwin"]
 [[fma]]
 name = "druva-insync"
 platforms = ["darwin","windows"]
+
+[[fma]]
+name = "druva-insync@govcloud"
+platforms = ["darwin"]
 
 [[fma]]
 name = "duckduckgo"
@@ -1573,12 +1585,20 @@ name = "firefox"
 platforms = ["darwin","windows"]
 
 [[fma]]
+name = "firefox@developer-edition-arm64"
+platforms = ["windows"]
+
+[[fma]]
 name = "firefox@developer-edition"
 platforms = ["darwin","windows"]
 
 [[fma]]
 name = "firefox@esr"
 platforms = ["darwin","windows"]
+
+[[fma]]
+name = "firefox@nightly-arm64"
+platforms = ["windows"]
 
 [[fma]]
 name = "firefox@nightly"
@@ -1606,6 +1626,10 @@ platforms = ["darwin"]
 
 [[fma]]
 name = "flux-app"
+platforms = ["darwin"]
+
+[[fma]]
+name = "flycut"
 platforms = ["darwin"]
 
 [[fma]]
@@ -1858,7 +1882,7 @@ platforms = ["darwin","windows"]
 
 [[fma]]
 name = "grammarly-desktop"
-platforms = ["darwin"]
+platforms = ["darwin","windows"]
 
 [[fma]]
 name = "grandperspective"
@@ -1899,6 +1923,10 @@ platforms = ["darwin"]
 [[fma]]
 name = "handbrake"
 platforms = ["windows"]
+
+[[fma]]
+name = "harmony-sase"
+platforms = ["darwin"]
 
 [[fma]]
 name = "hazel"
@@ -1970,10 +1998,6 @@ platforms = ["windows"]
 
 [[fma]]
 name = "hubstaff"
-platforms = ["darwin"]
-
-[[fma]]
-name = "huly"
 platforms = ["darwin"]
 
 [[fma]]
@@ -2097,10 +2121,6 @@ name = "intellidock"
 platforms = ["darwin"]
 
 [[fma]]
-name = "intellij-idea-ce"
-platforms = ["darwin","windows"]
-
-[[fma]]
 name = "intellij-idea"
 platforms = ["darwin","windows"]
 
@@ -2201,6 +2221,10 @@ name = "kdenlive"
 platforms = ["darwin"]
 
 [[fma]]
+name = "keepass"
+platforms = ["windows"]
+
+[[fma]]
 name = "keepassxc"
 platforms = ["darwin","windows"]
 
@@ -2242,6 +2266,10 @@ platforms = ["darwin"]
 
 [[fma]]
 name = "keystore-explorer"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "kicad"
 platforms = ["darwin"]
 
 [[fma]]
@@ -2305,6 +2333,10 @@ name = "lenovo-dock-manager"
 platforms = ["windows"]
 
 [[fma]]
+name = "lenovo-suhelper"
+platforms = ["windows"]
+
+[[fma]]
 name = "lenovo-system-update"
 platforms = ["windows"]
 
@@ -2334,10 +2366,6 @@ platforms = ["darwin"]
 
 [[fma]]
 name = "little-snitch"
-platforms = ["darwin"]
-
-[[fma]]
-name = "lo-rain"
 platforms = ["darwin"]
 
 [[fma]]
@@ -2577,6 +2605,10 @@ name = "microsoft-azure-storage-explorer"
 platforms = ["darwin"]
 
 [[fma]]
+name = "microsoft-defender"
+platforms = ["darwin"]
+
+[[fma]]
 name = "microsoft-dotnet-desktop-runtime-10"
 platforms = ["windows"]
 
@@ -2606,6 +2638,10 @@ platforms = ["windows"]
 
 [[fma]]
 name = "microsoft-office"
+platforms = ["windows"]
+
+[[fma]]
+name = "microsoft-ole-db-driver-19"
 platforms = ["windows"]
 
 [[fma]]
@@ -2705,6 +2741,10 @@ name = "monitorcontrol"
 platforms = ["darwin"]
 
 [[fma]]
+name = "monotype"
+platforms = ["darwin"]
+
+[[fma]]
 name = "moom"
 platforms = ["darwin"]
 
@@ -2731,6 +2771,10 @@ platforms = ["darwin","windows"]
 [[fma]]
 name = "mqttx"
 platforms = ["darwin"]
+
+[[fma]]
+name = "mremoteng"
+platforms = ["windows"]
 
 [[fma]]
 name = "mullvad-browser"
@@ -2841,10 +2885,6 @@ name = "nosql-workbench"
 platforms = ["darwin","windows"]
 
 [[fma]]
-name = "notchnook"
-platforms = ["darwin"]
-
-[[fma]]
 name = "notepad++"
 platforms = ["windows"]
 
@@ -2898,6 +2938,10 @@ platforms = ["windows"]
 
 [[fma]]
 name = "nvidia-geforce-now"
+platforms = ["darwin"]
+
+[[fma]]
+name = "nvidia-sync"
 platforms = ["darwin"]
 
 [[fma]]
@@ -3034,6 +3078,14 @@ platforms = ["darwin"]
 
 [[fma]]
 name = "origami-studio"
+platforms = ["darwin"]
+
+[[fma]]
+name = "orion"
+platforms = ["darwin"]
+
+[[fma]]
+name = "outset"
 platforms = ["darwin"]
 
 [[fma]]
@@ -3366,7 +3418,7 @@ platforms = ["darwin"]
 
 [[fma]]
 name = "r"
-platforms = ["windows"]
+platforms = ["darwin","windows"]
 
 [[fma]]
 name = "radio-silence"
@@ -3387,6 +3439,10 @@ platforms = ["darwin"]
 [[fma]]
 name = "rapidweaver"
 platforms = ["darwin"]
+
+[[fma]]
+name = "raspberry-pi-imager"
+platforms = ["darwin","windows"]
 
 [[fma]]
 name = "raycast"
@@ -3477,6 +3533,10 @@ name = "rightfont"
 platforms = ["darwin"]
 
 [[fma]]
+name = "ringcentral"
+platforms = ["windows"]
+
+[[fma]]
 name = "rive"
 platforms = ["darwin"]
 
@@ -3506,6 +3566,10 @@ platforms = ["darwin"]
 
 [[fma]]
 name = "rocketman-choices-packager"
+platforms = ["darwin"]
+
+[[fma]]
+name = "rowel"
 platforms = ["darwin"]
 
 [[fma]]
@@ -3933,10 +3997,6 @@ name = "swiftdialog"
 platforms = ["darwin"]
 
 [[fma]]
-name = "swifty"
-platforms = ["darwin"]
-
-[[fma]]
 name = "swish"
 platforms = ["darwin"]
 
@@ -3970,7 +4030,7 @@ platforms = ["windows"]
 
 [[fma]]
 name = "tableau-prep"
-platforms = ["darwin"]
+platforms = ["darwin","windows"]
 
 [[fma]]
 name = "tableau"
@@ -4205,10 +4265,6 @@ name = "unity-hub"
 platforms = ["darwin"]
 
 [[fma]]
-name = "updf"
-platforms = ["darwin"]
-
-[[fma]]
 name = "upscayl"
 platforms = ["darwin"]
 
@@ -4219,6 +4275,10 @@ platforms = ["darwin"]
 [[fma]]
 name = "utm"
 platforms = ["darwin"]
+
+[[fma]]
+name = "vagrant"
+platforms = ["windows"]
 
 [[fma]]
 name = "vanilla"
@@ -4247,6 +4307,10 @@ platforms = ["darwin"]
 [[fma]]
 name = "via"
 platforms = ["darwin"]
+
+[[fma]]
+name = "vim"
+platforms = ["windows"]
 
 [[fma]]
 name = "vimcal"
@@ -4310,6 +4374,10 @@ platforms = ["darwin","windows"]
 
 [[fma]]
 name = "voiceink"
+platforms = ["darwin"]
+
+[[fma]]
+name = "vorssaint"
 platforms = ["darwin"]
 
 [[fma]]
@@ -4394,6 +4462,10 @@ platforms = ["darwin"]
 
 [[fma]]
 name = "wifiman"
+platforms = ["darwin"]
+
+[[fma]]
+name = "willow-voice"
 platforms = ["darwin"]
 
 [[fma]]
@@ -4575,6 +4647,10 @@ platforms = ["darwin","windows"]
 [[fma]]
 name = "zoom"
 platforms = ["darwin","windows"]
+
+[[fma]]
+name = "zoom@government"
+platforms = ["darwin"]
 
 [[fma]]
 name = "zotero"

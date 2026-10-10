@@ -437,6 +437,11 @@ PROCEDURE lint_repo(path):
     `flint check <profile>` scans that one artifact directly (profile-well-formed,
     payload-uuid-format) — no fleet file needed. Wiring/reference rules still
     need the directory lint.
+  IF the question is about ONE fleet:
+    RUN: `flint check <repo> --fleet <glob>`    # glob matches path, file name, stem or `name:`
+    OR:  `flint check fleets/<fleet>.yml`       # same: repo-wide analysis, report scoped to it
+    Findings elsewhere are counted, not blocking; a glob matching no fleet is an
+    error, never "clean". Pointing check at a sub-directory scopes the same way.
   SEVERITY: flint reports the coupling it can see, not the failure it cannot
     verify — a finding inside a fragment no fleet wires is a WARNING; the same
     finding inside a wired fragment is an ERROR.

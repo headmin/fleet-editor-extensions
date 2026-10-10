@@ -351,6 +351,11 @@ controls:
         assert!(errors2
             .iter()
             .any(|e| e.message.contains("enable_managed_local_account")));
+
+        // Under windows_settings the same name is the CURRENT key (v4.92.0).
+        let yaml3 = "controls:\n  windows_settings:\n    enable_managed_local_account: true\n";
+        let errors3 = check_with_version(yaml3, "fleets/ccs.yml", Version::new(4, 80, 1));
+        assert!(errors3.is_empty(), "{errors3:?}");
     }
 
     #[test]

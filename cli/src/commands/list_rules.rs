@@ -35,7 +35,7 @@ pub(crate) fn run(args: ListRulesArgs) -> anyhow::Result<()> {
         (
             "install-software-team",
             "cross-file",
-            "Flags a fleet/team whose policy auto-installs a package not in that team's software list",
+            "Flags a fleet/team whose policy auto-installs a package, or is a patch policy for a Fleet-maintained app, that the team's software list does not include",
         ),
         (
             "install-software-id",

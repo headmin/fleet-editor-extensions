@@ -329,7 +329,9 @@ pub static DEPRECATION_REGISTRY: Lazy<DeprecationRegistry> = Lazy::new(|| {
                 kind: DeprecationKind::KeyRename {
                     old_key: "enable_managed_local_account",
                     new_key: "enable_create_local_admin_account",
-                    context_paths: &["controls"],
+                    // Setup experience only: under windows_settings the
+                    // same name is the CURRENT key (Fleet v4.92.0).
+                    context_paths: &["controls.macos_setup", "controls.setup_experience"],
                 },
                 deprecated_in: deprecated_version(),
                 error_in: None,

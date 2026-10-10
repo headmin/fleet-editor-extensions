@@ -226,7 +226,7 @@ pub static REGISTRY: &[RuleMeta] = &[
     meta!(SECRET_HYGIENE, "security", Some(concat_url!("#policies")), false, false),
     // Not fixable: the remedy is to provide the variable or escape the literal,
     // and which one is meant is the author's call.
-    meta!(ENV_VAR_RESOLVABLE, "semantic", None, false, false),
+    meta!(ENV_VAR_RESOLVABLE, "semantic", None, true, false),
     meta!(PATH_REFERENCE, "semantic", None, false, false),
     meta!(SHEBANG_SYNTAX, "semantic", None, false, false),
     meta!(WEBHOOK_ENDPOINT_VALID, "semantic", None, false, false),

@@ -1,5 +1,52 @@
 # Changelog
 
+## v0.3.1 (Unreleased)
+
+### Fixed — two silent passes
+
+- **Patch policies are checked against the team's Fleet-maintained apps.**
+  `install-software-team` looked only at policies that *install* something, so
+  a `type: patch` policy with no `install_software` was never resolved. Fleet
+  rejects every patch policy whose app the team does not list — "<slug> is
+  specified in the patch policy, but it isn't specified under
+  software.fleet_maintained_apps" — one error per policy; a team whose
+  `fleet_maintained_apps` list was trimmed linted clean and failed the dry-run
+  with 44 of them. Now an error on the fleet file, same rule.
+- **A fragment that is not YAML is an error on every file kind.** Only fleet
+  configs got the `yaml-syntax` verdict; a policy, label, query or software file
+  with a stray `: ` inside a value linted clean and `dry-run` passed, while
+  `fleetctl gitops` failed on it. Duplicate keys remain accepted (Fleet's parser
+  accepts them).
+
+- **Editor block snippets resolve `{base}`.** The data-driven "macOS/Windows/
+  Linux package" completions left the `{base}` template marker in the inserted
+  text — VS Code rendered the tabstop default literally as
+  `{base}/macos/software/app.yml`. It now resolves against the current file and
+  workspace (`../platforms` or `../lib`), like the glob completions always did.
+
+- **`env-var-resolvable` fixes comment references itself.** fleetctl expands
+  `${VAR}` in the RAW file text — comments included — so an unset name in a
+  comment aborts the whole apply, and hand-rewording comments to dodge it is
+  exactly the error-prone edit it invites. A reference that lives only in a
+  comment now carries a Safe fix: `flint check --fix` escapes it to `\${VAR}`,
+  which fleetctl and flint both treat as a literal. Value references are
+  semantics and are never auto-escaped.
+
+### New — check one fleet
+
+- **`flint check --fleet <glob>`** scopes the report to one fleet (glob matched
+  against the fleet file's path, file name, stem and `name:`). Analysis stays
+  repo-wide, as with `--staged`; findings elsewhere are counted, not blocking;
+  a glob that matches nothing is an error, never a clean run. Every format
+  says when a report was narrowed: text prints the count, `--format json`
+  carries `summary.scope.findings_outside_not_shown` (and
+  `summary.staged.pre_existing_elsewhere_not_shown` for `--staged`).
+- **`flint check fleets/X.yml` and `flint check fleets/` analyse from the repo
+  root.** A single fleet file used to be linted in isolation — the cross-file
+  pass never ran, so the fleet above linted clean — and a sub-directory rooted
+  the workspace at itself, so every `../platforms/…` glob "matched no files".
+  Both now run the whole repo and narrow the report to the target.
+
 ## v0.3.0 (Unreleased)
 
 ### Removed: the legacy generator spellings

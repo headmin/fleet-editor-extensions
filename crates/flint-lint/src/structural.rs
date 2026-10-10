@@ -630,8 +630,7 @@ controls:
       - path: ../profiles/passcode.json
         activation: ../profiles/passcode-activation.json
   windows_settings:
-    managed_local_account_settings:
-      enabled: true
+    enable_managed_local_account: true
 software:
   packages:
     - path: ../lib/a.package.yml
@@ -1007,6 +1006,89 @@ org_settings:
             errors[0].message.contains("unknown_setting")
                 || errors[0].message.contains("Unknown key")
         );
+    }
+
+    #[test]
+    fn test_apple_updates_deadline_days_is_known() {
+        // Fleet v4.91.0: `minimum_version: latest` takes `deadline_days` (#21)
+        let yaml = "name: T\ncontrols:\n  macos_updates:\n    minimum_version: latest\n    deadline_days: 14\n  ios_updates:\n    minimum_version: latest\n    deadline_days: 7\n";
+        let errors = check(yaml, "fleets/t.yml");
+        assert!(
+            errors.iter().all(|e| !e.message.contains("deadline_days")),
+            "{errors:?}"
+        );
+    }
+
+    #[test]
+    fn test_fleet_4_93_keys_are_known() {
+        let default_yml = r#"
+controls:
+  only_allow_apple_business_enrollment: true
+  apple_settings:
+    enable_disk_encryption: true
+    enable_escrow_disk_encryption_key: true
+  windows_settings:
+    enable_disk_encryption: true
+    require_bitlocker_pin: true
+  linux_settings:
+    enable_escrow_disk_encryption_key: true
+labels:
+  - name: POS
+    label_membership_type: host_vitals
+    criteria:
+      vital: custom_host_vital
+      custom_host_vital_id: 2
+      value: Point of sale
+org_settings:
+  features:
+    vulnerability_exposure_historical_reporting:
+      software_filters: [os]
+      has_known_exploit: true
+      cvss_min: 9
+  fleet_desktop:
+    sso_enabled: false
+  activity_expiry_settings:
+    preserve_host_activities_on_reenrollment: true
+  microsoft_graph_credentials:
+    - tenant_id: t
+      client_id: c
+      client_secret: $SECRET
+  integrations:
+    google_workspace:
+      - domain: example.com
+        impersonated_user_email: admin@example.com
+        api_key_json: $KEY
+    certificates_idp_introspection_urls: [https://idp.example.com/introspect]
+    certificates_idp_client_ids: [abc]
+    certificates_disable_host_end_user_binding: false
+"#;
+        assert!(check(default_yml, "default.yml").is_empty(), "{:?}", check(default_yml, "default.yml"));
+
+        let fleet_yml = r#"
+name: T
+policies:
+  - name: Patch Chrome
+    type: patch
+    fleet_maintained_app_slug: google-chrome/darwin
+    patch_when_closed: true
+    notify_before_patching: true
+  - name: Passcode
+    query: SELECT 1;
+    resend_configuration_profile: Passcode requirements
+settings:
+  webhook_settings:
+    host_activities_webhook:
+      enable_host_activities_webhook: true
+      destination_url: https://example.org/hook
+"#;
+        assert!(check(fleet_yml, "fleets/t.yml").is_empty(), "{:?}", check(fleet_yml, "fleets/t.yml"));
+
+        // Org-only integrations stay out of a fleet's settings, and the
+        // v4.91-only Windows key is gone (renamed in v4.92.0).
+        let bad = "name: T\nsettings:\n  integrations:\n    google_workspace: []\ncontrols:\n  windows_settings:\n    managed_local_account_settings:\n      enabled: true\n";
+        let errs = check(bad, "fleets/t.yml");
+        assert!(errs.iter().any(|e| e.message.contains("google_workspace")), "{errs:?}");
+        assert!(errs.iter().any(|e| e.message.contains("managed_local_account_settings")), "{errs:?}");
     }
 
     #[test]
