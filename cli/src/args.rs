@@ -143,6 +143,7 @@ pub(crate) enum Commands {
     ///
     /// Examples:
     ///   flint census --anchor ABC-ACME --key setup_experience
+    ///   flint census --anchor ABC-ACME --fleet ABC-XX --key setup_experience
     ///   flint census --key authentication --format csv > auth.csv
     Census(CensusArgs),
 
@@ -616,6 +617,10 @@ pub(crate) struct CensusArgs {
     /// Reference fleet (its `name:` or file stem); report deviations from it
     #[arg(long)]
     pub(crate) anchor: Option<String>,
+
+    /// Only these fleets (repeatable), compared against the anchor
+    #[arg(long)]
+    pub(crate) fleet: Vec<String>,
 
     /// Only keys whose dotted path contains this text (repeatable),
     /// e.g. `setup_experience`, `bootstrap`, `authentication`

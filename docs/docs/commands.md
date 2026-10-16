@@ -484,6 +484,7 @@ deviate from it — including fleets that no longer set the key (`—`).
 ```bash
 flint census --anchor ABC-ACME --key setup_experience   # setup, bootstrap, auth, setup-time apps
 flint census --anchor ABC-ACME                          # every deviation + per-fleet tally
+flint census --anchor ABC-ACME --fleet ABC-XX           # only where ABC-XX differs (repeatable)
 flint census --unset                                   # per-fleet settings no fleet sets
 flint census --format csv > census.csv                 # key × fleet grid (also: json)
 ```

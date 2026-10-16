@@ -23,18 +23,33 @@ pub(crate) fn run(args: CensusArgs) -> Result<()> {
             args.path.display()
         );
     }
-    let names: Vec<String> = fleets.iter().map(|(n, _, _)| n.clone()).collect();
-
-    let anchor = match &args.anchor {
-        None => None,
-        Some(a) => Some(
-            fleets
-                .iter()
-                .find(|(n, stem, _)| n.eq_ignore_ascii_case(a) || stem.eq_ignore_ascii_case(a))
-                .map(|(n, _, _)| n.clone())
-                .with_context(|| format!("no fleet named '{a}' — fleets: {}", names.join(", ")))?,
-        ),
+    // A fleet is named by its `name:` or its file stem, case-insensitively.
+    let resolve = |a: &str| -> Result<String> {
+        fleets
+            .iter()
+            .find(|(n, stem, _)| n.eq_ignore_ascii_case(a) || stem.eq_ignore_ascii_case(a))
+            .map(|(n, _, _)| n.clone())
+            .with_context(|| {
+                let all: Vec<&str> = fleets.iter().map(|(n, _, _)| n.as_str()).collect();
+                format!("no fleet named '{a}' — fleets: {}", all.join(", "))
+            })
     };
+    let anchor = args.anchor.as_deref().map(resolve).transpose()?;
+    let picked = args
+        .fleet
+        .iter()
+        .map(|f| resolve(f))
+        .collect::<Result<BTreeSet<_>>>()?;
+    if !picked.is_empty() && anchor.is_none() && picked.len() < 2 {
+        bail!("--fleet compares against --anchor; give an anchor or at least two fleets");
+    }
+    // --fleet narrows the census to the anchor plus the picked fleets, so
+    // every view (table, tally, CSV, JSON) only carries those columns.
+    let mut fleets = fleets;
+    if !picked.is_empty() {
+        fleets.retain(|(n, _, _)| picked.contains(n) || anchor.as_ref() == Some(n));
+    }
+    let names: Vec<String> = fleets.iter().map(|(n, _, _)| n.clone()).collect();
 
     let mut grid = Grid::new();
     for (name, _, doc) in &fleets {
