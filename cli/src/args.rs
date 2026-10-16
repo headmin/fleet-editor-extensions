@@ -131,6 +131,21 @@ pub(crate) enum Commands {
     /// Show the directory tree of a Fleet GitOps repo
     Tree(TreeArgs),
 
+    /// Compare settings across fleets: which keys differ, and who holds which value.
+    ///
+    /// Flattens every `fleets/*.yml` (and `teams/*.yml`) into dotted keys and
+    /// lists the keys whose values differ. With `--anchor FLEET`, that fleet is
+    /// the reference and each row names the fleets that deviate from it —
+    /// including fleets that no longer set the key (shown as `—`). Lists of
+    /// entries are keyed by identity (slug, path, app_store_id, name), so a
+    /// missing app and an app not installed at setup are rows. Bootstrap
+    /// download tokens are replaced with a short hash.
+    ///
+    /// Examples:
+    ///   flint census --anchor ABC-ACME --key setup_experience
+    ///   flint census --key authentication --format csv > auth.csv
+    Census(CensusArgs),
+
     /// Report broken `path:` references and where the files moved to.
     ///
     /// Scans a Fleet GitOps repo (or a single file) for `path:` references
@@ -590,6 +605,41 @@ pub(crate) struct TreeArgs {
     /// Root directory (default: current directory)
     #[arg(default_value = ".")]
     pub(crate) path: PathBuf,
+}
+
+#[derive(Args)]
+pub(crate) struct CensusArgs {
+    /// GitOps repo root (default: current directory)
+    #[arg(default_value = ".")]
+    pub(crate) path: PathBuf,
+
+    /// Reference fleet (its `name:` or file stem); report deviations from it
+    #[arg(long)]
+    pub(crate) anchor: Option<String>,
+
+    /// Only keys whose dotted path contains this text (repeatable),
+    /// e.g. `setup_experience`, `bootstrap`, `authentication`
+    #[arg(long)]
+    pub(crate) key: Vec<String>,
+
+    /// Also list keys on which every fleet agrees
+    #[arg(long)]
+    pub(crate) all: bool,
+
+    /// Also list per-fleet settings that no fleet sets at all
+    #[arg(long)]
+    pub(crate) unset: bool,
+
+    /// Output format
+    #[arg(long, value_enum, default_value_t = CensusFormat::Table)]
+    pub(crate) format: CensusFormat,
+}
+
+#[derive(Clone, Copy, clap::ValueEnum)]
+pub(crate) enum CensusFormat {
+    Table,
+    Json,
+    Csv,
 }
 
 #[derive(Args)]

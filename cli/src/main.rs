@@ -49,6 +49,7 @@ async fn main() -> Result<()> {
         Commands::Fma { what } => commands::fma::run(what)?,
         Commands::Fleet { what } => commands::fleet::run(what)?,
         Commands::Tree(a) => commands::tree::run(a)?,
+        Commands::Census(a) => commands::census::run(a)?,
         Commands::Paths(a) => commands::paths::run(a)?,
         Commands::Version => commands::version::run(),
     }

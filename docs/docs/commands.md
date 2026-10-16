@@ -475,6 +475,26 @@ state at that commit, which is gone.
   `.fleetlint.toml` instead of today's, answering "what would flint have said
   at the time" rather than "today's rules against yesterday's trees".
 
+## Compare fleets (`flint census`)
+
+Lines up every `fleets/*.yml` and shows which settings differ. With
+`--anchor`, one fleet is the reference and each row names the fleets that
+deviate from it — including fleets that no longer set the key (`—`).
+
+```bash
+flint census --anchor ABC-ACME --key setup_experience   # setup, bootstrap, auth, setup-time apps
+flint census --anchor ABC-ACME                          # every deviation + per-fleet tally
+flint census --unset                                   # per-fleet settings no fleet sets
+flint census --format csv > census.csv                 # key × fleet grid (also: json)
+```
+
+List entries are keyed by identity — `slug`, `app_store_id`, `path`, `name` —
+so `software.fleet_maintained_apps[slack/darwin].setup_experience` is a row of
+its own, and a missing app is one deviation, not one per field. `--key`
+matches any part of the dotted path. Bootstrap tokens and secret fields are
+shown only as a short hash, so two fleets sharing one package still show the
+same value. A report, not a lint: per-fleet differences are often deliberate.
+
 ## Fleet Maintained Apps (`flint fma`)
 
 Slug lookup for `fleet_maintained_apps:` entries and patch policies — the
