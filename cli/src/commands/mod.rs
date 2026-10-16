@@ -2,6 +2,7 @@
 //! called from the thin dispatcher in `main.rs`.
 
 pub(crate) mod agents;
+pub(crate) mod census;
 pub(crate) mod check;
 pub(crate) mod dry_run;
 pub(crate) mod fleet;
