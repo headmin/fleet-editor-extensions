@@ -1092,6 +1092,35 @@ settings:
     }
 
     #[test]
+    fn test_policy_continuous_automations_enabled_is_known() {
+        // GitOpsPolicySpec.ContinuousAutomations (pkg/spec/gitops.go), surfaced
+        // in GitOps YAML in Fleet v4.87.0. Valid on patch and query policies.
+        let policies = r#"
+- name: Slack up to date
+  type: patch
+  fleet_maintained_app_slug: slack/darwin
+  continuous_automations_enabled: true
+  install_software: true
+- name: Firefox installed
+  query: SELECT 1;
+  platform: darwin
+  continuous_automations_enabled: true
+"#;
+        assert!(check(policies, "lib/policies/p.yml").is_empty(), "{:?}", check(policies, "lib/policies/p.yml"));
+
+        let fleet_yml = r#"
+name: T
+policies:
+  - name: Slack up to date
+    type: patch
+    fleet_maintained_app_slug: slack/darwin
+    continuous_automations_enabled: true
+    install_software: true
+"#;
+        assert!(check(fleet_yml, "fleets/t.yml").is_empty(), "{:?}", check(fleet_yml, "fleets/t.yml"));
+    }
+
+    #[test]
     fn test_levenshtein_distance() {
         assert_eq!(levenshtein_distance("kitten", "sitting"), 3);
         assert_eq!(levenshtein_distance("", "abc"), 3);

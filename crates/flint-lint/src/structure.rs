@@ -426,6 +426,9 @@ fn policy_inline_strict() -> SchemaNode {
         // Patch timing (fleet/policies.go, Fleet v4.93.0).
         ("patch_when_closed", boolean_leaf()),
         ("notify_before_patching", boolean_leaf()),
+        // Run software/script automations on every failing result, not just
+        // on pass->fail transitions (fleet/policies.go, gitops.go, v4.87.0).
+        ("continuous_automations_enabled", boolean_leaf()),
         // Policy automation: resend a profile on failure (gitops.go, v4.93.0).
         ("resend_configuration_profile", leaf()),
         // install_software can be either:
@@ -1409,6 +1412,7 @@ pub(crate) static KEY_REGISTRY: Lazy<KeyRegistry> = Lazy::new(|| {
     reg.register("version", "policies[]");
     reg.register("patch_when_closed", "policies[]");
     reg.register("notify_before_patching", "policies[]");
+    reg.register("continuous_automations_enabled", "policies[]");
     reg.register("resend_configuration_profile", "policies[]");
     reg.register("path", "policies[]");
     reg.register("paths", "policies[]");
