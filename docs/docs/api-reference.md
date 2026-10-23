@@ -99,10 +99,15 @@ curl -H "Authorization: Bearer $FLEET_API_TOKEN" \
 
 ## fleetctl equivalents
 
-| flint config | fleetctl command |
+The editor features shell out to `fleetctl`; these are the exact commands.
+
+| `.fleetlint.toml` `[fleet]` setting | fleetctl command |
 |---|---|
-| `gitops_validation = true` | `fleetctl gitops apply --dry-run -f <file>` |
+| `gitops_validation = true` | `fleetctl gitops --dry-run -f <file>` (on save) |
 | `live_completions = true` | `fleetctl get labels --yaml` / `fleetctl get teams --yaml` / `fleetctl get queries --yaml` |
+
+`teams` and `queries` are aliases fleetctl keeps for `fleets` and `reports`
+(Fleet 4.82+), so the same commands work with older and newer fleetctl.
 
 ## Full API documentation
 
