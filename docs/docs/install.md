@@ -8,7 +8,7 @@ icon: lucide/download
 
 Download the PKG installer from [GitHub Releases](https://github.com/headmin/fleet-editor-extensions/releases/latest):
 
-> [Flint v0.2.0](https://github.com/headmin/fleet-editor-extensions/releases/tag/v0.2.0) — signed & notarized by Apple
+> [Flint v0.3.3](https://github.com/headmin/fleet-editor-extensions/releases/tag/v0.3.3) — signed & notarized by Apple
 
 Double-click to install. Installs to `/usr/local/bin/flint`.
 
@@ -68,5 +68,5 @@ A [`.devcontainer`](https://github.com/headmin/fleet-editor-extensions/tree/main
 
 ```bash
 flint --version
-# flint 0.2.0+20260808.1610 (Fleet sync: ...)
+# flint 0.3.3+20261023.1210 (Fleet sync: ...)
 ```
