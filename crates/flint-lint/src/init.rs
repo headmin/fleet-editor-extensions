@@ -296,6 +296,8 @@ pub fn generate_config_toml(detected: &DetectedConfig, answers: &UserAnswers) ->
 
     output.push_str("\n# Rules to downgrade from error to warning\n");
     output.push_str("warn = []\n");
+    output.push_str("\n# Rules to promote from warning to error\n");
+    output.push_str("error = []\n");
     output.push('\n');
 
     // Thresholds section
@@ -326,30 +328,13 @@ pub fn generate_config_toml(detected: &DetectedConfig, answers: &UserAnswers) ->
     // `scope::render_files_section`; neither can be an extension glob.
     output.push_str(&scope::render_files_section(&answers.scope));
 
-    if detected.has_fleets_dir {
-        output.push_str("\n# Root directory for path resolution\n");
-        output.push_str("# root = \".\"\n");
-    }
     output.push('\n');
 
     // Schema section
     output.push_str("# Schema Validation\n");
     output.push_str("[schema]\n");
-    output.push_str("# Validate against Fleet's schema\n");
-    output.push_str("validate = true\n");
-    output.push_str("\n# Allow unknown/extra fields\n");
-    output.push_str("allow_unknown_fields = true\n");
-
-    match answers.strictness {
-        StrictnessLevel::Strict => {
-            output.push_str("\n# Require explicit platform specification (strict mode)\n");
-            output.push_str("require_platform = true\n");
-        }
-        _ => {
-            output.push_str("\n# Require explicit platform specification\n");
-            output.push_str("require_platform = false\n");
-        }
-    }
+    output.push_str("# true turns off unknown-key detection (structural-validation)\n");
+    output.push_str("allow_unknown_fields = false\n");
 
     output
 }
@@ -745,7 +730,7 @@ mod tests {
         let parsed: super::super::config::FleetLintConfig = toml::from_str(&written).unwrap();
         assert_eq!(parsed.files.include, vec!["default.yml", "fleets/**"]);
         assert!(parsed.files.exclude.contains(&"tools/**".to_string()));
-        assert!(parsed.schema.require_platform, "strict answer must survive");
+        assert!(!parsed.schema.allow_unknown_fields, "init must keep unknown-key detection on");
     }
 
     /// The non-interactive path: no scope questions, no `include`, cross-file

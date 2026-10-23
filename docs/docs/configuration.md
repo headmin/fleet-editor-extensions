@@ -33,7 +33,6 @@ warn_trailing_semicolon = true       # Warn on trailing semicolons
 exclude = ["node_modules", "target", "dist"]
 
 [schema]
-validate = true                      # Enable schema validation
 allow_unknown_fields = false         # Allow keys not in schema
 
 [deprecations]
@@ -52,8 +51,37 @@ live_completions = false             # Fetch labels/queries from Fleet (LSP only
 
 ### `[rules]`
 
-- **`disabled`** — list of rule names to skip entirely
-- **`warn`** — list of rule names to downgrade from error to warning
+- **`disabled`** (or **`ignore`**) — rules to skip entirely
+- **`warn`** — rules whose errors become warnings
+- **`error`** — rules whose warnings and infos become errors
+
+When a rule is in several lists, `ignore` wins over `warn`, and `warn` wins over `error`.
+
+### `[[overrides]]`
+
+Rule levels for some paths only. The globs are relative to the config file, like `[files]`. A matching override wins over `[rules]`, and a later override wins over an earlier one:
+
+```toml
+[[overrides]]
+files = ["fleets/legacy/**"]
+rules.warn = ["structural-validation"]
+
+[[overrides]]
+files = ["lib/scripts/vendor"]       # a bare name matches at any depth
+rules.ignore = ["orphaned-file"]
+```
+
+An override can also turn back on a rule that `[rules]` ignores, for the files it matches.
+
+On the command line, `flint check --error RULE`, `--warn RULE` and `--ignore RULE` win over both. Each flag can be repeated or take a comma-separated list.
+
+### `extend`
+
+```toml
+extend = "../org-base/fleetlint.toml"   # relative to this file
+```
+
+The base config is loaded first, and this file is laid over it. Tables merge key by key; any other value, including a list, replaces the base's. A base can `extend` another base. Use this to share one base config across several GitOps repos.
 
 ### `[deprecations]`
 

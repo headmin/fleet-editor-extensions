@@ -53,7 +53,7 @@ mod version_gate;
 mod yaml_lint;
 mod yaml_utils;
 
-pub use config::{ConfigError, FleetConnectionConfig, FleetLintConfig};
+pub use config::{ConfigError, FleetConnectionConfig, FleetLintConfig, OverrideConfig, RuleLevel, RulesConfig};
 pub use deprecations::{Deprecation, DeprecationKind, DeprecationPhase, DEPRECATION_REGISTRY};
 pub use engine::Linter;
 pub use error::{Fix, FixSafety, LintError, LintReport, LintResult, Severity, Span};

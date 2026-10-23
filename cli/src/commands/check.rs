@@ -102,6 +102,8 @@ fn print_next_steps(results: &[(PathBuf, linter::error::LintReport)], errors: us
 }
 
 pub(crate) fn run(args: CheckArgs) -> anyhow::Result<()> {
+    // After --fix edits files, the report is rebuilt from disk with this.
+    let relint = CheckArgs { fix: false, unsafe_fixes: false, ..args.clone() };
     let CheckArgs {
         paths,
         fix,
@@ -116,6 +118,9 @@ pub(crate) fn run(args: CheckArgs) -> anyhow::Result<()> {
         base,
         env,
         exclude,
+        error_rules,
+        warn_rules,
+        ignore_rules,
     } = args;
 
     use colored::Colorize;
@@ -189,6 +194,19 @@ pub(crate) fn run(args: CheckArgs) -> anyhow::Result<()> {
     if !exclude.is_empty() {
         let mut cfg = linter.config().clone();
         cfg.files.exclude.extend(exclude.iter().cloned());
+        linter.set_config(cfg);
+    }
+    // --error/--warn/--ignore: the last override, matching every file.
+    if !(error_rules.is_empty() && warn_rules.is_empty() && ignore_rules.is_empty()) {
+        let known = |c: &String| linter::codes::meta(c).is_some();
+        if let Some(bad) = error_rules.iter().chain(&warn_rules).chain(&ignore_rules).find(|c| !known(c)) {
+            anyhow::bail!("`{bad}` is not a rule code (see `flint list-rules`)");
+        }
+        let mut cfg = linter.config().clone();
+        cfg.overrides.push(linter::OverrideConfig {
+            files: vec!["**".into()],
+            rules: linter::RulesConfig { error: error_rules, warn: warn_rules, ignore: ignore_rules, ..Default::default() },
+        });
         linter.set_config(cfg);
     }
     let json_mode = format == "json";
@@ -313,8 +331,12 @@ pub(crate) fn run(args: CheckArgs) -> anyhow::Result<()> {
                 total_fixed += n;
             }
         }
-        if total_fixed > 0 && !structured_mode {
-            println!("{} Fixed {} issue(s)\n", "✓".green(), total_fixed);
+        if total_fixed > 0 {
+            if !structured_mode {
+                println!("{} Fixed {} issue(s)\n", "✓".green(), total_fixed);
+            }
+            // The findings above are pre-fix; report what is left instead.
+            return run(relint);
         }
     }
 

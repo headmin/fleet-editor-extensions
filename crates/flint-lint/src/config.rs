@@ -92,6 +92,13 @@ pub struct FleetLintConfig {
     /// `[[patterns]]` array.
     pub patterns: Vec<PatternConfig>,
 
+    /// Base config this one overlays (path relative to this file). Tables
+    /// merge key by key; any other value, arrays included, is replaced.
+    pub extend: Option<String>,
+
+    /// Per-path rule levels, applied over `[rules]` in order (later wins).
+    pub overrides: Vec<OverrideConfig>,
+
     /// Compiled include/exclude glob sets (built on first use; skipped by
     /// serde and reset on clone — see the manual `Clone` impl).
     #[serde(skip)]
@@ -128,6 +135,8 @@ impl Clone for FleetLintConfig {
             patterns: self.patterns.clone(),
             placeholders: self.placeholders.clone(),
             orphans: self.orphans.clone(),
+            extend: self.extend.clone(),
+            overrides: self.overrides.clone(),
             compiled: once_cell::sync::OnceCell::new(),
             // Carried, unlike `compiled`: the base directory describes where
             // the globs are anchored, and a clone that forgot it would stop
@@ -348,10 +357,57 @@ pub struct RulesConfig {
     #[serde(default)]
     pub disabled: Vec<String>,
 
+    /// Same as `disabled` (ruff/ty spelling).
+    #[serde(default)]
+    pub ignore: Vec<String>,
+
     /// Rules to set as warnings instead of errors.
     /// Example: `warn = ["duplicate-names"]`
     #[serde(default)]
     pub warn: Vec<String>,
+
+    /// Rules whose warnings and infos become errors.
+    /// Example: `error = ["orphaned-file"]`
+    #[serde(default)]
+    pub error: Vec<String>,
+}
+
+/// A rule's configured level. `None` from [`RulesConfig::level`] = the
+/// severity the rule chose.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RuleLevel {
+    Ignore,
+    Warn,
+    Error,
+}
+
+impl RulesConfig {
+    /// This layer's level for `code`; ignore beats warn beats error.
+    pub fn level(&self, code: &str) -> Option<RuleLevel> {
+        let has = |list: &[String]| list.iter().any(|c| c == code);
+        if has(&self.disabled) || has(&self.ignore) {
+            Some(RuleLevel::Ignore)
+        } else if has(&self.warn) {
+            Some(RuleLevel::Warn)
+        } else if has(&self.error) {
+            Some(RuleLevel::Error)
+        } else {
+            None
+        }
+    }
+
+    fn codes(&self) -> impl Iterator<Item = &String> {
+        self.disabled.iter().chain(&self.ignore).chain(&self.warn).chain(&self.error)
+    }
+}
+
+/// `[[overrides]]`: rule levels for the files matching `files` (globs
+/// relative to the config file, like `[files]`).
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct OverrideConfig {
+    pub files: Vec<String>,
+    pub rules: RulesConfig,
 }
 
 /// Threshold configuration for various checks.
@@ -407,9 +463,6 @@ pub struct FilesConfig {
     /// Default: `["**/node_modules/**", "**/target/**", "**/.git/**"]`
     #[serde(default = "default_exclude_patterns")]
     pub exclude: Vec<String>,
-
-    /// Root directory for file resolution (relative to config file).
-    pub root: Option<String>,
 }
 
 impl Default for FilesConfig {
@@ -420,7 +473,6 @@ impl Default for FilesConfig {
             // cross-file rules and silently switch them off on non-YAML files.
             include: Vec::new(),
             exclude: default_exclude_patterns(),
-            root: None,
         }
     }
 }
@@ -436,28 +488,12 @@ fn default_exclude_patterns() -> Vec<String> {
 }
 
 /// Schema validation options.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct SchemaConfig {
-    /// Whether to validate against Fleet's JSON schema (default: true).
-    pub validate: bool,
-
     /// Whether to allow unknown fields (default: false).
     /// Set to `true` to disable structural validation.
     pub allow_unknown_fields: bool,
-
-    /// Whether to require explicit platform specification (default: false).
-    pub require_platform: bool,
-}
-
-impl Default for SchemaConfig {
-    fn default() -> Self {
-        Self {
-            validate: true,
-            allow_unknown_fields: false,
-            require_platform: false,
-        }
-    }
 }
 
 /// Deprecation configuration.
@@ -633,7 +669,7 @@ impl FleetLintConfig {
         let content = std::fs::read_to_string(path)
             .map_err(|e| ConfigError::ReadError(path.to_path_buf(), e.to_string()))?;
 
-        let mut config = Self::parse(&content)?;
+        let mut config = Self::from_table(load_table(path, &content, 0)?)?;
         // The `[files]` globs are written relative to this directory; remember
         // it so an absolute path can be matched against them.
         config.base_dir = path.parent().map(|p| p.to_path_buf());
@@ -644,6 +680,16 @@ impl FleetLintConfig {
     pub fn parse(content: &str) -> Result<Self, ConfigError> {
         let config: Self =
             toml::from_str(content).map_err(|e| ConfigError::ParseError(e.to_string()))?;
+        config.validated()
+    }
+
+    fn from_table(table: toml::Table) -> Result<Self, ConfigError> {
+        let config: Self = table.try_into().map_err(|e: toml::de::Error| ConfigError::ParseError(e.to_string()))?;
+        config.validated()
+    }
+
+    fn validated(self) -> Result<Self, ConfigError> {
+        let config = self;
         for p in &config.patterns {
             p.validate()
                 .map_err(|e| ConfigError::ParseError(format!("[[patterns]]: {e}")))?;
@@ -808,22 +854,61 @@ flint is linting with defaults. Fix the file or move it aside."
 
     /// Check if a rule is disabled.
     pub fn is_rule_disabled(&self, rule_name: &str) -> bool {
-        self.rules.disabled.iter().any(|r| r == rule_name)
+        self.rules.level(rule_name) == Some(RuleLevel::Ignore)
     }
 
     /// Check if a rule should be downgraded to warning.
     pub fn is_rule_warning(&self, rule_name: &str) -> bool {
-        self.rules.warn.iter().any(|r| r == rule_name)
+        self.rules.level(rule_name) == Some(RuleLevel::Warn)
     }
 
-    /// Get the set of disabled rules.
+    /// Rules ignored for every file, so they need not run at all: ignored in
+    /// `[rules]` (or by `allow_unknown_fields`) and set to another level by
+    /// no override.
     pub fn disabled_rules(&self) -> HashSet<&str> {
-        self.rules.disabled.iter().map(|s| s.as_str()).collect()
+        let mut set: HashSet<&str> = self.rules.disabled.iter().chain(&self.rules.ignore).map(|s| s.as_str()).collect();
+        if self.schema.allow_unknown_fields {
+            set.insert(crate::codes::STRUCTURAL_VALIDATION);
+        }
+        for o in &self.overrides {
+            for code in o.rules.codes() {
+                if o.rules.level(code) != Some(RuleLevel::Ignore) {
+                    set.remove(code.as_str());
+                }
+            }
+        }
+        set
     }
 
-    /// Get the set of warning-only rules.
-    pub fn warning_rules(&self) -> HashSet<&str> {
-        self.rules.warn.iter().map(|s| s.as_str()).collect()
+    /// The level for `code` on `file`: `[rules]`, then each matching
+    /// `[[overrides]]` in order (CLI `--error/--warn/--ignore` are the last).
+    pub fn rule_level(&self, code: &str, file: &Path) -> Option<RuleLevel> {
+        let mut level = self.rules.level(code);
+        if level.is_none() && self.schema.allow_unknown_fields && code == crate::codes::STRUCTURAL_VALIDATION {
+            level = Some(RuleLevel::Ignore);
+        }
+        if self.overrides.is_empty() {
+            return level;
+        }
+        let rel = self.relative(file);
+        for (o, globs) in self.overrides.iter().zip(&self.compiled().overrides) {
+            if globs.is_match(rel.as_ref()) {
+                level = o.rules.level(code).or(level);
+            }
+        }
+        level
+    }
+
+    /// `file` as the config-relative string the globs are written against.
+    fn relative<'a>(&self, file: &'a Path) -> std::borrow::Cow<'a, str> {
+        let raw = match self.base_dir.as_deref().filter(|_| file.is_absolute()).and_then(|b| file.strip_prefix(b).ok()) {
+            Some(rel) => rel.to_string_lossy(),
+            None => file.to_string_lossy(),
+        };
+        match raw {
+            std::borrow::Cow::Borrowed(s) => std::borrow::Cow::Borrowed(s.strip_prefix("./").unwrap_or(s)),
+            std::borrow::Cow::Owned(s) => std::borrow::Cow::Owned(s.strip_prefix("./").unwrap_or(&s).to_string()),
+        }
     }
 
     /// The compiled glob sets, built once per config instance.
@@ -831,6 +916,7 @@ flint is linting with defaults. Fix the file or move it aside."
         self.compiled.get_or_init(|| CompiledGlobs {
             include: build_globset(&self.files.include),
             exclude: build_globset(&expand_bare_names(&self.files.exclude)),
+            overrides: self.overrides.iter().map(|o| build_globset(&expand_bare_names(&o.files))).collect(),
         })
     }
 
@@ -841,21 +927,10 @@ flint is linting with defaults. Fix the file or move it aside."
         // paths; without this a scoped `include` silently rejects every one of
         // them. Falls through unchanged when the file is outside the config's
         // tree, which is a genuine out-of-scope answer rather than a miss.
-        let relativized = self
-            .base_dir
-            .as_deref()
-            .filter(|_| file_path.is_absolute())
-            .and_then(|base| file_path.strip_prefix(base).ok())
-            .map(|rel| rel.to_string_lossy().into_owned());
-
-        let raw = match relativized {
-            Some(ref rel) => std::borrow::Cow::Borrowed(rel.as_str()),
-            None => file_path.to_string_lossy(),
-        };
-        // Normalize a leading "./" so anchored globs (e.g. "fleets/**/*.yml")
-        // match paths produced by a `.` directory walk, which arrive as
-        // "./fleets/…". Without this, a narrowing `include` silently misses.
-        let path_str = raw.strip_prefix("./").unwrap_or(&raw);
+        // A leading "./" is dropped too, so anchored globs (e.g.
+        // "fleets/**/*.yml") match paths from a `.` directory walk.
+        let rel = self.relative(file_path);
+        let path_str = rel.as_ref();
         let globs = self.compiled();
 
         // Exclusions take priority.
@@ -914,7 +989,8 @@ flint is linting with defaults. Fix the file or move it aside."
     /// Generate default configuration with explanatory comments.
     pub fn default_with_comments() -> String {
         r#"# Fleet Linter Configuration
-# Place this file at the root of your GitOps repository as `.fleetlint.toml`
+# Place this file at the root of your GitOps repository as `fleetlint.toml`
+# All rule codes: `flint list-rules`
 
 # Rule Configuration
 [rules]
@@ -932,6 +1008,14 @@ disabled = []
 
 # Rules to downgrade from error to warning
 warn = []
+
+# Rules to promote from warning to error
+error = []
+
+# Per-path levels (later wins):
+# [[overrides]]
+# files = ["fleets/legacy/**"]
+# rules.warn = ["structural-validation"]
 
 # Threshold Configuration
 [thresholds]
@@ -966,20 +1050,11 @@ exclude = [
     "**/dist/**",
 ]
 
-# Optional: Root directory for path resolution (relative to this config file)
-# root = "."
-
 # Schema Validation
 [schema]
-# Validate against Fleet's schema (default: true)
-validate = true
-
 # Allow unknown/extra fields (default: false)
 # Set to true to disable structural validation of YAML keys
 allow_unknown_fields = false
-
-# Require explicit platform specification (default: false)
-require_platform = false
 
 # Deprecation Settings
 [deprecations]
@@ -1078,7 +1153,7 @@ pub(crate) fn ignored_settings(content: &str) -> Vec<String> {
     };
     let mut out = Vec::new();
     diff_keys(&raw, &kept, "", &mut out);
-    for code in cfg.rules.disabled.iter().chain(&cfg.rules.warn) {
+    for code in cfg.rules.codes().chain(cfg.overrides.iter().flat_map(|o| o.rules.codes())) {
         if super::codes::meta(code).is_none() {
             let codes = super::codes::REGISTRY.iter().map(|m| m.code);
             out.push(format!("[rules] `{code}` is not a rule code{}", did_you_mean(code, codes)));
@@ -1087,10 +1162,44 @@ pub(crate) fn ignored_settings(content: &str) -> Vec<String> {
     out
 }
 
+/// `path`'s TOML with its `extend` chain merged underneath.
+fn load_table(path: &Path, content: &str, depth: usize) -> Result<toml::Table, ConfigError> {
+    let mut table: toml::Table = content.parse().map_err(|e: toml::de::Error| ConfigError::ParseError(e.to_string()))?;
+    let Some(toml::Value::String(base)) = table.get("extend") else { return Ok(table) };
+    if depth >= 8 {
+        return Err(ConfigError::ParseError(format!("`extend` chain is too deep (cycle?) at {}", path.display())));
+    }
+    let base_path = path.parent().unwrap_or(Path::new(".")).join(base);
+    let base_content = std::fs::read_to_string(&base_path)
+        .map_err(|e| ConfigError::ParseError(format!("extend = \"{base}\": {}: {e}", base_path.display())))?;
+    let mut merged = load_table(&base_path, &base_content, depth + 1)?;
+    table.remove("extend");
+    merge_tables(&mut merged, table);
+    Ok(merged)
+}
+
+fn merge_tables(base: &mut toml::Table, over: toml::Table) {
+    for (k, v) in over {
+        match (base.get_mut(&k), v) {
+            (Some(toml::Value::Table(b)), toml::Value::Table(o)) => merge_tables(b, o),
+            (_, v) => {
+                base.insert(k, v);
+            }
+        }
+    }
+}
+
+/// Settings older configs (and `flint init` before 0.3.4) carry that no code
+/// ever read.
+const RETIRED: &[&str] = &["schema.validate", "schema.require_platform", "files.root"];
+
 fn diff_keys(raw: &toml::Table, kept: &toml::Table, prefix: &str, out: &mut Vec<String>) {
     for (key, value) in raw {
         let path = if prefix.is_empty() { key.clone() } else { format!("{prefix}.{key}") };
         match (value, kept.get(key)) {
+            (_, None) if RETIRED.contains(&path.as_str()) => {
+                out.push(format!("`{path}` never had an effect and is ignored — delete it"))
+            }
             (_, None) => out.push(format!(
                 "`{path}` is not a setting and is ignored{}",
                 did_you_mean(key, kept.keys().map(String::as_str))
@@ -1186,6 +1295,7 @@ fn build_globset(patterns: &[String]) -> globset::GlobSet {
 pub(crate) struct CompiledGlobs {
     include: globset::GlobSet,
     exclude: globset::GlobSet,
+    overrides: Vec<globset::GlobSet>,
 }
 
 /// Configuration error types.
@@ -1454,6 +1564,8 @@ exclude = ["**/node_modules/**"]
         assert!(joined.contains("`structural-validaton` is not a rule code — did you mean `structural-validation`"), "{joined}");
         assert!(joined.contains("`patterns[].fils`"), "{joined}");
         assert!(!joined.contains("ANY_NAME"), "[fleet.env] names are free-form: {joined}");
+        let retired = ignored_settings("[schema]\nvalidate = true\nrequire_platform = true\n").join("\n");
+        assert!(retired.contains("`schema.validate` never had an effect") && retired.contains("`schema.require_platform` never"), "{retired}");
         assert_eq!(msgs.len(), 4, "{joined}");
         let located = ignored_settings_located("[rules]\ndisabled = [\"orphan-file\"]\n\n[thresolds]\nmin_interval = 1\n");
         assert_eq!(located.iter().map(|(l, _)| *l).collect::<Vec<_>>(), [Some(4), Some(2)], "{located:?}");

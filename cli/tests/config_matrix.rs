@@ -58,6 +58,7 @@ const REPORT: &[(&str, &str)] = &[
     ("default.yml", DEFAULT),
     ("fleets/a.yml", "name: A\nreports:\n  - name: q\n    query: SELECT * FROM osquery_info;\n    interval: 30\n"),
 ];
+const ORPHAN: &[(&str, &str)] = &[("default.yml", DEFAULT), ("fleets/a.yml", "name: A\n"), ("lib/scripts/unused.sh", "#!/bin/sh\necho\n")];
 const QUERIES_KEY: &[(&str, &str)] = &[(
     "default.yml",
     "org_settings:\n  features:\n    enable_host_users: true\nqueries:\n  - name: q\n    query: SELECT 1;\n",
@@ -96,6 +97,34 @@ const CASES: &[Case] = &[
         rule: "env-var-resolvable",
         severity: None,
         expected: 0,
+    },
+    Case { name: "[rules] ignore (ruff/ty spelling)", files: UNKNOWN_KEY, config: Some("[rules]\nignore = [\"structural-validation\"]\n"), rule: "structural-validation", severity: None, expected: 0 },
+    Case { name: "[rules] error promotes a warning", files: ORPHAN, config: Some("[rules]\nerror = [\"orphaned-file\"]\n"), rule: "orphaned-file", severity: Some("error"), expected: 1 },
+    Case { name: "[[overrides]] matching path", files: UNKNOWN_KEY, config: Some("[[overrides]]\nfiles = [\"fleets/**\"]\nrules.ignore = [\"structural-validation\"]\n"), rule: "structural-validation", severity: None, expected: 0 },
+    Case { name: "[[overrides]] other path", files: UNKNOWN_KEY, config: Some("[[overrides]]\nfiles = [\"labels/**\"]\nrules.ignore = [\"structural-validation\"]\n"), rule: "structural-validation", severity: None, expected: 1 },
+    Case {
+        name: "[[overrides]] re-enables a rule [rules] ignores",
+        files: UNKNOWN_KEY,
+        config: Some("[rules]\ndisabled = [\"structural-validation\"]\n[[overrides]]\nfiles = [\"fleets\"]\nrules.warn = [\"structural-validation\"]\n"),
+        rule: "structural-validation",
+        severity: Some("warning"),
+        expected: 1,
+    },
+    Case {
+        name: "extend inherits the base",
+        files: &[("default.yml", DEFAULT), ("fleets/a.yml", "name: A\nbogus_key: 1\n"), ("org/base.toml", "[rules]\ndisabled = [\"structural-validation\"]\n")],
+        config: Some("extend = \"org/base.toml\"\n[thresholds]\nmin_interval = 60\n"),
+        rule: "structural-validation",
+        severity: None,
+        expected: 0,
+    },
+    Case {
+        name: "extend: this file's value replaces the base's",
+        files: &[("default.yml", DEFAULT), ("fleets/a.yml", "name: A\nbogus_key: 1\n"), ("org/base.toml", "[rules]\ndisabled = [\"structural-validation\"]\n")],
+        config: Some("extend = \"org/base.toml\"\n[rules]\ndisabled = []\n"),
+        rule: "structural-validation",
+        severity: None,
+        expected: 1,
     },
     Case {
         name: "[[patterns]] forbid-file",
@@ -147,4 +176,32 @@ fn ignored_settings_warn_with_line_and_suggestion() {
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert!(stderr.contains("fleetlint.toml:2: `rules.disabeld` is not a setting"), "{stderr}");
     assert!(stderr.contains("did you mean `disabled`"), "{stderr}");
+}
+
+#[test]
+fn fix_reports_what_is_left_not_what_it_fixed() {
+    let dir = materialize(&Case { files: QUERIES_KEY, config: Some("[deprecations]\nfleet_version = \"4.82.0\"\n"), ..CASES[0] });
+    assert_eq!(findings(dir.path(), "deprecated-keys", None), 1);
+    let out = Command::new(BIN).args(["check", ".", "--fix", "--format", "json"]).current_dir(dir.path()).output().unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    let left = json["files"].as_array().unwrap().iter().flat_map(|f| f["diagnostics"].as_array().unwrap()).filter(|d| d["rule"] == "deprecated-keys").count();
+    assert_eq!(left, 0, "the fixed finding is still reported");
+    assert!(fs::read_to_string(dir.path().join("default.yml")).unwrap().contains("reports:"));
+}
+
+#[test]
+fn cli_rule_levels_win_over_the_config() {
+    let dir = materialize(&CASES[1]); // [rules] disabled = structural-validation
+    let count = |args: &[&str], severity: &str| {
+        let out = Command::new(BIN).args(["check", ".", "--format", "json"]).args(args).current_dir(dir.path()).output().unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+        json["files"].as_array().unwrap().iter().flat_map(|f| f["diagnostics"].as_array().unwrap())
+            .filter(|d| d["rule"] == "structural-validation" && d["severity"] == severity).count()
+    };
+    assert_eq!(count(&["--warn", "structural-validation"], "warning"), 1);
+    assert_eq!(count(&["--error", "structural-validation"], "error"), 1);
+    fs::remove_file(dir.path().join("fleetlint.toml")).unwrap();
+    assert_eq!(count(&["--ignore", "structural-validation,orphaned-file"], "error"), 0);
+    let bad = Command::new(BIN).args(["check", ".", "--ignore", "structural-validaton"]).current_dir(dir.path()).output().unwrap();
+    assert!(!bad.status.success() && String::from_utf8_lossy(&bad.stderr).contains("not a rule code"));
 }

@@ -160,7 +160,7 @@ pub(crate) enum Commands {
     Version,
 }
 
-#[derive(Args)]
+#[derive(Args, Clone)]
 pub(crate) struct CheckArgs {
     /// File(s) or directory to lint. Accepts multiple paths — e.g. the
     /// staged files a pre-commit hook passes (`pass_filenames: true`).
@@ -242,6 +242,19 @@ pub(crate) struct CheckArgs {
     /// `--exclude '**/tools-scripts/fleet-templates/**'`.
     #[arg(long, value_name = "GLOB")]
     pub(crate) exclude: Vec<String>,
+
+    /// Report RULE as an error (repeatable, or comma-separated). Wins over
+    /// `[rules]` and `[[overrides]]` in fleetlint.toml.
+    #[arg(long = "error", value_name = "RULE", value_delimiter = ',')]
+    pub(crate) error_rules: Vec<String>,
+
+    /// Report RULE as a warning (repeatable, or comma-separated).
+    #[arg(long = "warn", value_name = "RULE", value_delimiter = ',')]
+    pub(crate) warn_rules: Vec<String>,
+
+    /// Don't report RULE (repeatable, or comma-separated).
+    #[arg(long = "ignore", value_name = "RULE", value_delimiter = ',')]
+    pub(crate) ignore_rules: Vec<String>,
 }
 
 #[derive(Args)]

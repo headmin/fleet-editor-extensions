@@ -377,9 +377,16 @@ PROCEDURE lint_repo(path):
 
 # Configuration (fleetlint.toml)
 ```toml
+extend = "../org-base/fleetlint.toml" # optional shared base; this file overlays it
+
 [rules]
-disabled = ["secret-hygiene"]        # silence rules entirely
+disabled = ["secret-hygiene"]        # silence rules entirely (alias: ignore)
 warn = ["interval-validation"]       # downgrade their errors to warnings
+error = ["orphaned-file"]            # promote their warnings to errors
+
+[[overrides]]                        # per-path levels; later wins, CLI wins over all:
+files = ["fleets/legacy/**"]         #   flint check --error/--warn/--ignore RULE
+rules.warn = ["structural-validation"]
 
 [thresholds]
 min_interval = 60                    # query interval bounds (seconds)
@@ -411,7 +418,8 @@ FLEET_BOOTSTRAP_TOKEN = "op://Vault/Item/field"
 - Ignoring stderr — an unparseable config silently drops all scoping and rule settings.
 - `[files] include = ["**/*.yml"]` — switches off the cross-file rules.
 - `[files] exclude` to quiet an orphan — use `[orphans] allow`.
-- Disabling a rule repo-wide for one false positive — suppress inline.
+- Disabling a rule repo-wide for one false positive — suppress inline; for a
+  whole directory use `[[overrides]]`.
 - Treating a clean dry-run as proof the apply will succeed.
 "#;
 

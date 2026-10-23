@@ -337,14 +337,8 @@ impl Linter {
         // Run all rules
         // (report was initialized earlier with YAML hygiene checks)
 
-        // Get disabled and warning rules from config
-        let mut disabled_rules = self.config.disabled_rules();
-        let warning_rules = self.config.warning_rules();
-
-        // If allow_unknown_fields is enabled, disable structural validation
-        if self.config.schema.allow_unknown_fields {
-            disabled_rules.insert("structural-validation");
-        }
+        // Rules ignored everywhere don't run; per-path levels apply after.
+        let disabled_rules = self.config.disabled_rules();
 
         // Collect all errors first (for suppression filtering)
         let mut all_errors = Vec::new();
@@ -368,13 +362,7 @@ impl Linter {
 
             let errors = rule.check(&fleet_config, file_path, content);
 
-            // Downgrade to warnings if configured
-            let should_warn = warning_rules.contains(rule.name());
-
             for mut error in errors {
-                if should_warn && error.severity == Severity::Error {
-                    error.severity = Severity::Warning;
-                }
                 // Tag each error with its originating rule code
                 if error.rule_code.is_none() {
                     error.rule_code = Some(rule.name());
@@ -386,10 +374,8 @@ impl Linter {
         // Apply inline suppressions (# fleet-lint: ignore [rule-code]) and
         // configured downgrades through the shared control pass.
         let suppressions = parse_suppressions(content);
-        apply_error_controls(&mut all_errors, &suppressions, &warning_rules);
-        if !disabled_rules.contains(crate::codes::IGNORE_COMMENT_UNKNOWN_RULE) {
-            all_errors.extend(unknown_suppression_codes(&suppressions, file_path));
-        }
+        all_errors.extend(unknown_suppression_codes(&suppressions, file_path));
+        apply_error_controls(&mut all_errors, &suppressions, &self.config);
 
         for mut error in all_errors {
             stamp_doc_url(&mut error);
@@ -589,7 +575,6 @@ impl Linter {
         );
 
         let index = RepoIndex::build(&parsed);
-        let warning_rules = self.config.warning_rules();
 
         // Suppressions parsed once per file; findings attached via an index
         // map instead of a linear scan per finding (was O(files²)).
@@ -617,7 +602,7 @@ impl Linter {
             let suppressions = suppressions_by_path
                 .get(pf.path.as_path())
                 .unwrap_or(&empty_suppressions);
-            apply_error_controls(&mut findings, suppressions, &warning_rules);
+            apply_error_controls(&mut findings, suppressions, &self.config);
 
             if let Some(&i) = report_idx.get(&pf.path) {
                 for mut f in findings {
@@ -651,7 +636,7 @@ impl Linter {
                     .get(path.as_path())
                     .unwrap_or(&empty_suppressions);
                 let mut one = vec![err];
-                apply_error_controls(&mut one, suppressions, &warning_rules);
+                apply_error_controls(&mut one, suppressions, &self.config);
                 let Some(mut err) = one.pop() else { continue };
                 stamp_doc_url(&mut err);
                 let i = *report_idx.entry(path.clone()).or_insert_with(|| {
@@ -1087,23 +1072,31 @@ fn stamp_doc_url(error: &mut LintError) {
 /// Returns a map of 1-indexed line numbers to suppressed rule codes.
 /// An empty Vec means "suppress all rules on this line".
 /// The one error-control pass shared by per-file linting and the cross-file
-/// pass: drop suppressed findings, then downgrade errors whose code is listed
-/// in `[rules] warn`. (Suppression and downgrade are independent — order
-/// doesn't matter.)
+/// pass: drop suppressed findings, then apply each finding's configured
+/// level for its file (`[rules]`, `[[overrides]]`, CLI flags).
 fn apply_error_controls(
     errors: &mut Vec<LintError>,
     suppressions: &HashMap<usize, Vec<String>>,
-    warning_rules: &std::collections::HashSet<&str>,
+    config: &FleetLintConfig,
 ) {
+    use crate::config::RuleLevel;
     if !suppressions.is_empty() {
         errors.retain(|e| !is_suppressed(e, suppressions));
     }
-    for e in errors.iter_mut() {
-        if e.severity == Severity::Error && warning_rules.contains(e.rule_code.unwrap_or_default())
-        {
-            e.severity = Severity::Warning;
+    errors.retain_mut(|e| match config.rule_level(e.rule_code.unwrap_or_default(), &e.file) {
+        Some(RuleLevel::Ignore) => false,
+        Some(RuleLevel::Warn) => {
+            if e.severity == Severity::Error {
+                e.severity = Severity::Warning;
+            }
+            true
         }
-    }
+        Some(RuleLevel::Error) => {
+            e.severity = Severity::Error;
+            true
+        }
+        None => true,
+    });
 }
 
 fn parse_suppressions(source: &str) -> HashMap<usize, Vec<String>> {
@@ -1901,7 +1894,6 @@ config:
         cfg.files = FilesConfig {
             include: vec![],
             exclude: vec!["tools-scripts/**".to_string()],
-            ..Default::default()
         };
         let linter = Linter::with_config(cfg);
         assert!(linter.is_out_of_scope(script), "exclude must scope a .sh");
@@ -1918,7 +1910,6 @@ config:
                 "platforms/**".to_string(),
             ],
             exclude: vec!["platforms/_retired/**".to_string()],
-            ..Default::default()
         };
         let linter = Linter::with_config(cfg);
         assert!(
