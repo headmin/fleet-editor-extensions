@@ -2,6 +2,7 @@
 name = "flint-lint"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 description = "Fleet GitOps YAML linter — lint engine and rules"
 
 [lib]

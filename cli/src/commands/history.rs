@@ -1396,13 +1396,13 @@ fn suggest(root: &Path, commits: &[CommitRef], min_occurrences: usize, json: boo
         .filter(|(_, ev)| distinct(ev) >= min_occurrences)
         .map(|((target_dir, referrer_dir), evidence)| WiringCandidate { target_dir, referrer_dir, evidence })
         .collect();
-    wiring.sort_by(|a, b| b.evidence.len().cmp(&a.evidence.len()));
+    wiring.sort_by_key(|w| std::cmp::Reverse(w.evidence.len()));
     let mut forbid: Vec<ForbidCandidate> = forbid
         .into_iter()
         .filter(|(_, ev)| distinct(ev) >= min_occurrences)
         .map(|(basename, evidence)| ForbidCandidate { basename, evidence })
         .collect();
-    forbid.sort_by(|a, b| b.evidence.len().cmp(&a.evidence.len()));
+    forbid.sort_by_key(|f| std::cmp::Reverse(f.evidence.len()));
 
     if json {
         print_suggest_json(&candidates, &hotspots, &wiring, &forbid, min_occurrences);

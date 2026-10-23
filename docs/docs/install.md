@@ -57,7 +57,8 @@ cargo build --release -p flint
 sudo cp target/release/flint /usr/local/bin/
 ```
 
-Requires Rust 1.81+ (`rustup update stable`). No system libraries are
+Requires Rust 1.99+. The repo pins its compiler in `rust-toolchain.toml`;
+run `rustup install` once in the checkout to get it. No system libraries are
 needed — there is no OpenSSL in the dependency tree.
 
 ## Dev container
