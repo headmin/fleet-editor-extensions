@@ -791,6 +791,21 @@ fn org_settings_strict() -> SchemaNode {
             ]),
         ),
         ("yara_rules", array(open_mapping())),
+        // AppConfig.ConditionalAccess (fleet/app.go). Fleet's own GitOps repo
+        // sets `bypass_disabled` (it-and-security/default.yml); the Okta and
+        // Entra fields are accepted by the parser too.
+        (
+            "conditional_access",
+            mapping(vec![
+                ("bypass_disabled", boolean_leaf()),
+                ("microsoft_entra_connection_configured", boolean_leaf()),
+                ("microsoft_entra_tenant_id", leaf()),
+                ("okta_assertion_consumer_service_url", leaf()),
+                ("okta_audience_uri", leaf()),
+                ("okta_certificate", leaf()),
+                ("okta_idp_id", leaf()),
+            ]),
+        ),
         (
             "gitops",
             mapping(vec![
@@ -1194,6 +1209,8 @@ pub(crate) static KEY_REGISTRY: Lazy<KeyRegistry> = Lazy::new(|| {
 
     // org_settings.vulnerability_settings children
     reg.register("vulnerability_settings", "org_settings");
+    reg.register("conditional_access", "org_settings");
+    reg.register("bypass_disabled", "org_settings.conditional_access");
     reg.register("databases_path", "org_settings.vulnerability_settings");
 
     // org_settings.activity_expiry_settings children
@@ -1837,7 +1854,6 @@ mod tests {
             ("org_settings", "scripts", "AppConfig field; GitOps uses controls.scripts"),
             ("org_settings", "smtp_test", "API action flag, not a setting"),
             ("org_settings", "host_settings", "legacy alias of `features` (AppConfig.DeprecatedHostSettings)"),
-            ("org_settings", "conditional_access", "Okta/Entra conditional-access setup; configured in the UI, absent from yaml-files.md"),
             ("org_settings.gitops", "exceptions", "GitOps-mode exceptions; configured in the UI, absent from yaml-files.md"),
             ("org_settings.server_settings", "debug_host_ids", "debug knob, absent from yaml-files.md"),
             ("org_settings.smtp_settings", "configured", "server-populated status"),

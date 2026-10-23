@@ -382,9 +382,13 @@ pub fn write_config(path: &Path, content: &str, force: bool) -> anyhow::Result<(
     Ok(())
 }
 
-/// Walk up from a path to the GitOps repo root. `.git` or `.fleetlint.toml`
-/// wins immediately; the shallowest ancestor holding a `default.yml` is
-/// remembered as a fallback; failing both, the starting directory itself.
+/// Walk up from a path to the GitOps repo root.
+///
+/// A config file (`.fleetlint.toml`) marks the root outright. Otherwise the
+/// nearest ancestor holding a `default.yml` is the root, and `.git` is only
+/// the boundary and fallback: a GitOps repo nested in a larger git repo (Fleet
+/// keeps `it-and-security/` inside its monorepo) must not be analysed as the
+/// whole monorepo. Failing all of them, the starting directory itself.
 pub fn discover_gitops_root(start: &Path) -> PathBuf {
     // Start at `start` itself if it's a directory, else its parent.
     let first = if start.is_dir() {
@@ -395,16 +399,17 @@ pub fn discover_gitops_root(start: &Path) -> PathBuf {
     let mut cur = first;
     let mut gitops = None;
     while let Some(dir) = cur {
-        // Either config spelling marks the repo root, same as `.git`.
-        if dir.join(".git").exists()
-            || super::config::CONFIG_FILE_NAMES
-                .iter()
-                .any(|n| dir.join(n).exists())
+        if super::config::CONFIG_FILE_NAMES
+            .iter()
+            .any(|n| dir.join(n).exists())
         {
             return dir.to_path_buf();
         }
-        if dir.join("default.yml").exists() {
+        if gitops.is_none() && dir.join("default.yml").exists() {
             gitops = Some(dir.to_path_buf());
+        }
+        if dir.join(".git").exists() {
+            return gitops.unwrap_or_else(|| dir.to_path_buf());
         }
         cur = dir.parent();
     }
@@ -418,6 +423,22 @@ mod tests {
     use super::*;
     use crate::scope::ScopeSelection;
     use tempfile::TempDir;
+
+    #[test]
+    fn discover_root_nested_gitops_repo() {
+        // Fleet's layout: a GitOps repo inside a larger git repo.
+        let tmp = TempDir::new().unwrap();
+        std::fs::create_dir_all(tmp.path().join(".git")).unwrap();
+        let gitops = tmp.path().join("it-and-security");
+        std::fs::create_dir_all(gitops.join("fleets")).unwrap();
+        std::fs::write(gitops.join("default.yml"), "org_settings: {}\n").unwrap();
+        let canon = |p: PathBuf| p.canonicalize().unwrap();
+        assert_eq!(canon(discover_gitops_root(&gitops.join("fleets"))), canon(gitops.clone()));
+        assert_eq!(canon(discover_gitops_root(&gitops)), canon(gitops.clone()));
+        // A config file at the git root still marks the root explicitly.
+        std::fs::write(tmp.path().join(".fleetlint.toml"), "").unwrap();
+        assert_eq!(canon(discover_gitops_root(&tmp.path().join("other"))), canon(tmp.path().to_path_buf()));
+    }
 
     #[test]
     fn discover_root_prefers_git_marker() {

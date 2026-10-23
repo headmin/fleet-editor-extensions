@@ -1,0 +1,68 @@
+# What does this PR do to a real GitOps repo? Lints Fleet's own config
+# (fleetdm/fleet it-and-security/, pinned) with the base and the PR build and
+# posts the per-rule difference as a PR comment. Diagnostic changes are
+# reported, never failed on; only a crash fails the job. See
+# scripts/ecosystem.sh (also runnable locally).
+name: ecosystem
+
+on:
+  pull_request:
+    paths:
+      - 'crates/**'
+      - 'cli/**'
+      - 'Cargo.lock'
+      - 'scripts/ecosystem.sh'
+
+permissions:
+  contents: read
+  pull-requests: write
+
+env:
+  # Bump deliberately: every bump changes the baseline for all open PRs.
+  FLEET_CORPUS_SHA: 350a9342cba539cee0e206fec4a09379ee12a074
+
+jobs:
+  ecosystem:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # the base ref is built from a worktree
+
+      - name: Checkout corpus
+        uses: actions/checkout@v4
+        with:
+          repository: fleetdm/fleet
+          ref: ${{ env.FLEET_CORPUS_SHA }}
+          path: fleet-corpus
+          sparse-checkout: it-and-security
+
+      - run: rustup toolchain install   # from rust-toolchain.toml
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-ecosystem-${{ hashFiles('rust-toolchain.toml', 'Cargo.lock') }}
+
+      - name: Lint corpus with base and PR
+        env:
+          FLEET_REPO: fleet-corpus
+        run: scripts/ecosystem.sh --base ${{ github.event.pull_request.base.sha }} --out ecosystem-out
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ecosystem
+          path: ecosystem-out/
+
+      - name: Comment on the PR
+        if: github.event.pull_request.head.repo.full_name == github.repository
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          gh pr comment "$PR" --body-file ecosystem-out/report.md --edit-last \
+            || gh pr comment "$PR" --body-file ecosystem-out/report.md
