@@ -63,7 +63,7 @@ needed — there is no OpenSSL in the dependency tree.
 
 ## Dev container
 
-A [`.devcontainer`](https://github.com/headmin/fleet-editor-extensions/tree/main/.devcontainer) config is included for GitHub Codespaces. It auto-installs flint and initializes `.fleetlint.toml`.
+A [`.devcontainer`](https://github.com/headmin/fleet-editor-extensions/tree/main/.devcontainer) config is included for GitHub Codespaces; copy it into a GitOps repo to use it there. It installs the latest flint release (pin one with `FLINT_VERSION` on the host), runs `flint init` when the repo has a `default.yml` but no `fleetlint.toml`, and installs the VS Code extension from the release VSIX. In flint's own repo it builds flint from source instead.
 
 ## Verify installation
 

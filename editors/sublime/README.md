@@ -1,83 +1,47 @@
-# LSP-fleet
+# LSP-flint
 
-Sublime Text LSP client for Fleet GitOps YAML validation.
+Sublime Text client for flint, the Fleet GitOps YAML linter and language
+server. Requires the [LSP](https://packagecontrol.io/packages/LSP) package.
 
-## Features
+## Install
 
-- **Validation**: Real-time diagnostics for Fleet configuration errors
-- **Completions**: Context-aware autocompletion for field names and values
-- **File Path Completions**: Suggests files when typing `path:` values
-- **Hover Documentation**: Shows documentation for osquery tables and Fleet fields
-- **Go-to-Definition**: Navigate to referenced files
+1. Install **LSP** from Package Control.
+2. Copy this directory into your Packages folder as `LSP-flint`:
 
-## Prerequisites
-
-Install the [LSP](https://packagecontrol.io/packages/LSP) package:
-1. Open Command Palette (`Cmd+Shift+P`)
-2. Run "Package Control: Install Package"
-3. Search for "LSP" and install
-
-## Installation
-
-1. Download `LSP-fleet-<version>-<platform>.zip` from [GitHub Releases](https://github.com/headmin/fleetctl-ext/releases)
-
-2. Extract to Sublime packages directory:
    ```bash
    # macOS
-   unzip LSP-fleet-0.1.0-darwin-arm64.zip -d ~/Library/Application\ Support/Sublime\ Text/Packages/LSP-fleet
-
+   cp -R editors/sublime ~/Library/Application\ Support/Sublime\ Text/Packages/LSP-flint
    # Linux
-   unzip LSP-fleet-0.1.0-linux-x64.zip -d ~/.config/sublime-text/Packages/LSP-fleet
+   cp -R editors/sublime ~/.config/sublime-text/Packages/LSP-flint
    ```
 
-3. Restart Sublime Text
+3. Restart Sublime Text and open a Fleet GitOps YAML file.
 
-## Package Contents
+The plugin runs `flint lsp`. It uses, in order: `binary_path` from the
+settings, `flint` on `PATH` (and `~/.cargo/bin`, `/opt/homebrew/bin`,
+`/usr/local/bin`), or downloads the release binary from
+[GitHub releases](https://github.com/headmin/fleet-editor-extensions/releases).
+macOS (Apple Silicon) and Linux are supported.
 
-```
-LSP-fleet/
-├── plugin.py                         # LSP client plugin
-├── LSP-fleet.sublime-settings        # Default settings
-├── Main.sublime-menu                 # Menu integration
-├── dependencies.json                 # Package dependencies
-├── messages.json                     # Install messages
-├── messages/
-│   └── install.txt
-├── bin/
-│   └── fleet-schema-gen-<platform>   # LSP binary
-└── README.md
-```
+## Settings
 
-## File Patterns
+`Preferences > Package Settings > LSP > Servers > LSP-flint`:
 
-The extension activates for YAML files matching Fleet GitOps patterns:
-- `default.yml` / `default.yaml`
-- `teams/**/*.yml`
-- `lib/**/*.yml`
-
-## Configuration
-
-Access settings via: `Preferences > Package Settings > LSP > Servers > LSP-fleet`
-
-```json
+```jsonc
 {
-    "client": {
-        "enabled": true
-    }
+  // Custom path to the flint binary; empty = PATH lookup / download.
+  "binary_path": "",
+  "client": {
+    "initializationOptions": { "fleetVersion": "latest" }
+  }
 }
 ```
 
+Lint rules and Fleet connection settings come from the repo's
+`fleetlint.toml`, the same file `flint check` reads.
+
 ## Troubleshooting
 
-### Server not starting
-
-1. Check LSP is installed: `Preferences > Package Control > List Packages`
-2. View logs: `View > Show Console`
-3. Look for `[LSP-fleet]` messages
-
-### Binary not found
-
-Ensure the `bin/` directory contains the LSP binary and it's executable:
-```bash
-chmod +x ~/Library/Application\ Support/Sublime\ Text/Packages/LSP-fleet/bin/fleet-schema-gen-*
-```
+Binary lookup and download messages (`[LSP-flint] …`) are in the console
+(`View > Show Console`); server messages are in `Tools > LSP > Toggle Log
+Panel`. Check the binary with `flint --version`.

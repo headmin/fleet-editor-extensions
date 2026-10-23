@@ -163,12 +163,25 @@ exit 0
     )
 }
 
-/// Locate the `.git/hooks/` directory for the current repo.
+/// Locate the hooks directory git actually runs for the current repo.
 ///
-/// Walks up from the current working directory looking for a `.git` entry.
-/// Errors out with a clear message if not in a git repo.
+/// Asks git (`rev-parse --git-path hooks`), which honours `core.hooksPath`,
+/// worktrees and submodules; a hook written to `.git/hooks` while
+/// `core.hooksPath` points elsewhere never runs. Falls back to walking up for
+/// `.git` when git is unavailable.
 fn find_git_hooks_dir() -> Result<PathBuf> {
-    let mut dir = std::env::current_dir()?;
+    let cwd = std::env::current_dir()?;
+    if let Ok(out) = std::process::Command::new("git")
+        .args(["rev-parse", "--git-path", "hooks"])
+        .current_dir(&cwd)
+        .output()
+    {
+        if out.status.success() {
+            let p = PathBuf::from(String::from_utf8_lossy(&out.stdout).trim());
+            return Ok(if p.is_absolute() { p } else { cwd.join(p) });
+        }
+    }
+    let mut dir = cwd;
     loop {
         let git = dir.join(".git");
         if git.is_dir() {
@@ -249,23 +262,35 @@ fn install_pre_commit_hook(force: bool, strict: bool, json: bool) -> Result<()> 
     Ok(())
 }
 
+/// Remove every flint-authored hook (pre-commit and pre-push). A hook flint
+/// did not write is reported and left in place.
 fn uninstall_pre_commit_hook() -> Result<()> {
     use colored::Colorize;
 
-    let hook_path = find_git_hooks_dir()?.join("pre-commit");
-    if !hook_path.exists() {
-        println!("{} No pre-commit hook found at {}", "ℹ".blue(), hook_path.display());
-        return Ok(());
+    let hooks_dir = find_git_hooks_dir()?;
+    let mut removed = 0;
+    for (name, marker) in [("pre-commit", "flint pre-commit hook"), ("pre-push", "flint pre-push hook")] {
+        let hook_path = hooks_dir.join(name);
+        if !hook_path.exists() {
+            continue;
+        }
+        let contents = std::fs::read_to_string(&hook_path).unwrap_or_default();
+        if !contents.contains(marker) {
+            println!(
+                "{} {} hook at {} was not written by flint — left in place",
+                "ℹ".blue(),
+                name,
+                hook_path.display()
+            );
+            continue;
+        }
+        std::fs::remove_file(&hook_path)?;
+        println!("{} Removed flint {name} hook from {}", "✓".green(), hook_path.display());
+        removed += 1;
     }
-    let contents = std::fs::read_to_string(&hook_path).unwrap_or_default();
-    if !contents.contains("flint pre-commit hook") {
-        anyhow::bail!(
-            "Pre-commit hook at {} was not authored by flint — refusing to remove it.\nDelete it manually if intended.",
-            hook_path.display()
-        );
+    if removed == 0 {
+        println!("{} No flint hooks found in {}", "ℹ".blue(), hooks_dir.display());
     }
-    std::fs::remove_file(&hook_path)?;
-    println!("{} Removed flint pre-commit hook from {}", "✓".green(), hook_path.display());
     Ok(())
 }
 

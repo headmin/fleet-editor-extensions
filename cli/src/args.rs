@@ -44,7 +44,7 @@ pub(crate) enum Commands {
     #[command(visible_alias = "dryrun")]
     DryRun(DryRunArgs),
 
-    /// Manage git hooks for non-blocking flint validation in a Fleet GitOps repo.
+    /// Install/remove git hooks: pre-commit (advisory or --strict) or a blocking pre-push dry-run.
     Hooks {
         #[command(subcommand)]
         action: HooksAction,
@@ -89,10 +89,10 @@ pub(crate) enum Commands {
     Migrate(MigrateArgs),
 
     /// Output CLI reference for AI agents (default: command index)
-    #[command(name = "help-agents", alias = "help-ai")]
+    #[command(name = "help-agents", visible_alias = "help-ai")]
     HelpAgents(HelpAgentsArgs),
 
-    /// Install AI agent skill files (.claude/skills/)
+    /// Install AI agent skills (.claude/skills/<name>/SKILL.md)
     #[command(name = "setup-agent")]
     SetupAgent,
 
@@ -121,7 +121,7 @@ pub(crate) enum Commands {
     },
 
     /// Read-only views of a Fleet instance (never writes). Connection from
-    /// `.fleetlint.toml [fleet]`, `~/.config/flint/config.toml`, `FLEET_URL`/
+    /// `fleetlint.toml [fleet]`, `~/.config/flint/config.toml`, `FLEET_URL`/
     /// `FLEET_API_TOKEN` (also via ./.env), with `op://` secret references.
     Fleet {
         #[command(subcommand)]
@@ -440,7 +440,7 @@ pub(crate) struct HelpAgentsArgs {
     pub(crate) command: Option<String>,
 
     /// Show standard operating procedures for a tool (lint, migrate, lsp,
-    /// hooks, author, paths, software, add-field)
+    /// hooks, author, paths, history, software, add-field)
     #[arg(long)]
     pub(crate) sop: Option<String>,
 

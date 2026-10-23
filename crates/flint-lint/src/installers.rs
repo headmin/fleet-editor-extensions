@@ -120,7 +120,21 @@ pub fn inspect_pkg(path: &Path) -> anyhow::Result<InstallerInfo> {
         std::fs::read_to_string(tmp.join(member)).ok()
     })();
 
-    let info = parse_pkg_metadata(xml.as_deref().unwrap_or(""));
+    let mut info = parse_pkg_metadata(xml.as_deref().unwrap_or(""));
+    // A product archive's Distribution lists no bundles; the installed .app
+    // is in a component's PackageInfo.
+    if info.app_bundle_id.is_none() {
+        let component = (|| -> Option<String> {
+            let toc = Command::new("xar").arg("-tf").arg(path).output().ok()?;
+            let listing = String::from_utf8_lossy(&toc.stdout).into_owned();
+            let member = listing.lines().find(|l| l.ends_with("PackageInfo"))?.to_string();
+            Command::new("xar").arg("-xf").arg(path).arg(&member).arg("-C").arg(&tmp).output().ok()?;
+            std::fs::read_to_string(tmp.join(&member)).ok()
+        })();
+        if let Some(xml) = component {
+            info.merge_app_bundle(&xml);
+        }
+    }
     let _ = std::fs::remove_dir_all(&tmp);
 
     if xml.is_none() {
