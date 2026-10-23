@@ -1935,20 +1935,7 @@ pub static FIELD_DOCS: Lazy<HashMap<&'static str, FieldDoc>> = Lazy::new(|| {
         },
     );
 
-    // ---- Patch policy version + agent_options.path + Windows/Apple MDM controls ----
-
-    m.insert(
-        "policies.version",
-        FieldDoc {
-            name: "version",
-            description: "Pin a specific Fleet-Maintained App version for a patch policy. Per yaml-files.md:147, when set, the version is included in the auto-generated query. Combined with `type: patch` and `fleet_maintained_app_slug`.",
-            valid_values: None,
-            example: Some("version: \"5.17.0\""),
-            required: false,
-            field_type: "string",
-            cli_hint: None,
-        },
-    );
+    // ---- agent_options.path + Windows/Apple MDM controls ----
 
     m.insert(
         "agent_options.path",

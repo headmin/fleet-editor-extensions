@@ -91,18 +91,6 @@
                   "path": {
                     "type": "string",
                     "description": "Path to script file"
-                  },
-                  "labels_include_all": {
-                    "type": "array",
-                    "items": {"type": "string"}
-                  },
-                  "labels_include_any": {
-                    "type": "array",
-                    "items": {"type": "string"}
-                  },
-                  "labels_exclude_any": {
-                    "type": "array",
-                    "items": {"type": "string"}
                   }
                 }
               }
@@ -369,14 +357,24 @@
             }
           }
         },
-        "enable_calendar_events": {
-          "type": "boolean",
-          "description": "Enable calendar event integration"
-        },
-        "webhook_url": {
-          "type": "string",
-          "description": "Webhook URL for team",
-          "format": "uri"
+        "integrations": {
+          "type": "object",
+          "properties": {
+            "google_calendar": {
+              "type": "object",
+              "properties": {
+                "enable_calendar_events": {
+                  "type": "boolean",
+                  "description": "Enable calendar event integration"
+                },
+                "webhook_url": {
+                  "type": "string",
+                  "description": "Webhook URL for the fleet's calendar events",
+                  "format": "uri"
+                }
+              }
+            }
+          }
         },
         "webhook_settings": {
           "type": "object",
