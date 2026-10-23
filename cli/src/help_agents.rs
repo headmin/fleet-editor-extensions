@@ -338,8 +338,13 @@ PROCEDURE lint_repo(path):
     IF d is a confirmed false positive:
       (a) inline:    `# flint: ignore [<rule>]` at the end of the line, or alone on
                      the line directly above; `[a, b]` for several; no list = all rules.
-                     A code no rule emits is reported (`ignore-comment-unknown-rule`).
-      (b) repo-wide: `[rules] disabled = ["<rule>"]` or `warn = ["<rule>"]`
+                     A code no rule emits is reported (`ignore-comment-unknown-rule`);
+                     one that suppresses nothing is `unused-ignore-comment` (`--fix` drops it).
+      (b) per path:  `[[overrides]] files = [...]`, `rules.warn/ignore = [...]`
+      (c) repo-wide: `[rules] disabled = ["<rule>"]` or `warn = ["<rule>"]`
+    IF adopting flint on a repo with many existing findings:
+      RUN: `flint check <repo> --add-ignore`   # baseline: annotates every finding line,
+                                               # never a line where it would change data
     HALT until errors == 0
   IF exit == 3:
     the config file does not parse — fix it (see Phase 1)

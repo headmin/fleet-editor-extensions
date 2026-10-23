@@ -103,11 +103,12 @@ fn print_next_steps(results: &[(PathBuf, linter::error::LintReport)], errors: us
 
 pub(crate) fn run(args: CheckArgs) -> anyhow::Result<()> {
     // After --fix edits files, the report is rebuilt from disk with this.
-    let relint = CheckArgs { fix: false, unsafe_fixes: false, ..args.clone() };
+    let relint = CheckArgs { fix: false, unsafe_fixes: false, add_ignore: false, ..args.clone() };
     let CheckArgs {
         paths,
         fix,
         unsafe_fixes,
+        add_ignore,
         mut format,
         hook_mode,
         staged,
@@ -321,6 +322,47 @@ pub(crate) fn run(args: CheckArgs) -> anyhow::Result<()> {
             }
         }
         scope_context = Some((sc.label(), dropped));
+    }
+
+    if add_ignore {
+        use linter::codes::{IGNORE_COMMENT_UNKNOWN_RULE, UNUSED_IGNORE_COMMENT, YAML_TRAILING_WHITESPACE};
+        let mut by_file: std::collections::BTreeMap<PathBuf, Vec<(usize, &str)>> = Default::default();
+        let mut no_line = 0;
+        for (_, report) in &results {
+            for e in report.errors.iter().chain(&report.warnings).chain(&report.infos) {
+                let Some(code) = e.rule_code else { continue };
+                // An appended comment would itself end the trailing whitespace;
+                // `--fix` removes it anyway.
+                if [UNUSED_IGNORE_COMMENT, IGNORE_COMMENT_UNKNOWN_RULE, YAML_TRAILING_WHITESPACE].contains(&code) {
+                    continue;
+                }
+                match e.line() {
+                    Some(line) => by_file.entry(e.file.clone()).or_default().push((line, code)),
+                    None => no_line += 1,
+                }
+            }
+        }
+        let (mut files, mut skipped) = (0, 0);
+        for (file, found) in &by_file {
+            let source = std::fs::read_to_string(file)?;
+            let (out, s) = linter::fix::add_ignore_comments(&source, found);
+            skipped += s;
+            if out != source {
+                std::fs::write(file, out)?;
+                files += 1;
+            }
+        }
+        if !structured_mode {
+            println!("{} Added ignore comments in {files} file(s)", "✓".green());
+            if skipped > 0 {
+                println!("  {skipped} line(s) left as is: a comment there would change the YAML, or the line has another comment");
+            }
+            if no_line > 0 {
+                println!("  {no_line} finding(s) have no line, so no comment can suppress them: use [[overrides]] in fleetlint.toml");
+            }
+            println!();
+        }
+        return run(relint);
     }
 
     // Apply fixes if requested.

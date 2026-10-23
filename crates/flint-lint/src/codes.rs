@@ -142,6 +142,9 @@ pub const YAML_DUPLICATE_KEY: &str = "yaml-duplicate-key";
 pub const YAML_SYNTAX: &str = "yaml-syntax";
 /// A `# flint: ignore [code]` naming a code no rule emits.
 pub const IGNORE_COMMENT_UNKNOWN_RULE: &str = "ignore-comment-unknown-rule";
+/// A `# flint: ignore` (or one of its codes) that suppressed nothing in a
+/// whole-repo lint.
+pub const UNUSED_IGNORE_COMMENT: &str = "unused-ignore-comment";
 
 /// The cross-file codes the engine gates in `run_cross_reference_pass`.
 pub const CROSS_FILE: &[&str] = &[
@@ -306,6 +309,7 @@ pub static REGISTRY: &[RuleMeta] = &[
     meta!(YAML_DUPLICATE_KEY, "yaml", Some(concat_url!("#gitops")), false, false, "A mapping that repeats a key (Fleet keeps the last one)"),
     meta!(YAML_SYNTAX, "yaml", Some(concat_url!("#gitops")), false, false, "A file that is not valid YAML"),
     meta!(IGNORE_COMMENT_UNKNOWN_RULE, "yaml", None, false, false, "A flint: ignore comment naming a code no rule emits (it suppresses nothing)"),
+    meta!(UNUSED_IGNORE_COMMENT, "yaml", None, true, false, "A flint: ignore comment, or one of its codes, that suppressed no finding"),
 ];
 
 /// Look up a code's registry entry.
@@ -382,6 +386,7 @@ mod tests {
             YAML_DUPLICATE_KEY,
             YAML_SYNTAX,
             IGNORE_COMMENT_UNKNOWN_RULE,
+            UNUSED_IGNORE_COMMENT,
         ];
         for code in extra {
             assert!(meta(code).is_some(), "'{code}' missing from codes::REGISTRY");

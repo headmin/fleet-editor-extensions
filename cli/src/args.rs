@@ -176,6 +176,12 @@ pub(crate) struct CheckArgs {
     #[arg(long)]
     pub(crate) unsafe_fixes: bool,
 
+    /// Add `# flint: ignore [rule]` to every line with a finding, so the
+    /// current findings become a baseline and only new ones are reported.
+    /// Skips lines inside block scalars and lines with another comment.
+    #[arg(long, conflicts_with_all = ["fix", "unsafe_fixes", "base"])]
+    pub(crate) add_ignore: bool,
+
     /// Output format
     #[arg(short, long, default_value = "text", value_parser = ["text", "json", "markdown", "github"])]
     pub(crate) format: String,

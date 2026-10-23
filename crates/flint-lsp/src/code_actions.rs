@@ -93,7 +93,8 @@ fn create_fixes_from_diagnostic(diagnostic: &Diagnostic, uri: &Url) -> Vec<CodeA
                         character: 0,
                     },
                 },
-                new_text: format!("{replacement}\n"),
+                // Empty = delete the lines, as in the CLI applier.
+                new_text: if replacement.is_empty() { String::new() } else { format!("{replacement}\n") },
             };
             let lines = end_line - start_line + 1;
             let mut title = format!("Rewrite {lines} line(s)");
