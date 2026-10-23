@@ -4,10 +4,10 @@ name: Verify locked TLS dependencies
 # trusted CA set is whatever Cargo.lock pins — no OS trust store is consulted.
 on:
   pull_request:
-    paths: [Cargo.toml, Cargo.lock, '**/Cargo.toml', .github/workflows/tls-dependencies.yml]
+    paths: [Cargo.toml, Cargo.lock, '**/Cargo.toml', rust-toolchain.toml, .github/workflows/tls-dependencies.yml]
   push:
     branches: [main]
-    paths: [Cargo.toml, Cargo.lock, '**/Cargo.toml', .github/workflows/tls-dependencies.yml]
+    paths: [Cargo.toml, Cargo.lock, '**/Cargo.toml', rust-toolchain.toml, .github/workflows/tls-dependencies.yml]
 
 permissions:
   contents: read
@@ -17,7 +17,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - run: rustup toolchain install   # from rust-toolchain.toml
       - name: Resolve the committed graph without changing it
         run: cargo tree --locked -p flint -i rustls-webpki
       - name: Reject pre-mitigation TLS dependencies (emSign distrust)
