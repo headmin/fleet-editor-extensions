@@ -89,9 +89,7 @@ pub struct FleetLintConfig {
     pub orphans: OrphansConfig,
 
     /// Declarative repo-convention patterns (ADR-010 Phase 2). Top-level
-    /// `[[patterns]]` array — safe alongside `RulesConfig.custom`'s
-    /// `#[serde(flatten)]` map because that flatten lives inside `[rules]`,
-    /// not at the document root.
+    /// `[[patterns]]` array.
     pub patterns: Vec<PatternConfig>,
 
     /// Compiled include/exclude glob sets (built on first use; skipped by
@@ -354,10 +352,6 @@ pub struct RulesConfig {
     /// Example: `warn = ["duplicate-names"]`
     #[serde(default)]
     pub warn: Vec<String>,
-
-    /// Additional custom rule configurations.
-    #[serde(flatten)]
-    pub custom: std::collections::HashMap<String, toml::Value>,
 }
 
 /// Threshold configuration for various checks.
@@ -676,6 +670,27 @@ impl FleetLintConfig {
         Self::find_in_user_config()
     }
 
+    /// The config file discovery would read from `start_path`, if it does
+    /// not parse — with the parse error. `check` and `dry-run` exit 3 on it
+    /// rather than lint with defaults: a CI run must not pass because its
+    /// config was silently dropped.
+    pub fn find_unparseable(start_path: &Path) -> Option<(PathBuf, String)> {
+        let mut current = if start_path.is_file() {
+            start_path.parent()?.to_path_buf()
+        } else {
+            start_path.to_path_buf()
+        };
+        loop {
+            for name in CONFIG_FILE_NAMES {
+                let path = current.join(name);
+                if path.exists() {
+                    return Self::from_file(&path).err().map(|e| (path, e.to_string()));
+                }
+            }
+            current = current.parent()?.to_path_buf();
+        }
+    }
+
     /// Walk up from `start_path` looking for `.fleetlint.toml` (legacy
     /// behavior, preserved for backward compatibility). Returns the
     /// repo-local config if found and parseable.
@@ -695,7 +710,10 @@ impl FleetLintConfig {
                 let config_path = current.join(name);
                 if config_path.exists() {
                     match Self::from_file(&config_path) {
-                        Ok(config) => return Some((config_path, config)),
+                        Ok(config) => {
+                            warn_ignored_settings(&config_path);
+                            return Some((config_path, config));
+                        }
                         // The workspace denies printing from the library, and
                         // rightly so. This one site is the exception: the
                         // failure has to reach a human, there is no error
@@ -780,7 +798,10 @@ flint is linting with defaults. Fix the file or move it aside."
             return None;
         }
         match Self::from_file(&path) {
-            Ok(config) => Some((path, config)),
+            Ok(config) => {
+                warn_ignored_settings(&path);
+                Some((path, config))
+            }
             Err(_) => None,
         }
     }
@@ -809,7 +830,7 @@ flint is linting with defaults. Fix the file or move it aside."
     fn compiled(&self) -> &CompiledGlobs {
         self.compiled.get_or_init(|| CompiledGlobs {
             include: build_globset(&self.files.include),
-            exclude: build_globset(&self.files.exclude),
+            exclude: build_globset(&expand_bare_names(&self.files.exclude)),
         })
     }
 
@@ -1044,6 +1065,111 @@ pub(crate) fn matches_glob(pattern: &str, path: &str) -> bool {
 /// A leading `./` on a pattern is stripped so that configs written as
 /// `include = ["./fleets/*.yml"]` match the normalized (also `./`-stripped)
 /// paths checked by `should_lint_file` (issue #15).
+/// Settings a config file contains that have no effect: keys no config field
+/// reads (a typo'd key or section is dropped by the lenient parse), and rule
+/// codes in `[rules]` that no rule emits. Found by round-tripping the parsed
+/// config back to TOML, so the config structs stay the only list of keys.
+pub(crate) fn ignored_settings(content: &str) -> Vec<String> {
+    let (Ok(raw), Ok(cfg)) = (content.parse::<toml::Table>(), FleetLintConfig::parse(content)) else {
+        return Vec::new();
+    };
+    let Ok(toml::Value::Table(kept)) = toml::Value::try_from(&cfg) else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    diff_keys(&raw, &kept, "", &mut out);
+    for code in cfg.rules.disabled.iter().chain(&cfg.rules.warn) {
+        if super::codes::meta(code).is_none() {
+            let codes = super::codes::REGISTRY.iter().map(|m| m.code);
+            out.push(format!("[rules] `{code}` is not a rule code{}", did_you_mean(code, codes)));
+        }
+    }
+    out
+}
+
+fn diff_keys(raw: &toml::Table, kept: &toml::Table, prefix: &str, out: &mut Vec<String>) {
+    for (key, value) in raw {
+        let path = if prefix.is_empty() { key.clone() } else { format!("{prefix}.{key}") };
+        match (value, kept.get(key)) {
+            (_, None) => out.push(format!(
+                "`{path}` is not a setting and is ignored{}",
+                did_you_mean(key, kept.keys().map(String::as_str))
+            )),
+            (toml::Value::Table(r), Some(toml::Value::Table(k))) => diff_keys(r, k, &path, out),
+            (toml::Value::Array(r), Some(toml::Value::Array(k))) => {
+                for (r, k) in r.iter().zip(k) {
+                    if let (toml::Value::Table(r), toml::Value::Table(k)) = (r, k) {
+                        diff_keys(r, k, &format!("{path}[]"), out);
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+fn did_you_mean<'a>(word: &str, candidates: impl Iterator<Item = &'a str>) -> String {
+    candidates
+        .map(|c| (super::util::levenshtein_distance(word, c), c))
+        .filter(|(d, c)| *d <= c.len().max(word.len()) / 3)
+        .min_by_key(|(d, _)| *d)
+        .map(|(_, c)| format!(" — did you mean `{c}`?"))
+        .unwrap_or_default()
+}
+
+/// Print [`ignored_settings`] for a config file that parsed. Same exception
+/// as the parse-failure warning: a setting with no effect looks exactly like
+/// one that works, so it has to reach a human.
+#[allow(clippy::print_stderr)]
+fn warn_ignored_settings(path: &Path) {
+    let Ok(content) = std::fs::read_to_string(path) else { return };
+    for (line, msg) in ignored_settings_located(&content) {
+        match line {
+            Some(n) => eprintln!("warning: {}:{n}: {msg}", path.display()),
+            None => eprintln!("warning: {}: {msg}", path.display()),
+        }
+    }
+}
+
+/// [`ignored_settings`] with the 1-based line each one is written on.
+/// ponytail: textual lookup (section header, `key =` line, or the quoted
+/// rule code), first match; switch to toml spans if duplicates mislead.
+fn ignored_settings_located(content: &str) -> Vec<(Option<usize>, String)> {
+    ignored_settings(content)
+        .into_iter()
+        .map(|msg| {
+            let token = msg.split('`').nth(1).unwrap_or_default();
+            let key = token.rsplit('.').next().unwrap_or(token).trim_end_matches("[]");
+            let line = content.lines().position(|l| {
+                let l = l.trim();
+                l == format!("[{token}]")
+                    || l == format!("[[{token}]]")
+                    || l.strip_prefix(key).is_some_and(|r| r.trim_start().starts_with('='))
+                    || l.contains(&format!("\"{token}\""))
+            });
+            (line.map(|i| i + 1), msg)
+        })
+        .collect()
+}
+
+/// `exclude = ["node_modules"]` means what it does in `.gitignore`: that
+/// name at any depth. A bare name (no `/`, no glob characters) becomes
+/// `**/<name>` and `**/<name>/**`; anything else is a glob as written.
+/// Only for `exclude` — an `include` of `"default.yml"` means the root file.
+fn expand_bare_names(patterns: &[String]) -> Vec<String> {
+    patterns
+        .iter()
+        .flat_map(|p| {
+            let bare = !p.contains('/') && !p.contains(['*', '?', '[', '{']);
+            if bare {
+                vec![format!("**/{p}"), format!("**/{p}/**")]
+            } else {
+                vec![p.clone()]
+            }
+        })
+        .collect()
+}
+
 fn build_globset(patterns: &[String]) -> globset::GlobSet {
     let mut builder = globset::GlobSetBuilder::new();
     for p in patterns {
@@ -1315,6 +1441,38 @@ exclude = ["**/node_modules/**"]
         assert!(config.should_lint_file(Path::new("deep/nested/file.yaml")));
         assert!(!config.should_lint_file(Path::new("script.js")));
         assert!(!config.should_lint_file(Path::new("node_modules/a.yml")));
+    }
+
+    #[test]
+    fn ignored_settings_reports_typos_and_unknown_codes() {
+        let msgs = ignored_settings(
+            "[rules]\ndisabeld = [\"x\"]\nwarn = [\"structural-validaton\"]\n[rule]\n[fleet.env]\nANY_NAME = \"v\"\n[[patterns]]\nfiles = \"*.txt\"\nassert = \"forbid-file\"\nwhy = \"w\"\nfils = \"x\"\n",
+        );
+        let joined = msgs.join("\n");
+        assert!(joined.contains("`rules.disabeld` is not a setting") && joined.contains("did you mean `disabled`"), "{joined}");
+        assert!(joined.contains("`rule` is not a setting") && joined.contains("did you mean `rules`"), "{joined}");
+        assert!(joined.contains("`structural-validaton` is not a rule code — did you mean `structural-validation`"), "{joined}");
+        assert!(joined.contains("`patterns[].fils`"), "{joined}");
+        assert!(!joined.contains("ANY_NAME"), "[fleet.env] names are free-form: {joined}");
+        assert_eq!(msgs.len(), 4, "{joined}");
+        let located = ignored_settings_located("[rules]\ndisabled = [\"orphan-file\"]\n\n[thresolds]\nmin_interval = 1\n");
+        assert_eq!(located.iter().map(|(l, _)| *l).collect::<Vec<_>>(), [Some(4), Some(2)], "{located:?}");
+        // a valid config is silent
+        assert!(ignored_settings("[rules]\ndisabled = [\"orphaned-file\"]\n[thresholds]\nmin_interval = 30\n").is_empty());
+    }
+
+    #[test]
+    fn exclude_bare_name_matches_at_any_depth() {
+        // The form docs/configuration.md has always shown.
+        let cfg: FleetLintConfig =
+            toml::from_str("[files]\nexclude = [\"node_modules\", \"scratch\"]\n").unwrap();
+        assert!(!cfg.should_lint_file(Path::new("scratch/b.yml")));
+        assert!(!cfg.should_lint_file(Path::new("./a/node_modules/x/y.yml")));
+        assert!(cfg.should_lint_file(Path::new("fleets/scratchpad.yml")));
+        // include keeps exact semantics
+        let cfg: FleetLintConfig = toml::from_str("[files]\ninclude = [\"default.yml\"]\n").unwrap();
+        assert!(cfg.should_lint_file(Path::new("default.yml")));
+        assert!(!cfg.should_lint_file(Path::new("fleets/default.yml")));
     }
 
     #[test]

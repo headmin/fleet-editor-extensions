@@ -22,6 +22,8 @@ COCKPIT-METHODOLOGY.md
 # Python / Zensical docs
 docs/.venv/
 docs/site/
+# Generated at docs build time by docs/gen_rules.py
+docs/docs/rules-list.md
 docs/.wrangler/
 __pycache__/
 

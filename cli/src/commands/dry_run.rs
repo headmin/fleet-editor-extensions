@@ -32,6 +32,10 @@ pub(crate) fn run(args: DryRunArgs) -> anyhow::Result<()> {
     // that always wants it. The flag can only turn the behaviour ON: a repo
     // opting in has decided its dry-run depends on the server, and a silent
     // per-run opt-out would make an offline answer look like a live one.
+    if let Some((cfg, err)) = linter::FleetLintConfig::find_unparseable(&path) {
+        eprintln!("error: {} could not be parsed — fix it before a dry-run.\n  {err}", cfg.display());
+        std::process::exit(3);
+    }
     let config_opt_in = linter::FleetLintConfig::find_and_load(&path)
         .map(|(_, c)| c.fleet.refresh_snapshot)
         .unwrap_or(false);

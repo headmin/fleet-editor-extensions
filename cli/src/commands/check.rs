@@ -173,6 +173,14 @@ pub(crate) fn run(args: CheckArgs) -> anyhow::Result<()> {
     // root relative too, and `[files] include` globs anchored there reject
     // every absolute path a repo-rooted lint produces — a scoped run then
     // saw zero files and reported a clean fleet.
+    // A config that exists but does not parse: stop with exit 3 instead of
+    // linting with defaults (hooks keep exiting 0 and just get the warning).
+    if !hook_mode {
+        if let Some((cfg, err)) = linter::FleetLintConfig::find_unparseable(&lexical_normalize(&lint_paths[0])) {
+            eprintln!("error: {} could not be parsed — fix it before linting.\n  {err}", cfg.display());
+            std::process::exit(3);
+        }
+    }
     let mut linter = Linter::from_path(&lexical_normalize(&lint_paths[0]));
 
     // Merge any `--exclude` globs into the loaded config (creating a

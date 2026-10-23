@@ -15,6 +15,7 @@ nav = [
   { "Commands" = "commands.md" },
   { "Editors" = "editors.md" },
   { "Rules" = "rules.md" },
+  { "All rules" = "rules-list.md" },
   { "Configuration" = "configuration.md" },
   { "Repo patterns" = "patterns.md" },
   { "Migration" = "migration.md" },

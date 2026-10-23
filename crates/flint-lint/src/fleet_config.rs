@@ -16,7 +16,10 @@ pub struct FleetConfig {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub policies: Option<Vec<PolicyOrPath>>,
 
-    #[serde(skip_serializing_if = "Option::is_none")]
+    /// `reports:` is the name since Fleet 4.82 (`queries:` is the deprecated
+    /// spelling). Without the alias every query rule — syntax, interval,
+    /// length, platform — silently skipped repos that had migrated.
+    #[serde(alias = "reports", skip_serializing_if = "Option::is_none")]
     pub queries: Option<Vec<QueryOrPath>>,
 
     #[serde(skip_serializing_if = "Option::is_none")]

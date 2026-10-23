@@ -121,10 +121,16 @@ impl FleetLspBackend {
             method: "workspace/didChangeWatchedFiles".to_string(),
             register_options: Some(
                 serde_json::to_value(DidChangeWatchedFilesRegistrationOptions {
-                    watchers: vec![FileSystemWatcher {
-                        glob_pattern: GlobPattern::String("**/.fleetlint.toml".to_string()),
-                        kind: None,
-                    }],
+                    // One watcher per accepted config name: `flint init` writes
+                    // the visible `fleetlint.toml`, so watching only the hidden
+                    // one left the default config needing a server restart.
+                    watchers: ["**/fleetlint.toml", "**/.fleetlint.toml"]
+                        .into_iter()
+                        .map(|glob| FileSystemWatcher {
+                            glob_pattern: GlobPattern::String(glob.to_string()),
+                            kind: None,
+                        })
+                        .collect(),
                 })
                 .expect("DidChangeWatchedFilesRegistrationOptions must serialize"),
             ),
@@ -969,7 +975,7 @@ impl LanguageServer for FleetLspBackend {
     }
 
     async fn did_change_watched_files(&self, params: DidChangeWatchedFilesParams) {
-        // Our watcher only matches `**/.fleetlint.toml`, so every event
+        // Our watchers only match the config file names, so every event
         // here is a config change. Multiple events in one batch (rare —
         // would mean two config files changed simultaneously) collapse
         // to a single reload: find_and_load walks up from the workspace
@@ -981,7 +987,7 @@ impl LanguageServer for FleetLspBackend {
         self.client
             .log_message(
                 MessageType::INFO,
-                ".fleetlint.toml changed; reloading config",
+                "fleetlint.toml changed; reloading config",
             )
             .await;
 
@@ -2204,17 +2210,16 @@ mod debounce_tests {
         let opts: DidChangeWatchedFilesRegistrationOptions =
             serde_json::from_value(reg.register_options.expect("register_options must be set"))
                 .expect("register_options must deserialize back to the expected type");
-        assert_eq!(opts.watchers.len(), 1);
-
-        match &opts.watchers[0].glob_pattern {
-            GlobPattern::String(s) => {
-                assert_eq!(
-                    s, "**/.fleetlint.toml",
-                    "glob must match config files at any depth from the workspace root"
-                );
-            }
-            other => panic!("expected String glob pattern, got {other:?}"),
-        }
+        let globs: Vec<&str> = opts
+            .watchers
+            .iter()
+            .map(|w| match &w.glob_pattern {
+                GlobPattern::String(s) => s.as_str(),
+                other => panic!("expected String glob pattern, got {other:?}"),
+            })
+            .collect();
+        // Both accepted names, at any depth from the workspace root.
+        assert_eq!(globs, ["**/fleetlint.toml", "**/.fleetlint.toml"]);
 
         // `kind = None` is the LSP convention for "all events" (create,
         // change, delete). If we ever narrow this, the test catches it.

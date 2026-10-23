@@ -140,6 +140,8 @@ pub const YAML_TABS: &str = "yaml-tabs";
 pub const YAML_TRAILING_WHITESPACE: &str = "yaml-trailing-whitespace";
 pub const YAML_DUPLICATE_KEY: &str = "yaml-duplicate-key";
 pub const YAML_SYNTAX: &str = "yaml-syntax";
+/// A `# flint: ignore [code]` naming a code no rule emits.
+pub const IGNORE_COMMENT_UNKNOWN_RULE: &str = "ignore-comment-unknown-rule";
 
 /// The cross-file codes the engine gates in `run_cross_reference_pass`.
 pub const CROSS_FILE: &[&str] = &[
@@ -171,16 +173,27 @@ pub struct RuleMeta {
     pub fixable: bool,
     /// Drives the LSP `DiagnosticTag::DEPRECATED` strikethrough.
     pub is_deprecation: bool,
+    /// One-line description, only for codes with no per-file `Rule` impl
+    /// (whose `description()` is the source). Exactly one of the two exists
+    /// per code — `every_code_has_one_description`.
+    pub description: Option<&'static str>,
 }
 
 macro_rules! meta {
     ($code:expr, $cat:expr, $doc:expr, $fix:expr, $dep:expr) => {
+        meta!($code, $cat, $doc, $fix, $dep, None)
+    };
+    ($code:expr, $cat:expr, $doc:expr, $fix:expr, $dep:expr, $desc:literal) => {
+        meta!($code, $cat, $doc, $fix, $dep, Some($desc))
+    };
+    ($code:expr, $cat:expr, $doc:expr, $fix:expr, $dep:expr, $desc:expr) => {
         RuleMeta {
             code: $code,
             category: $cat,
             doc_url: $doc,
             fixable: $fix,
             is_deprecation: $dep,
+            description: $desc,
         }
     };
 }
@@ -202,7 +215,7 @@ pub static REGISTRY: &[RuleMeta] = &[
     meta!(INTERVAL_VALIDATION, "style", Some(concat_url!("#reports")), false, false),
     meta!(DUPLICATE_NAMES, "structural", Some(concat_url!("#gitops")), false, false),
     meta!(QUERY_SYNTAX, "semantic", Some(concat_url!("#reports")), false, false),
-    meta!(QUERY_LENGTH, "semantic", Some(concat_url!("#reports")), false, false),
+    meta!(QUERY_LENGTH, "semantic", Some(concat_url!("#reports")), false, false, "A query longer than [thresholds] max_query_length"),
     meta!(FMA_SLUG, "semantic", None, true, false),
     meta!(STRUCTURAL_VALIDATION, "structural", Some(DOCS), true, false),
     meta!(LABEL_TARGETING, "semantic", Some(concat_url!("#policies")), false, false),
@@ -247,51 +260,52 @@ pub static REGISTRY: &[RuleMeta] = &[
     meta!(DUPLICATE_PAYLOAD_UUID, "semantic", None, false, false),
     // Not fixable: a malformed profile needs an author's judgement about the
     // intended text, not a mechanical substitution.
-    meta!(PROFILE_WELL_FORMED, "cross-file", None, false, false),
-    meta!(FLEET_VARIABLE, "cross-file", None, false, false),
+    meta!(PROFILE_WELL_FORMED, "cross-file", None, false, false, "A .mobileconfig or DDM declaration that does not parse (fleetctl refuses the apply)"),
+    meta!(FLEET_VARIABLE, "cross-file", None, false, false, "A $FLEET_VAR_ that Fleet does not define, or does not allow in that file type"),
     // Deliberately NOT fixable — see the constant's docs. Rewriting a
     // PayloadUUID makes Fleet re-deliver the profile to every enrolled host.
-    meta!(PAYLOAD_UUID_FORMAT, "cross-file", None, false, false),
+    meta!(PAYLOAD_UUID_FORMAT, "cross-file", None, false, false, "A PayloadUUID that is not a valid UUID (advisory; never rewritten)"),
     // PathExistsRule's extra codes.
-    meta!(PATH_CASE, "structural", None, true, false),
-    meta!(PATH_EMPTY, "structural", None, false, false),
-    meta!(PATH_IS_FILE, "structural", None, true, false),
+    meta!(PATH_CASE, "structural", None, true, false, "A path: reference whose letter case differs from the file on disk"),
+    meta!(PATH_EMPTY, "structural", None, false, false, "A path: reference to an empty file (Fleet applies nothing from it)"),
+    meta!(PATH_IS_FILE, "structural", None, true, false, "A path: reference that points at a directory, not a file"),
     // Cross-file graph pass.
-    meta!(LABEL_REFERENCE, "cross-file", None, false, false),
-    meta!(INSTALL_SOFTWARE_HASH, "cross-file", None, false, false),
-    meta!(INSTALL_SOFTWARE_TEAM, "cross-file", None, false, false),
-    meta!(INSTALL_SOFTWARE_ID, "cross-file", None, false, false),
-    meta!(APP_STORE_VPP, "cross-file", None, false, false),
+    meta!(LABEL_REFERENCE, "cross-file", None, false, false, "Flags labels_include_*/exclude_any values not defined in the repo (nor a Fleet built-in)"),
+    meta!(INSTALL_SOFTWARE_HASH, "cross-file", None, false, false, "Flags policy install_software.hash_sha256 with no matching software package in the repo"),
+    meta!(INSTALL_SOFTWARE_TEAM, "cross-file", None, false, false, "Flags a fleet whose policy auto-installs a package, or is a patch policy for a Fleet-maintained app, that the fleet's software list does not include"),
+    meta!(INSTALL_SOFTWARE_ID, "cross-file", None, false, false, "Flags a policy whose query checks a different package id than the package its install_software installs"),
+    meta!(APP_STORE_VPP, "cross-file", None, false, false, "Flags software.app_store_apps when no volume_purchasing_program (VPP) is configured in org_settings"),
     // Workspace rules (ADR-010 Phase 1).
-    meta!(BROKEN_REFERENCE, "cross-file", None, false, false),
-    meta!(CASE_COLLISION, "cross-file", None, false, false),
-    meta!(UNREGISTERED_SCRIPT, "cross-file", Some(concat_url!("#run-script")), false, false),
-    meta!(DUPLICATE_CONTENT, "cross-file", None, false, false),
-    meta!(ORPHANED_FILE, "cross-file", None, false, false),
-    meta!(DUPLICATE_IDENTIFIER, "cross-file", None, false, false),
+    meta!(BROKEN_REFERENCE, "cross-file", None, false, false, "A paths: glob matches no files (typically after a folder rename)"),
+    meta!(CASE_COLLISION, "cross-file", None, false, false, "Two repo paths differ only by letter case (breaks case-sensitive checkouts and CI)"),
+    meta!(UNREGISTERED_SCRIPT, "cross-file", Some(concat_url!("#run-script")), false, false, "A policy runs a script that no fleet registers under controls.scripts"),
+    meta!(DUPLICATE_CONTENT, "cross-file", None, false, false, "The same payload is committed at two paths"),
+    meta!(ORPHANED_FILE, "cross-file", None, false, false, "A profile, script or payload that no fleet or config file references"),
+    meta!(DUPLICATE_IDENTIFIER, "cross-file", None, false, false, "Two profiles in one fleet share a PayloadIdentifier but differ in content"),
     // Not fixable: which of the two fleets should be renamed is the author's
     // call, and renaming the wrong one silently retires a different team.
-    meta!(DUPLICATE_FLEET_NAME, "cross-file", None, false, false),
+    meta!(DUPLICATE_FLEET_NAME, "cross-file", None, false, false, "Two fleet files declare the same name: (Fleet keeps one, the other fleet disappears)"),
     // Not fixable: which fleet should get its own package is an operational
     // decision, not a mechanical substitution.
-    meta!(BOOTSTRAP_PACKAGE_SHARED, "cross-file", None, false, false),
+    meta!(BOOTSTRAP_PACKAGE_SHARED, "cross-file", None, false, false, "One bootstrap package URL shared by several fleets: replacing it invalidates the token for all of them"),
     // Not fixable: which side is stale is exactly the judgement being asked
     // for, and the majority is not automatically right.
-    meta!(CROSS_FLEET_DIVERGENCE, "cross-file", None, false, false),
-    meta!(PATTERN_NAME_MATCHES_FILENAME, "pattern", None, false, false),
-    meta!(PATTERN_FILENAME, "pattern", None, false, false),
-    meta!(PATTERN_CONTENT_MUST_MATCH, "pattern", None, false, false),
-    meta!(PATTERN_CONTENT_MUST_NOT_MATCH, "pattern", None, false, false),
-    meta!(PATTERN_TOKEN_CONSISTENCY, "pattern", None, false, false),
-    meta!(PATTERN_MUST_BE_REFERENCED, "pattern", None, false, false),
-    meta!(PATTERN_UNIQUE_CONTENT_WITHIN, "pattern", None, false, false),
-    meta!(PATTERN_REQUIRED_STRUCTURE, "pattern", None, false, false),
-    meta!(PATTERN_FORBID_FILE, "pattern", None, false, false),
+    meta!(CROSS_FLEET_DIVERGENCE, "cross-file", None, false, false, "One copy of a per-fleet artifact disagrees with the majority of its siblings"),
+    meta!(PATTERN_NAME_MATCHES_FILENAME, "pattern", None, false, false, "[[patterns]]: a file's name: must match its filename"),
+    meta!(PATTERN_FILENAME, "pattern", None, false, false, "[[patterns]]: file names must follow the configured scheme"),
+    meta!(PATTERN_CONTENT_MUST_MATCH, "pattern", None, false, false, "[[patterns]]: file content must match the configured regex"),
+    meta!(PATTERN_CONTENT_MUST_NOT_MATCH, "pattern", None, false, false, "[[patterns]]: file content must not match the configured regex"),
+    meta!(PATTERN_TOKEN_CONSISTENCY, "pattern", None, false, false, "[[patterns]]: a token must be used consistently across the matched files"),
+    meta!(PATTERN_MUST_BE_REFERENCED, "pattern", None, false, false, "[[patterns]]: matching files must be referenced by a config file"),
+    meta!(PATTERN_UNIQUE_CONTENT_WITHIN, "pattern", None, false, false, "[[patterns]]: content must be unique within each matched directory"),
+    meta!(PATTERN_REQUIRED_STRUCTURE, "pattern", None, false, false, "[[patterns]]: matched directories must contain the required files"),
+    meta!(PATTERN_FORBID_FILE, "pattern", None, false, false, "[[patterns]]: matching files must not exist"),
     // Engine hygiene checks.
-    meta!(YAML_TABS, "yaml", Some(concat_url!("#gitops")), false, false),
-    meta!(YAML_TRAILING_WHITESPACE, "yaml", None, false, false),
-    meta!(YAML_DUPLICATE_KEY, "yaml", Some(concat_url!("#gitops")), false, false),
-    meta!(YAML_SYNTAX, "yaml", Some(concat_url!("#gitops")), false, false),
+    meta!(YAML_TABS, "yaml", Some(concat_url!("#gitops")), false, false, "Tab characters in YAML indentation"),
+    meta!(YAML_TRAILING_WHITESPACE, "yaml", None, false, false, "Trailing whitespace on a YAML line"),
+    meta!(YAML_DUPLICATE_KEY, "yaml", Some(concat_url!("#gitops")), false, false, "A mapping that repeats a key (Fleet keeps the last one)"),
+    meta!(YAML_SYNTAX, "yaml", Some(concat_url!("#gitops")), false, false, "A file that is not valid YAML"),
+    meta!(IGNORE_COMMENT_UNKNOWN_RULE, "yaml", None, false, false, "A flint: ignore comment naming a code no rule emits (it suppresses nothing)"),
 ];
 
 /// Look up a code's registry entry.
@@ -312,6 +326,20 @@ mod tests {
     /// Every registered rule's name and every extra/cross-file/hygiene code
     /// must have a REGISTRY entry — the guard against the old two-namespace
     /// drift where cross-file codes were invisible to tooling.
+    #[test]
+    fn every_code_has_one_description() {
+        let rules = RuleSet::default_rules();
+        for m in REGISTRY {
+            let from_rule = rules.rules().iter().any(|r| r.name() == m.code);
+            assert!(
+                from_rule != m.description.is_some(),
+                "{}: needs exactly one description (Rule::description or the registry entry); rule={from_rule} registry={}",
+                m.code,
+                m.description.is_some()
+            );
+        }
+    }
+
     #[test]
     fn registry_is_complete() {
         for rule in RuleSet::default_rules().rules() {
@@ -353,6 +381,7 @@ mod tests {
             YAML_TRAILING_WHITESPACE,
             YAML_DUPLICATE_KEY,
             YAML_SYNTAX,
+            IGNORE_COMMENT_UNKNOWN_RULE,
         ];
         for code in extra {
             assert!(meta(code).is_some(), "'{code}' missing from codes::REGISTRY");

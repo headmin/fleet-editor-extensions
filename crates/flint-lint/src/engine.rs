@@ -387,6 +387,9 @@ impl Linter {
         // configured downgrades through the shared control pass.
         let suppressions = parse_suppressions(content);
         apply_error_controls(&mut all_errors, &suppressions, &warning_rules);
+        if !disabled_rules.contains(crate::codes::IGNORE_COMMENT_UNKNOWN_RULE) {
+            all_errors.extend(unknown_suppression_codes(&suppressions, file_path));
+        }
 
         for mut error in all_errors {
             stamp_doc_url(&mut error);
@@ -1112,10 +1115,15 @@ fn parse_suppressions(source: &str) -> HashMap<usize, Vec<String>> {
         if let Some(comment_start) = line.find('#') {
             let comment = line[comment_start + 1..].trim();
 
-            if let Some(rest) = comment.strip_prefix("fleet-lint:") {
+            // `# flint: ignore [a, b]` is the documented form; `fleet-lint:`
+            // and bare `a, b` (no brackets) keep working.
+            let rest = comment
+                .strip_prefix("flint:")
+                .or_else(|| comment.strip_prefix("fleet-lint:"));
+            if let Some(rest) = rest {
                 let rest = rest.trim();
                 if let Some(codes) = rest.strip_prefix("ignore") {
-                    let codes = codes.trim();
+                    let codes = codes.trim().trim_start_matches('[').trim_end_matches(']').trim();
                     if codes.is_empty() {
                         // Ignore all rules
                         suppressions.insert(line_num, Vec::new());
@@ -1134,6 +1142,35 @@ fn parse_suppressions(source: &str) -> HashMap<usize, Vec<String>> {
     }
 
     suppressions
+}
+
+/// A code in `# flint: ignore [...]` that no rule emits suppresses nothing —
+/// usually a typo, so the finding it was meant to hide still shows and the
+/// comment looks like it works. Reported with a did-you-mean.
+fn unknown_suppression_codes(suppressions: &HashMap<usize, Vec<String>>, file: &Path) -> Vec<LintError> {
+    let mut out = Vec::new();
+    for (line, codes) in suppressions {
+        for code in codes {
+            if crate::codes::meta(code).is_some() {
+                continue;
+            }
+            let hint = crate::codes::REGISTRY
+                .iter()
+                .map(|m| (crate::util::levenshtein_distance(code, m.code), m.code))
+                .filter(|(d, c)| *d <= c.len().max(code.len()) / 3)
+                .min_by_key(|(d, _)| *d)
+                .map(|(_, c)| format!(" — did you mean `{c}`?"))
+                .unwrap_or_default();
+            out.push(
+                LintError::warning(format!("`{code}` in a flint: ignore comment is not a rule code{hint}"), file)
+                    .with_rule_code(crate::codes::IGNORE_COMMENT_UNKNOWN_RULE)
+                    .with_location(*line, 1)
+                    .with_help("Use a code from `flint list-rules`; this comment suppresses nothing for it."),
+            );
+        }
+    }
+    out.sort_by_key(|e| e.line());
+    out
 }
 
 /// Check if a lint error is suppressed by an inline comment.
@@ -1206,6 +1243,23 @@ mod suppression_tests {
         assert_eq!(codes.len(), 2);
         assert!(codes.contains(&"query-syntax".to_string()));
         assert!(codes.contains(&"type-validation".to_string()));
+    }
+
+    #[test]
+    fn test_parse_suppression_documented_flint_form() {
+        // The form docs/rules.md and help-agents publish.
+        let s = parse_suppressions("queries:  # flint: ignore [deprecated-keys, yaml-tabs]\nx:  # flint: ignore\n");
+        assert_eq!(s.get(&1).unwrap(), &vec!["deprecated-keys".to_string(), "yaml-tabs".to_string()]);
+        assert!(s.get(&2).unwrap().is_empty());
+    }
+
+    #[test]
+    fn unknown_code_in_ignore_comment_is_reported() {
+        let s = parse_suppressions("a: 1  # flint: ignore [deprecated-keys, structual-validation]\n");
+        let errs = unknown_suppression_codes(&s, Path::new("x.yml"));
+        assert_eq!(errs.len(), 1, "{errs:?}");
+        assert!(errs[0].message.contains("did you mean `structural-validation`"), "{}", errs[0].message);
+        assert_eq!(errs[0].line(), Some(1));
     }
 
     #[test]
