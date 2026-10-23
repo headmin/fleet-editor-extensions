@@ -219,7 +219,7 @@ build_binary() {
     # month of rebuilds). build.rs honors SOURCE_DATE_EPOCH and re-runs
     # when it changes — no cargo clean needed.
     SOURCE_DATE_EPOCH="$(date +%s)" \
-        cargo build --release --target aarch64-apple-darwin -p "$BINARY"
+        cargo build --locked --release --target aarch64-apple-darwin -p "$BINARY"
     log_info "Build complete"
 }
 

@@ -1,0 +1,40 @@
+name: Verify locked TLS dependencies
+
+# flint fetches over ureq + rustls with webpki-roots compiled in, so the
+# trusted CA set is whatever Cargo.lock pins — no OS trust store is consulted.
+on:
+  pull_request:
+    paths: [Cargo.toml, Cargo.lock, '**/Cargo.toml', .github/workflows/tls-dependencies.yml]
+  push:
+    branches: [main]
+    paths: [Cargo.toml, Cargo.lock, '**/Cargo.toml', .github/workflows/tls-dependencies.yml]
+
+permissions:
+  contents: read
+
+jobs:
+  tls:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Resolve the committed graph without changing it
+        run: cargo tree --locked -p flint -i rustls-webpki
+      - name: Reject pre-mitigation TLS dependencies (emSign distrust)
+        run: |
+          python3 - <<'PY'
+          import tomllib
+          from pathlib import Path
+
+          packages = tomllib.loads(Path("Cargo.lock").read_text())["package"]
+          # webpki-roots 0.26.x is a shim re-exporting 1.x, so only check 1.x.
+          for name, minimum in (("rustls-webpki", (0, 103, 16)), ("webpki-roots", (1, 0, 11))):
+              versions = [p["version"] for p in packages if p["name"] == name]
+              assert versions, f"Missing {name}; review the new TLS graph"
+              for version in versions:
+                  v = tuple(map(int, version.split(".")))
+                  if name == "webpki-roots" and v[0] == 0:
+                      continue
+                  assert v >= minimum, (name, version)
+                  print(name, version)
+          PY

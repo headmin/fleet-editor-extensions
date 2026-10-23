@@ -59,7 +59,7 @@ jobs:
             target
           key: ${{ runner.os }}-test-cargo-${{ hashFiles('**/Cargo.toml') }}
       - name: Run tests
-        run: cargo test --workspace --release
+        run: cargo test --locked --workspace --release
 
   build:
     needs: test
@@ -118,7 +118,7 @@ jobs:
 
       - name: Build binary
         run: |
-          cross build --release -p "${BINARY_NAME}" --target ${{ matrix.target }}
+          cross build --locked --release -p "${BINARY_NAME}" --target ${{ matrix.target }}
           mkdir -p dist
           cp "target/${{ matrix.target }}/release/${BINARY_NAME}" dist/
 

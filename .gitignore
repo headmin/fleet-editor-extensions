@@ -12,9 +12,6 @@ editors/vscode/out/
 editors/vscode/node_modules/
 editors/vscode/*.vsix
 
-# Rust
-Cargo.lock
-
 # Internal docs (not for public repo)
 cockpit/
 COCKPIT-METHODOLOGY.md
