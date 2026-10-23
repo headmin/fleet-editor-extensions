@@ -73,7 +73,7 @@ jobs:
 
       - name: Build
         run: |
-          cargo build --release --target aarch64-apple-darwin -p flint
+          cargo build --locked --release --target aarch64-apple-darwin -p flint
           mkdir -p dist
           cp target/aarch64-apple-darwin/release/${{ env.BINARY_NAME }} dist/
           strip dist/${{ env.BINARY_NAME }}
@@ -166,7 +166,7 @@ jobs:
 
       - name: Build
         run: |
-          cargo build --release -p flint
+          cargo build --locked --release -p flint
           mkdir -p dist
           cp target/release/${{ env.BINARY_NAME }} dist/
           strip dist/${{ env.BINARY_NAME }}
@@ -223,7 +223,7 @@ jobs:
         env:
           CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
         run: |
-          cargo build --release --target aarch64-unknown-linux-gnu -p flint
+          cargo build --locked --release --target aarch64-unknown-linux-gnu -p flint
           mkdir -p dist
           cp target/aarch64-unknown-linux-gnu/release/${{ env.BINARY_NAME }} dist/
           aarch64-linux-gnu-strip dist/${{ env.BINARY_NAME }} || true
