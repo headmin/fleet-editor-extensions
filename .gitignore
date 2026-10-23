@@ -24,6 +24,7 @@ docs/.venv/
 docs/site/
 # Generated at docs build time by docs/gen_rules.py
 docs/docs/rules-list.md
+docs/docs/schemas/
 docs/.wrangler/
 __pycache__/
 

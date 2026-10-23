@@ -1,4 +1,5 @@
-"""Render docs/docs/rules-list.md from `flint list-rules --format json`.
+"""Render docs/docs/rules-list.md from `flint list-rules --format json`, and
+docs/docs/schemas/fleetlint.json from `flint config-schema`.
 
 Run before `zensical build`. The page is never committed (it's gitignored):
 it is always built from the flint it describes, so it cannot drift.
@@ -48,3 +49,11 @@ for category in sorted(by_category):
 
 OUT.write_text("\n".join(lines))
 print(f"wrote {OUT.relative_to(HERE.parent)} ({data['total']} rules)")
+
+# The fleetlint.toml JSON Schema, served at /schemas/fleetlint.json (the URL
+# a SchemaStore catalog entry points editors at).
+schema = HERE / "docs" / "schemas" / "fleetlint.json"
+schema.parent.mkdir(exist_ok=True)
+schema.write_text(subprocess.run(cmd + ["config-schema"], cwd=HERE.parent, check=True,
+                                 capture_output=True, text=True).stdout)
+print(f"wrote {schema.relative_to(HERE.parent)}")

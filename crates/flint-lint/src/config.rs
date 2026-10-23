@@ -979,6 +979,52 @@ flint is linting with defaults. Fix the file or move it aside."
         false
     }
 
+    /// JSON Schema for `fleetlint.toml` (editors via SchemaStore / taplo).
+    ///
+    /// Derived from the defaults as serialized, so it cannot drift from the
+    /// config types: every key the loader reads, typed by its default, and
+    /// no other (a typo is flagged as you type). Rule lists only take codes
+    /// from the registry.
+    pub fn json_schema() -> serde_json::Value {
+        use serde_json::{json, Value};
+        fn infer(v: &Value) -> Value {
+            match v {
+                Value::Bool(_) => json!({ "type": "boolean" }),
+                Value::Number(n) if n.is_f64() => json!({ "type": "number" }),
+                Value::Number(_) => json!({ "type": "integer" }),
+                Value::String(_) => json!({ "type": "string" }),
+                // Every list that defaults empty is a list of strings, except
+                // [[patterns]] and [[overrides]], which are seeded below.
+                Value::Array(a) => json!({ "type": "array", "items": a.first().map_or(json!({ "type": "string" }), infer) }),
+                Value::Object(o) => json!({
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": o.iter().map(|(k, v)| (k.clone(), infer(v))).collect::<serde_json::Map<_, _>>(),
+                }),
+                Value::Null => json!({}),
+            }
+        }
+        let mut root = serde_json::to_value(Self::default()).unwrap_or_default();
+        root["patterns"] = json!([PatternConfig::default()]);
+        root["overrides"] = json!([OverrideConfig::default()]);
+        let mut schema = infer(&root);
+
+        let codes: Vec<&str> = super::codes::REGISTRY.iter().map(|m| m.code).collect();
+        let rule_lists = |rules: &mut Value| {
+            for list in ["disabled", "ignore", "warn", "error"] {
+                rules["properties"][list]["items"] = json!({ "enum": codes });
+            }
+        };
+        rule_lists(&mut schema["properties"]["rules"]);
+        rule_lists(&mut schema["properties"]["overrides"]["items"]["properties"]["rules"]);
+        schema["properties"]["extend"] = json!({ "type": "string", "description": "Base config this file overlays, relative to this file" });
+        schema["properties"]["fleet"]["properties"]["env"]["additionalProperties"] = json!({ "type": "string" });
+        schema["$schema"] = json!("http://json-schema.org/draft-07/schema#");
+        schema["$id"] = json!("https://flint.macadmin.me/schemas/fleetlint.json");
+        schema["title"] = json!("flint configuration (fleetlint.toml)");
+        schema
+    }
+
     /// Write a default configuration to a path.
     pub fn write_default(path: &Path) -> Result<(), ConfigError> {
         let default_config = Self::default_with_comments();
@@ -988,7 +1034,8 @@ flint is linting with defaults. Fix the file or move it aside."
 
     /// Generate default configuration with explanatory comments.
     pub fn default_with_comments() -> String {
-        r#"# Fleet Linter Configuration
+        r#"#:schema https://flint.macadmin.me/schemas/fleetlint.json
+# Fleet Linter Configuration
 # Place this file at the root of your GitOps repository as `fleetlint.toml`
 # All rule codes: `flint list-rules`
 
@@ -1551,6 +1598,34 @@ exclude = ["**/node_modules/**"]
         assert!(config.should_lint_file(Path::new("deep/nested/file.yaml")));
         assert!(!config.should_lint_file(Path::new("script.js")));
         assert!(!config.should_lint_file(Path::new("node_modules/a.yml")));
+    }
+
+    #[test]
+    fn json_schema_covers_every_setting_and_only_those() {
+        let schema = FleetLintConfig::json_schema();
+        // Every key the docs' full example and the init template write is
+        // in the schema; a key the loader ignores is not.
+        fn walk(v: &toml::Value, schema: &serde_json::Value, path: &str, out: &mut Vec<String>) {
+            if let toml::Value::Table(t) = v {
+                for (k, v) in t {
+                    let sub = &schema["properties"][k];
+                    let open = schema["additionalProperties"].is_object();
+                    if sub.is_null() && !open {
+                        out.push(format!("{path}{k}"));
+                    }
+                    walk(v, sub, &format!("{path}{k}."), out);
+                }
+            }
+        }
+        let docs = include_str!("../../../docs/docs/configuration.md");
+        let example = docs.split("```toml").nth(1).unwrap().split("```").next().unwrap();
+        for (name, src) in [("configuration.md", example.to_string()), ("template", FleetLintConfig::default_with_comments())] {
+            let mut missing = Vec::new();
+            walk(&src.parse::<toml::Value>().unwrap(), &schema, "", &mut missing);
+            assert!(missing.is_empty(), "{name} uses keys the schema (and the loader) don't know: {missing:?}");
+        }
+        assert!(schema["properties"]["rules"]["properties"]["warn"]["items"]["enum"].as_array().unwrap().len() == crate::codes::REGISTRY.len());
+        assert!(schema["properties"]["schema"]["properties"].get("validate").is_none());
     }
 
     #[test]

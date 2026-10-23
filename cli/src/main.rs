@@ -45,6 +45,7 @@ async fn main() -> Result<()> {
         Commands::SetupAgent => commands::agents::run_setup_agent()?,
         Commands::HelpAgents(a) => commands::agents::run_help_agents(a)?,
         Commands::HelpJson(a) => commands::agents::run_help_json(a)?,
+        Commands::ConfigSchema => println!("{:#}", flint_lint::FleetLintConfig::json_schema()),
         Commands::Gen { what } => commands::gen::run(what)?,
         Commands::Fma { what } => commands::fma::run(what)?,
         Commands::Fleet { what } => commands::fleet::run(what)?,

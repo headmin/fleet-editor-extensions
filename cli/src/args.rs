@@ -100,6 +100,10 @@ pub(crate) enum Commands {
     #[command(name = "help-json", hide = true)]
     HelpJson(HelpJsonArgs),
 
+    /// Print the JSON Schema for fleetlint.toml (published with the docs)
+    #[command(name = "config-schema", hide = true)]
+    ConfigSchema,
+
     /// Generate copy-pasteable Fleet GitOps YAML — from real artifacts
     /// (installers, profiles, .sql queries) or as blank templates.
     ///

@@ -20,7 +20,6 @@ min_interval = 60                    # Minimum query interval (seconds)
 max_interval = 86400                 # Maximum query interval (24h)
 max_query_length = 10000             # Maximum query length (characters)
 warn_select_star = true              # Warn on SELECT *
-warn_trailing_semicolon = true       # Warn on trailing semicolons
 
 [files]
 # `include` unset means "everything not excluded" — the usual case.
@@ -42,7 +41,7 @@ future_names = false                 # Opt-in to new naming (reports, settings, 
 [fleet]
 url = ""                             # Fleet server URL (optional)
 token = ""                           # API token (supports $ENV_VAR and op://)
-fleetctl = "fleetctl"                # Path to fleetctl binary
+fleetctl_path = "fleetctl"           # Path to fleetctl binary
 gitops_validation = false            # Run fleetctl --dry-run on save (LSP only)
 live_completions = false             # Fetch labels/queries from Fleet (LSP only)
 ```
@@ -96,6 +95,18 @@ Optional Fleet server connection for LSP features:
 - **`live_completions`** — fetches labels, fleets, and reports from Fleet server for autocomplete
 
 Credentials support environment variables (`$FLEET_API_TOKEN`) and 1Password references (`op://vault/item/field`).
+
+## Editor support
+
+A JSON Schema for this file is published at
+`https://flint.macadmin.me/schemas/fleetlint.json`, generated from flint's own
+config types. Editors that use taplo (for example VS Code's Even Better TOML)
+then complete keys and rule names and mark typos as you type. `flint init`
+writes the line that points them at it:
+
+```toml
+#:schema https://flint.macadmin.me/schemas/fleetlint.json
+```
 
 ## File patterns
 
