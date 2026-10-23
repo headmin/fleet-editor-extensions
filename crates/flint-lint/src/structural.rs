@@ -539,10 +539,10 @@ mod tests {
         let errs = StructuralValidationRule.check(
             &FleetConfig::default(),
             std::path::Path::new("fleets/a.yml"),
-            "name: ABC - X\ncontrols:\n  path: ../profiles/a.mobileconfig\n",
+            "name: ABC - X\ncontrols:\n  paths: ../scripts/*.sh\n",
         );
         assert!(
-            errs.iter().any(|e| e.message.contains("controls.path")),
+            errs.iter().any(|e| e.message.contains("controls.paths")),
             "got: {:?}",
             errs.iter().map(|e| e.message.clone()).collect::<Vec<_>>()
         );
@@ -1322,13 +1322,13 @@ settings:
     }
 
     #[test]
-    fn test_per_fleet_activities_and_host_status_webhook_accepted() {
+    fn test_per_fleet_host_activities_and_host_status_webhook_accepted() {
         let yaml = r#"
 name: Workstations
 settings:
   webhook_settings:
-    activities_webhook:
-      enable_activities_webhook: true
+    host_activities_webhook:
+      enable_host_activities_webhook: true
       destination_url: https://example.org/a
     host_status_webhook:
       enable_host_status_webhook: true
@@ -1339,8 +1339,26 @@ settings:
         let errors = check(yaml, "fleets/workstations.yml");
         assert!(
             errors.is_empty(),
-            "Per-fleet activities_webhook and host_status_webhook should be accepted: {:?}",
+            "Per-fleet host_activities_webhook and host_status_webhook should be accepted: {:?}",
             errors
+        );
+    }
+
+    #[test]
+    fn test_per_fleet_activities_webhook_rejected() {
+        // Org-only (TeamWebhookSettings has no such field; yaml-files.md
+        // §activities_webhook). Fleets use host_activities_webhook.
+        let yaml = r#"
+name: Workstations
+settings:
+  webhook_settings:
+    activities_webhook:
+      enable_activities_webhook: true
+"#;
+        let errors = check(yaml, "fleets/workstations.yml");
+        assert!(
+            errors.iter().any(|e| e.message.contains("activities_webhook")),
+            "{errors:?}"
         );
     }
 

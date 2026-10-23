@@ -146,18 +146,6 @@
                   "path": {
                     "type": "string",
                     "description": "Path to script file"
-                  },
-                  "labels_include_all": {
-                    "type": "array",
-                    "items": {"type": "string"}
-                  },
-                  "labels_include_any": {
-                    "type": "array",
-                    "items": {"type": "string"}
-                  },
-                  "labels_exclude_any": {
-                    "type": "array",
-                    "items": {"type": "string"}
                   }
                 }
               }
@@ -407,14 +395,16 @@
           "type": "object",
           "properties": {
             "google_calendar": {
-              "type": "object",
-              "properties": {
-                "enable_calendar_events": {
-                  "type": "boolean"
-                },
-                "webhook_url": {
-                  "type": "string",
-                  "format": "uri"
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "api_key_json": {
+                    "type": "object"
+                  },
+                  "domain": {
+                    "type": "string"
+                  }
                 }
               }
             },
@@ -464,14 +454,6 @@
                   "enable_software_vulnerabilities": {
                     "type": "boolean"
                   }
-                }
-              }
-            },
-            "conditional_access": {
-              "type": "object",
-              "properties": {
-                "enable_conditional_access": {
-                  "type": "boolean"
                 }
               }
             }

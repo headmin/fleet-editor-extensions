@@ -43,7 +43,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
+	"path/filepath"
 	"reflect"
+	"regexp"
 	"runtime/debug"
 	"sort"
 	"strings"
@@ -62,11 +65,125 @@ const maxDepth = 12
 // contract.
 var untagged = map[string]struct{}{}
 
-// isJSONScalar reports whether t drives its own JSON decoding, in which case
-// its Go fields are implementation detail rather than YAML keys.
-func isJSONScalar(t reflect.Type) bool {
-	u := reflect.TypeFor[json.Unmarshaler]()
-	return t.Implements(u) || reflect.PointerTo(t).Implements(u)
+// anyFieldTypes is Fleet's own `anyFieldTypes` (pkg/spec/gitops_validate.go):
+// the concrete type its key validator uses for a field typed `any`. Fleet's
+// var is unexported, so it is transcribed here; checkAnyFieldTypes fails the
+// run when the pinned source lists different keys, so a pin bump cannot
+// silently leave it stale.
+var anyFieldTypes = map[reflect.Type]map[string]reflect.Type{
+	reflect.TypeFor[spec.GitOpsControls](): {
+		"macos_updates":    reflect.TypeFor[fleet.AppleOSUpdateSettings](),
+		"ios_updates":      reflect.TypeFor[fleet.AppleOSUpdateSettings](),
+		"ipados_updates":   reflect.TypeFor[fleet.AppleOSUpdateSettings](),
+		"macos_migration":  reflect.TypeFor[fleet.MacOSMigration](),
+		"windows_updates":  reflect.TypeFor[fleet.WindowsUpdates](),
+		"macos_settings":   reflect.TypeFor[fleet.MacOSSettings](),
+		"windows_settings": reflect.TypeFor[fleet.WindowsSettings](),
+		"android_settings": reflect.TypeFor[fleet.AndroidSettings](),
+	},
+	reflect.TypeFor[spec.GitOpsOrgSettings](): {
+		"certificate_authorities":     reflect.TypeFor[fleet.GroupedCertificateAuthorities](),
+		"microsoft_graph_credentials": reflect.TypeFor[[]fleet.MicrosoftGraphCredential](),
+		"mdm":                         reflect.TypeFor[spec.GitOpsMDM](),
+		"org_info":                    reflect.TypeFor[spec.GitOpsOrgInfo](),
+	},
+}
+
+// decodedOnly are `any` fields Fleet's validator skips but parseControls
+// still decodes into a typed struct (reparseSettings). Their keys are real,
+// just unchecked by Fleet, so they belong in the list flint must accept.
+var decodedOnly = map[reflect.Type]map[string]reflect.Type{
+	reflect.TypeFor[spec.GitOpsControls](): {
+		"linux_settings": reflect.TypeFor[fleet.LinuxSettings](),
+	},
+}
+
+func overrideFor(parent reflect.Type, key string) (reflect.Type, bool) {
+	if t, ok := anyFieldTypes[parent][key]; ok {
+		return t, true
+	}
+	t, ok := decodedOnly[parent][key]
+	return t, ok
+}
+
+// checkAnyFieldTypes compares the transcription above with the keys in the
+// pinned Fleet's anyFieldTypes literal.
+func checkAnyFieldTypes() error {
+	dir, err := fleetModuleDir()
+	if err != nil {
+		return err
+	}
+	src, err := os.ReadFile(filepath.Join(dir, "pkg/spec/gitops_validate.go"))
+	if err != nil {
+		return err
+	}
+	block := regexp.MustCompile(`(?s)var anyFieldTypes = .*?\n}\n`).Find(src)
+	if block == nil {
+		return fmt.Errorf("anyFieldTypes not found in gitops_validate.go; re-derive the transcription")
+	}
+	var want, got []string
+	for _, m := range regexp.MustCompile(`"(\w+)":\s+reflect\.TypeFor`).FindAllSubmatch(block, -1) {
+		want = append(want, string(m[1]))
+	}
+	for _, fields := range anyFieldTypes {
+		for k := range fields {
+			got = append(got, k)
+		}
+	}
+	sort.Strings(want)
+	sort.Strings(got)
+	if strings.Join(want, ",") != strings.Join(got, ",") {
+		return fmt.Errorf("anyFieldTypes drifted from Fleet:\n  fleet: %v\n  here:  %v", want, got)
+	}
+	return nil
+}
+
+// fleetModuleDir is where the linked Fleet module's source lives: the module
+// cache for a version pin, or the local path of a `replace`.
+func fleetModuleDir() (string, error) {
+	info, ok := debug.ReadBuildInfo()
+	if !ok {
+		return "", fmt.Errorf("no build info")
+	}
+	for _, dep := range info.Deps {
+		if dep.Path != "github.com/fleetdm/fleet/v4" {
+			continue
+		}
+		if dep.Replace != nil {
+			return dep.Replace.Path, nil
+		}
+		cache, err := exec.Command("go", "env", "GOMODCACHE").Output()
+		if err != nil {
+			return "", err
+		}
+		return filepath.Join(strings.TrimSpace(string(cache)), dep.Path+"@"+dep.Version), nil
+	}
+	return "", fmt.Errorf("fleet module not linked")
+}
+
+// unwrapOptional sees through optjson.Slice[T] / optjson.Any[T] ({Set, Valid,
+// Value}, no json tags), whose YAML form is just Value. Fleet's validator
+// stops at these; its decoder does not, so their keys are real.
+func unwrapOptional(t reflect.Type) reflect.Type {
+	t = deref(t)
+	if t.Kind() != reflect.Struct || hasJSONTags(t) {
+		return t
+	}
+	if v, ok := t.FieldByName("Value"); ok {
+		if _, ok := t.FieldByName("Valid"); ok {
+			return deref(v.Type)
+		}
+	}
+	return t
+}
+
+func hasJSONTags(t reflect.Type) bool {
+	for i := 0; i < t.NumField(); i++ {
+		if n, _ := parseJSONTag(t.Field(i).Tag.Get("json")); n != "" && n != "-" {
+			return true
+		}
+	}
+	return false
 }
 
 // Key is one accepted key and where it is accepted.
@@ -106,10 +223,8 @@ var roots = []struct {
 	// accepts, validated against the same type.
 	{"settings", reflect.TypeFor[spec.GitOpsFleetSettings]()},
 	{"team_settings", reflect.TypeFor[spec.GitOpsFleetSettings]()},
-	// gitops.go:1413. NOTE: most GitOpsControls fields are typed `any`, so
-	// reflection stops at the section's own keys — the nested shapes
-	// (macos_updates, macos_setup, …) are validated elsewhere and are NOT
-	// covered here. Treat controls sub-keys as unverified by this tool.
+	// gitops.go:1413. Most GitOpsControls fields are typed `any`; the walk
+	// follows them through anyFieldTypes, as Fleet's validator does.
 	{"controls", reflect.TypeFor[spec.GitOpsControls]()},
 	{"labels[]", reflect.TypeFor[spec.Label]()},
 	{"policies[]", reflect.TypeFor[spec.Policy]()},
@@ -134,6 +249,10 @@ var softwareSections = []struct {
 }
 
 func main() {
+	if err := checkAnyFieldTypes(); err != nil {
+		fmt.Fprintln(os.Stderr, "schema-extract:", err)
+		os.Exit(1)
+	}
 	out := map[string]Key{}
 	truncated := 0
 
@@ -218,80 +337,89 @@ func walk(t reflect.Type, yamlPath string, out map[string]Key, depth int, trunca
 	if t.Kind() != reflect.Struct {
 		return
 	}
-	// A type with its own UnmarshalJSON is a SCALAR as far as YAML is
-	// concerned, whatever its Go fields look like. Fleet uses optjson.Bool,
-	// optjson.String and null.* extensively; each is a struct of
-	// {Set, Valid, Value}. Walking into them invents `set:`, `valid:` and
-	// `value:` as legal keys at dozens of paths — keys Fleet would reject.
-	// Over-approximation here is not the safe direction: it would teach
-	// flint to accept YAML the server refuses.
-	if isJSONScalar(t) {
-		return
-	}
 	if seen[t] {
 		return // recursive type on this branch
 	}
 	seen[t] = true
 	defer delete(seen, t)
 
+	// Mirrors knownJSONKeys: a ValidKeysProvider declares its keys, and they
+	// are opaque below that.
+	if reflect.PointerTo(t).Implements(reflect.TypeFor[spec.ValidKeysProvider]()) {
+		for _, k := range reflect.New(t).Interface().(spec.ValidKeysProvider).ValidKeys() {
+			out[k+"@"+yamlPath] = Key{Key: k, Path: yamlPath, Type: "any"}
+		}
+		return
+	}
+	walkFields(t, t, yamlPath, out, depth, truncated, seen)
+}
+
+// walkFields mirrors Fleet's collectFields + validateMapKeys: embedded
+// structs are inlined whatever their tag, a BoolOr's `Other` is inlined,
+// renameto aliases are keys too, and an `any` field is followed only through
+// anyFieldTypes. `parent` is the type overrides are looked up by — the outer
+// struct, not the embedded one being inlined.
+func walkFields(parent, t reflect.Type, yamlPath string, out map[string]Key, depth int, truncated *int, seen map[reflect.Type]bool) {
 	for i := 0; i < t.NumField(); i++ {
 		f := t.Field(i)
+		if strings.Contains(t.Name(), "BoolOr") {
+			if ot := deref(f.Type); f.Name == "Other" && ot.Kind() == reflect.Struct {
+				walkFields(parent, ot, yamlPath, out, depth, truncated, seen)
+			}
+			continue // Bool / IsOther are the wrapper's own plumbing
+		}
+		if f.Anonymous {
+			if et := deref(f.Type); et.Kind() == reflect.Struct {
+				walkFields(parent, et, yamlPath, out, depth, truncated, seen)
+			}
+			continue
+		}
 		if f.PkgPath != "" {
 			continue // unexported
 		}
-
-		name, opts := parseJSONTag(f.Tag.Get("json"))
+		name, _ := parseJSONTag(f.Tag.Get("json"))
 		if name == "-" {
 			continue
 		}
-
-		// An embedded struct with no json name is INLINED by encoding/json:
-		// its fields belong to the parent, at the parent's path. This is how
-		// GitOpsOrgSettings exposes all of fleet.AppConfig, so getting it
-		// wrong would lose most of the schema.
-		if f.Anonymous && name == "" {
-			walk(f.Type, yamlPath, out, depth, truncated, seen)
-			continue
-		}
 		if name == "" {
-			// An exported field with no json tag. encoding/json would use the
-			// Go field name verbatim ("Packages"), but GitOps YAML is
-			// lower_snake throughout and these fields are populated by
-			// gitops.go's own parsing rather than by struct unmarshalling.
-			// Emitting the Go name would add keys like `Packages:` and
-			// `AppStoreApps:` that Fleet does not accept. Count and report
-			// instead of guessing — if one of these ever IS a real YAML key,
-			// the stderr line is the prompt to handle it deliberately.
+			// encoding/json would use the Go field name verbatim, but Fleet's
+			// validator ignores untagged fields, and GitOps YAML never uses
+			// them. Reported so a real one gets handled deliberately.
 			untagged[typeName(t)+"."+f.Name] = struct{}{}
 			continue
 		}
-		_ = opts
 
-		out[name+"@"+yamlPath] = Key{
-			Key:  name,
-			Path: yamlPath,
-			Type: typeName(f.Type),
+		names := []string{name}
+		if alias, _, _ := strings.Cut(f.Tag.Get("renameto"), ","); alias != "" && alias != name {
+			names = append(names, alias)
 		}
+		for _, n := range names {
+			out[n+"@"+yamlPath] = Key{Key: n, Path: yamlPath, Type: typeName(f.Type)}
 
-		// Recurse into the value. A slice/array of structs becomes "path[]",
-		// matching how KEY_REGISTRY spells list items.
-		child := deref(f.Type)
-		childPath := join(yamlPath, name)
-		switch child.Kind() {
-		case reflect.Slice, reflect.Array:
-			elem := deref(child.Elem())
-			if elem.Kind() == reflect.Struct {
-				walk(elem, childPath+"[]", out, depth+1, truncated, seen)
+			ft := f.Type
+			if o, ok := overrideFor(parent, name); ok {
+				ft = o
+			} else if ft.Kind() == reflect.Interface {
+				continue
 			}
-		case reflect.Map:
-			// A map means arbitrary user keys (labels, secrets); its VALUE
-			// type can still carry a fixed shape.
-			elem := deref(child.Elem())
-			if elem.Kind() == reflect.Struct {
-				walk(elem, childPath+".*", out, depth+1, truncated, seen)
+			// A slice/array of structs becomes "path[]", matching how
+			// KEY_REGISTRY spells list items.
+			child := unwrapOptional(ft)
+			childPath := join(yamlPath, n)
+			switch child.Kind() {
+			case reflect.Slice, reflect.Array:
+				if elem := deref(child.Elem()); elem.Kind() == reflect.Struct {
+					walk(elem, childPath+"[]", out, depth+1, truncated, seen)
+				}
+			case reflect.Map:
+				// A map means arbitrary user keys (labels, secrets); its
+				// VALUE type can still carry a fixed shape.
+				if elem := deref(child.Elem()); elem.Kind() == reflect.Struct {
+					walk(elem, childPath+".*", out, depth+1, truncated, seen)
+				}
+			case reflect.Struct:
+				walk(child, childPath, out, depth+1, truncated, seen)
 			}
-		case reflect.Struct:
-			walk(child, childPath, out, depth+1, truncated, seen)
 		}
 	}
 }

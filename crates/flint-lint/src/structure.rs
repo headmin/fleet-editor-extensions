@@ -115,14 +115,10 @@ fn open_mapping() -> SchemaNode {
 // Shared sub-schemas (matching the strict JSON schema $defs)
 // ---------------------------------------------------------------------------
 
+// `controls.scripts[]` entries are a bare BaseItem: Fleet's parser rejects
+// label scoping here (unknown key), unlike profiles.
 fn controls_script_targeting() -> SchemaNode {
-    mapping(vec![
-        ("path", leaf()),
-        ("paths", leaf()),
-        ("labels_include_all", array(leaf())),
-        ("labels_include_any", array(leaf())),
-        ("labels_exclude_any", array(leaf())),
-    ])
+    mapping(vec![("path", leaf()), ("paths", leaf())])
 }
 
 /// Configuration/declaration profile item — script targeting plus
@@ -165,11 +161,6 @@ fn os_settings(extra: Vec<(&'static str, SchemaNode)>) -> SchemaNode {
     let mut node = mapping(vec![
         ("custom_settings", array(profile_item())),
         ("configuration_profiles", array(profile_item())), // rename of custom_settings
-        // Apple DDM asset (com.apple.asset) declarations — fleet/app.go
-        // (MacOSSettings.Assets), added in Fleet v4.90.0. Same
-        // `[]MDMProfileSpec` shape as the profiles above, so it accepts the
-        // same `path:` and label-scoping entries.
-        ("assets", array(profile_item())),
     ]);
     if let SchemaNode::Mapping(children) = &mut node {
         children.extend(extra);
@@ -179,6 +170,10 @@ fn os_settings(extra: Vec<(&'static str, SchemaNode)>) -> SchemaNode {
 
 fn apple_settings() -> SchemaNode {
     os_settings(vec![
+        // Apple DDM asset (com.apple.asset) declarations — fleet/app.go
+        // (MacOSSettings.Assets), added in Fleet v4.90.0. Same
+        // `[]MDMProfileSpec` shape as profiles. WindowsSettings has none.
+        ("assets", array(profile_item())),
         ("enable_disk_encryption", boolean_leaf()),
         ("enable_escrow_disk_encryption_key", boolean_leaf()),
     ])
@@ -220,17 +215,15 @@ fn macos_setup() -> SchemaNode {
         ("manual_agent_install", boolean_leaf()),
         ("enable_end_user_authentication", boolean_leaf()),
         ("lock_end_user_info", boolean_leaf()),
-        ("require_all_software", boolean_leaf()),
         ("enable_release_device_manually", boolean_leaf()),
         ("macos_setup_assistant", leaf()),
         ("script", leaf()),
         // New names (renameto tags from Go code)
         ("macos_bootstrap_package", leaf()),
         ("macos_manual_agent_install", boolean_leaf()),
-        // `require_all_software` rename — per
-        // fleet/server/fleet/apple_mdm.go:529 (MDMAppleSetupPayload),
-        // the JSON tag is `require_all_software_macos`. Keep the old
-        // short name (line above) for backwards compat.
+        // MacOSSetup's json tag is `require_all_software_macos`. Fleet's docs
+        // still list a bare `require_all_software`, but the parser rejects
+        // it as an unknown key (oracle, v4.93.0 and v4.94.0).
         ("require_all_software_macos", boolean_leaf()),
         ("require_all_software_windows", boolean_leaf()),
         ("apple_enable_release_device_manually", boolean_leaf()),
@@ -281,6 +274,9 @@ fn software_package_item() -> SchemaNode {
         ("uninstall_script", software_asset()),
         ("post_install_script", software_asset()),
         ("icon", software_asset()),
+        // Managed app configuration for .ipa packages; a fleet-level value is
+        // inherited by the package (gitops.go resolveTeamLevelPackage).
+        ("configuration", software_asset()),
     ])
 }
 
@@ -332,6 +328,12 @@ fn software_schema() -> SchemaNode {
 
 fn controls_schema() -> SchemaNode {
     mapping(vec![
+        // `controls: {path: ../lib/controls.yml}` loads the whole section from
+        // another file (gitops.go processControlsPathIfNeeded); only `path`,
+        // not `paths`, and no nesting.
+        // ponytail: the referenced file is not linted as a controls section;
+        // add when someone splits controls out and wants it checked.
+        ("path", leaf()),
         ("scripts", array(controls_script_targeting())),
         ("windows_enabled_and_configured", boolean_leaf()),
         ("windows_entra_tenant_ids", array(leaf())),
@@ -351,7 +353,6 @@ fn controls_schema() -> SchemaNode {
         // and pkg/spec/gitops.go:187. Verifies devices are genuine Apple
         // hardware before MDM enrollment is allowed.
         ("apple_require_hardware_attestation", boolean_leaf()),
-        ("volume_purchasing_program", open_mapping()),
         ("windows_require_bitlocker_pin", boolean_leaf()),
         ("macos_updates", macos_updates()),
         ("ios_updates", macos_updates()),
@@ -399,8 +400,9 @@ fn policy_inline_strict() -> SchemaNode {
         ("team", leaf()),
         ("fleet", leaf()),
         ("calendar_events_enabled", boolean_leaf()),
+        // Per-policy `conditional_access_bypass_enabled` was dropped in Fleet
+        // 4.84; bypass is now org_settings.conditional_access.bypass_disabled.
         ("conditional_access_enabled", boolean_leaf()),
-        ("conditional_access_bypass_enabled", boolean_leaf()),
         // GitOps-only convenience: maps the policy ID into
         // failing_policies_webhook.policy_ids on apply (gitops.go:221-224).
         ("webhooks_and_tickets_enabled", boolean_leaf()),
@@ -417,12 +419,9 @@ fn policy_inline_strict() -> SchemaNode {
         ("run_script", mapping(vec![("path", leaf())])),
         // Patch policy fields (yaml-files.md:141-149). `type: patch` marks a
         // patch policy; `fleet_maintained_app_slug` selects which FMA to track.
-        // `version` pins to a specific FMA version (yaml-files.md:147 — "If
-        // `version` is set for `fleet_maintained_apps`, that version is
-        // included in the query.").
+        // The version pin lives on `fleet_maintained_apps[].version`, not here.
         ("type", leaf()),
         ("fleet_maintained_app_slug", leaf()),
-        ("version", leaf()),
         // Patch timing (fleet/policies.go, Fleet v4.93.0).
         ("patch_when_closed", boolean_leaf()),
         ("notify_before_patching", boolean_leaf()),
@@ -460,9 +459,9 @@ fn query_inline_strict() -> SchemaNode {
         ("observer_can_run", boolean_leaf()),
         ("automations_enabled", boolean_leaf()),
         ("discard_data", boolean_leaf()),
+        // Reports take include scopes only (spec.Query).
         ("labels_include_any", array(leaf())),
         ("labels_include_all", array(leaf())),
-        ("labels_exclude_any", array(leaf())),
     ])
 }
 
@@ -502,22 +501,47 @@ fn host_vital_criteria() -> SchemaNode {
     ])
 }
 
+/// Per-fleet `integrations` (fleet/integrations.go TeamSpecIntegrations): no
+/// credentials, and `google_calendar` is a single mapping, not a list.
 fn integrations_strict() -> SchemaNode {
-    // `webhooks_and_tickets_enabled` was previously listed here by mistake —
-    // it's a per-policy field (see `policy_inline_strict`), not an
-    // integrations-level setting.
     mapping(vec![
         ("conditional_access_enabled", boolean_leaf()),
-        ("enable_conditional_access", boolean_leaf()),
-        ("enable_conditional_access_bypass", boolean_leaf()),
         (
             "google_calendar",
-            array(mapping(vec![
-                ("api_key_json", leaf()),
-                ("domain", leaf()),
+            mapping(vec![
                 ("enable_calendar_events", boolean_leaf()),
                 ("webhook_url", leaf()),
+            ]),
+        ),
+        (
+            "jira",
+            array(mapping(vec![
+                ("url", leaf()),
+                ("project_key", leaf()),
+                ("enable_failing_policies", boolean_leaf()),
             ])),
+        ),
+        (
+            "zendesk",
+            array(mapping(vec![
+                ("url", leaf()),
+                ("group_id", leaf()),
+                ("enable_failing_policies", boolean_leaf()),
+            ])),
+        ),
+    ])
+}
+
+/// `org_settings.integrations` (fleet/integrations.go Integrations): the
+/// credentialed lists, Google Workspace and the certificate IdP settings.
+/// `enable_conditional_access*` are DeviceFeatures response fields, not
+/// settings; Fleet's parser rejects them here.
+fn org_integrations() -> SchemaNode {
+    mapping(vec![
+        ("conditional_access_enabled", boolean_leaf()),
+        (
+            "google_calendar",
+            array(mapping(vec![("api_key_json", leaf()), ("domain", leaf())])),
         ),
         (
             "jira",
@@ -541,30 +565,18 @@ fn integrations_strict() -> SchemaNode {
                 ("enable_software_vulnerabilities", boolean_leaf()),
             ])),
         ),
+        (
+            "google_workspace",
+            array(mapping(vec![
+                ("domain", leaf()),
+                ("impersonated_user_email", leaf()),
+                ("api_key_json", leaf()),
+            ])),
+        ),
+        ("certificates_idp_introspection_urls", array(leaf())),
+        ("certificates_idp_client_ids", array(leaf())),
+        ("certificates_disable_host_end_user_binding", boolean_leaf()),
     ])
-}
-
-/// `org_settings.integrations`: the shared keys plus the org-only ones from
-/// fleet/integrations.go Integrations (Fleet v4.93.0). Fleets get the much
-/// smaller TeamSpecIntegrations, so these stay out of `integrations_strict`.
-fn org_integrations() -> SchemaNode {
-    let mut node = integrations_strict();
-    if let SchemaNode::Mapping(children) = &mut node {
-        children.extend([
-            (
-                "google_workspace",
-                array(mapping(vec![
-                    ("domain", leaf()),
-                    ("impersonated_user_email", leaf()),
-                    ("api_key_json", leaf()),
-                ])),
-            ),
-            ("certificates_idp_introspection_urls", array(leaf())),
-            ("certificates_idp_client_ids", array(leaf())),
-            ("certificates_disable_host_end_user_binding", boolean_leaf()),
-        ]);
-    }
-    node
 }
 
 // Webhook sub-schemas shared between org and per-fleet webhook settings.
@@ -613,12 +625,10 @@ fn webhook_settings_strict() -> SchemaNode {
 }
 
 /// Per-fleet `webhook_settings` (under `settings:` / `team_settings:`).
-/// `vulnerabilities_webhook` is org-only per Fleet docs (yaml-files.md:1151,
-/// "Can only be configured for 'All fleets' (org_settings)") — omitted here
-/// so the structural rule rejects it with a clear "unknown key" error.
+/// `vulnerabilities_webhook`, `activities_webhook` and `interval` are
+/// org-only (TeamWebhookSettings); Fleet's parser rejects them here.
 fn webhook_settings_per_fleet() -> SchemaNode {
     mapping(vec![
-        ("activities_webhook", activities_webhook()),
         ("failing_policies_webhook", failing_policies_webhook()),
         ("host_status_webhook", host_status_webhook()),
         // Per-fleet only (yaml-files.md §host_activities_webhook, v4.93.0).
@@ -629,7 +639,6 @@ fn webhook_settings_per_fleet() -> SchemaNode {
                 ("destination_url", leaf()),
             ]),
         ),
-        ("interval", leaf()),
     ])
 }
 
@@ -641,8 +650,6 @@ fn features_schema() -> SchemaNode {
         ("enable_host_users", boolean_leaf()),
         ("enable_software_inventory", boolean_leaf()),
         ("detail_query_overrides", open_mapping()),
-        ("osquery_detail", open_mapping()),
-        ("osquery_policy", open_mapping()),
         // Per-dataset dashboard collection toggles (app.go
         // HistoricalDataSettings, issue #12). Sub-keys default to true.
         (
@@ -770,14 +777,9 @@ fn org_settings_strict() -> SchemaNode {
         (
             "vulnerability_settings",
             mapping(vec![
+                // The rest of `vulnerabilities.*` is fleet serve config, not
+                // app config; Fleet's parser rejects it here.
                 ("databases_path", leaf()),
-                ("periodicity", leaf()),
-                ("cpe_database_url", leaf()),
-                ("cpe_translations_url", leaf()),
-                ("cve_feed_prefix_url", leaf()),
-                ("disable_data_sync", boolean_leaf()),
-                ("disable_win_os_vulnerabilities", boolean_leaf()),
-                ("recent_vulnerability_max_age", leaf()),
             ]),
         ),
         (
@@ -986,6 +988,7 @@ pub(crate) static KEY_REGISTRY: Lazy<KeyRegistry> = Lazy::new(|| {
     reg.register("name", "custom_host_vitals[]");
 
     // controls children
+    reg.register("path", "controls");
     reg.register("scripts", "controls");
     reg.register("windows_enabled_and_configured", "controls");
     reg.register("windows_entra_tenant_ids", "controls");
@@ -1001,7 +1004,6 @@ pub(crate) static KEY_REGISTRY: Lazy<KeyRegistry> = Lazy::new(|| {
     reg.register("name_template", "controls");
     reg.register("enable_recovery_lock_password", "controls");
     reg.register("apple_require_hardware_attestation", "controls");
-    reg.register("volume_purchasing_program", "controls");
     reg.register("windows_require_bitlocker_pin", "controls");
     reg.register("macos_updates", "controls");
     reg.register("ios_updates", "controls");
@@ -1078,7 +1080,6 @@ pub(crate) static KEY_REGISTRY: Lazy<KeyRegistry> = Lazy::new(|| {
         reg.register("manual_agent_install", parent);
         reg.register("enable_end_user_authentication", parent);
         reg.register("lock_end_user_info", parent);
-        reg.register("require_all_software", parent);
         reg.register("enable_release_device_manually", parent);
         reg.register("macos_setup_assistant", parent);
         reg.register("script", parent);
@@ -1194,22 +1195,6 @@ pub(crate) static KEY_REGISTRY: Lazy<KeyRegistry> = Lazy::new(|| {
     // org_settings.vulnerability_settings children
     reg.register("vulnerability_settings", "org_settings");
     reg.register("databases_path", "org_settings.vulnerability_settings");
-    reg.register("periodicity", "org_settings.vulnerability_settings");
-    reg.register("cpe_database_url", "org_settings.vulnerability_settings");
-    reg.register(
-        "cpe_translations_url",
-        "org_settings.vulnerability_settings",
-    );
-    reg.register("cve_feed_prefix_url", "org_settings.vulnerability_settings");
-    reg.register("disable_data_sync", "org_settings.vulnerability_settings");
-    reg.register(
-        "disable_win_os_vulnerabilities",
-        "org_settings.vulnerability_settings",
-    );
-    reg.register(
-        "recent_vulnerability_max_age",
-        "org_settings.vulnerability_settings",
-    );
 
     // org_settings.activity_expiry_settings children
     reg.register("activity_expiry_settings", "org_settings");
@@ -1231,8 +1216,6 @@ pub(crate) static KEY_REGISTRY: Lazy<KeyRegistry> = Lazy::new(|| {
 
     // Webhook sub-schemas shared between org and per-fleet contexts.
     reg.register("activities_webhook", "org_settings.webhook_settings");
-    reg.register("activities_webhook", "settings.webhook_settings");
-    reg.register("activities_webhook", "team_settings.webhook_settings");
     reg.register("failing_policies_webhook", "org_settings.webhook_settings");
     reg.register("failing_policies_webhook", "settings.webhook_settings");
     reg.register("failing_policies_webhook", "team_settings.webhook_settings");
@@ -1240,8 +1223,6 @@ pub(crate) static KEY_REGISTRY: Lazy<KeyRegistry> = Lazy::new(|| {
     reg.register("host_status_webhook", "settings.webhook_settings");
     reg.register("host_status_webhook", "team_settings.webhook_settings");
     reg.register("interval", "org_settings.webhook_settings");
-    reg.register("interval", "settings.webhook_settings");
-    reg.register("interval", "team_settings.webhook_settings");
     // Per-fleet only (v4.93.0).
     for (settings, hook) in [
         (
@@ -1365,7 +1346,6 @@ pub(crate) static KEY_REGISTRY: Lazy<KeyRegistry> = Lazy::new(|| {
     reg.register("discard_data", "reports[]");
     reg.register("labels_include_any", "reports[]");
     reg.register("labels_include_all", "reports[]");
-    reg.register("labels_exclude_any", "reports[]");
     reg.register("path", "reports[]");
     reg.register("paths", "reports[]");
 
@@ -1395,7 +1375,6 @@ pub(crate) static KEY_REGISTRY: Lazy<KeyRegistry> = Lazy::new(|| {
     reg.register("fleet", "policies[]"); // renameto target of `team`
     reg.register("calendar_events_enabled", "policies[]");
     reg.register("conditional_access_enabled", "policies[]");
-    reg.register("conditional_access_bypass_enabled", "policies[]");
     reg.register("webhooks_and_tickets_enabled", "policies[]");
     reg.register("software_title_id", "policies[]");
     reg.register("script_id", "policies[]");
@@ -1409,7 +1388,6 @@ pub(crate) static KEY_REGISTRY: Lazy<KeyRegistry> = Lazy::new(|| {
     // Patch policy fields (Fleet Premium).
     reg.register("type", "policies[]");
     reg.register("fleet_maintained_app_slug", "policies[]");
-    reg.register("version", "policies[]");
     reg.register("patch_when_closed", "policies[]");
     reg.register("notify_before_patching", "policies[]");
     reg.register("continuous_automations_enabled", "policies[]");
@@ -1435,7 +1413,6 @@ pub(crate) static KEY_REGISTRY: Lazy<KeyRegistry> = Lazy::new(|| {
     reg.register("discard_data", "queries[]");
     reg.register("labels_include_any", "queries[]");
     reg.register("labels_include_all", "queries[]");
-    reg.register("labels_exclude_any", "queries[]");
     reg.register("path", "queries[]");
     reg.register("paths", "queries[]");
 
@@ -1461,12 +1438,9 @@ pub(crate) static KEY_REGISTRY: Lazy<KeyRegistry> = Lazy::new(|| {
     reg.register("path", "labels[]");
     reg.register("paths", "labels[]");
 
-    // Script targeting fields (used in controls.scripts[], custom_settings[])
+    // controls.scripts[] entries (path / paths only)
     reg.register("path", "controls.scripts[]");
     reg.register("paths", "controls.scripts[]");
-    reg.register("labels_include_all", "controls.scripts[]");
-    reg.register("labels_include_any", "controls.scripts[]");
-    reg.register("labels_exclude_any", "controls.scripts[]");
 
     // Profile items: custom DDM activation path (MDMProfileSpec, PR #50557)
     for parent in &[
@@ -1517,6 +1491,7 @@ pub(crate) static KEY_REGISTRY: Lazy<KeyRegistry> = Lazy::new(|| {
     reg.register("labels_include_all", "software.app_store_apps[]");
     reg.register("icon", "software.app_store_apps[]");
     reg.register("configuration", "software.app_store_apps[]");
+    reg.register("configuration", "software.packages[]");
     reg.register("auto_update_enabled", "software.app_store_apps[]");
     reg.register("auto_update_window_start", "software.app_store_apps[]");
     reg.register("auto_update_window_end", "software.app_store_apps[]");
@@ -1836,5 +1811,196 @@ mod tests {
         assert!(macos.get_child("custom_settings").is_some());
         // scripts should NOT be valid under macos_settings
         assert!(macos.get_child("scripts").is_none());
+    }
+
+    /// Fleet's parser is the authority on which keys exist. `schema-extract`
+    /// walks the Go types the GitOps parser validates against, at the Fleet
+    /// version the oracle pins; every key it reaches must be accepted by the
+    /// strict schema or appear in `NOT_AUTHORED` with a reason. The other
+    /// guard tests only check flint's surfaces agree with each other, so a
+    /// key missing everywhere (issue #26) passes them. Regenerate on a pin bump:
+    ///   (cd tools/gitops-oracle && go run ./cmd/schema-extract) \
+    ///     > crates/flint-lint/data/fleet-gitops-keys.json
+    #[test]
+    fn strict_schema_accepts_every_fleet_gitops_key() {
+        // (path, key, why flint still rejects it): reachable through Fleet's
+        // Go types, but not something a GitOps author writes.
+        const NOT_AUTHORED: &[(&str, &str, &str)] = &[
+            ("controls", "paths", "BaseItem field; controls resolves only `path`"),
+            ("controls.macos_setup", "software", "deprecated in favor of `setup_experience: true` on software items; Fleet logs a warning"),
+            ("controls.setup_experience", "software", "deprecated in favor of `setup_experience: true` on software items; Fleet logs a warning"),
+            ("labels[]", "id", "API field; GitOps matches labels by name"),
+            ("labels[]", "team_id", "API field; GitOps scopes labels by file"),
+            ("labels[]", "fleet_id", "API field; GitOps scopes labels by file"),
+            ("labels[]", "label_type", "API field; GitOps labels are always regular"),
+            ("org_settings", "agent_options", "AppConfig field; default.yml sets it at top level"),
+            ("org_settings", "scripts", "AppConfig field; GitOps uses controls.scripts"),
+            ("org_settings", "smtp_test", "API action flag, not a setting"),
+            ("org_settings", "host_settings", "legacy alias of `features` (AppConfig.DeprecatedHostSettings)"),
+            ("org_settings", "conditional_access", "Okta/Entra conditional-access setup; configured in the UI, absent from yaml-files.md"),
+            ("org_settings.gitops", "exceptions", "GitOps-mode exceptions; configured in the UI, absent from yaml-files.md"),
+            ("org_settings.server_settings", "debug_host_ids", "debug knob, absent from yaml-files.md"),
+            ("org_settings.smtp_settings", "configured", "server-populated status"),
+            ("org_settings.microsoft_graph_credentials[]", "credential_invalid", "server-populated status"),
+            ("org_settings.microsoft_graph_credentials[]", "last_sync_error", "server-populated status"),
+            ("org_settings.microsoft_graph_credentials[]", "last_synced_at", "server-populated status"),
+            ("policies[]", "profile_uuid", "API field; GitOps fills it from resend_configuration_profile"),
+            ("policies[]", "software_package_id", "API field; GitOps fills it from install_software"),
+            ("queries[]", "team", "overwritten with the file's fleet by parseReports"),
+            ("queries[]", "fleet", "renameto of `team`; overwritten by parseReports"),
+            ("reports[]", "team", "overwritten with the file's fleet by parseReports"),
+            ("reports[]", "fleet", "renameto of `team`; overwritten by parseReports"),
+            ("settings", "agent_options", "TeamConfig field; fleet files set it at top level"),
+            ("settings", "mdm", "TeamConfig field; fleet files set MDM under controls"),
+            ("team_settings", "mdm", "TeamConfig field; fleet files set MDM under controls"),
+            ("settings", "scripts", "TeamConfig field; fleet files use controls.scripts"),
+            ("settings", "software", "TeamConfig field; fleet files set it at top level"),
+            ("team_settings", "agent_options", "TeamConfig field; fleet files set it at top level"),
+            ("team_settings", "scripts", "TeamConfig field; fleet files use controls.scripts"),
+            ("team_settings", "software", "TeamConfig field; fleet files set it at top level"),
+            ("software.fleet_maintained_apps[]", "setup_experience_platform", "shared SoftwarePackageSpec field; only .sh/.ipa packages use it"),
+            ("software.packages[]", "paths", "BaseItem field; packages resolve only `path`"),
+            ("software.packages[]", "referenced_yaml_path", "set by fleetctl after resolving `path`"),
+            ("software.packages[]", "slug", "shared SoftwarePackageSpec field; belongs to fleet_maintained_apps[]"),
+            ("software.packages[]", "version", "shared SoftwarePackageSpec field; belongs to fleet_maintained_apps[]"),
+        ];
+
+        // Walks `path` from `root`; a Leaf/OpenMapping on the way is opaque
+        // and accepts anything below it.
+        fn accepts(root: &SchemaNode, path: &str, key: &str) -> bool {
+            let mut node = root;
+            for seg in path.split('.').filter(|s| !s.is_empty()) {
+                let (name, is_array) = seg.strip_suffix("[]").map_or((seg, false), |n| (n, true));
+                node = match node {
+                    SchemaNode::Mapping(m) => match m.get(name) {
+                        Some(child) => child,
+                        None => return false,
+                    },
+                    _ => return true,
+                };
+                if is_array {
+                    node = match node {
+                        SchemaNode::Array(item) => item,
+                        _ => return true,
+                    };
+                }
+            }
+            match node {
+                SchemaNode::Mapping(m) => m.contains_key(key),
+                _ => true,
+            }
+        }
+
+        let oracle: serde_json::Value =
+            serde_json::from_str(include_str!("../data/fleet-gitops-keys.json")).unwrap();
+        let keys: Vec<(&str, &str)> = oracle["keys"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|k| (k["path"].as_str().unwrap(), k["key"].as_str().unwrap()))
+            .collect();
+        let roots = [default_schema(), fleet_schema()];
+
+        let missing: Vec<String> = keys
+            .iter()
+            // An excluded key also excludes everything below it.
+            .filter(|(p, k)| {
+                !NOT_AUTHORED.iter().any(|(ep, ek, _)| {
+                    let full = format!("{ep}.{ek}");
+                    (ep == p && ek == k)
+                        || p.strip_prefix(full.as_str())
+                            .is_some_and(|rest| rest.is_empty() || rest.starts_with(['.', '[']))
+                })
+            })
+            .filter(|(p, k)| !roots.iter().any(|r| accepts(r, p, k)))
+            // A deprecated spelling is covered by DeprecationRule's warning.
+            .filter(|(p, k)| {
+                crate::deprecations::DEPRECATION_REGISTRY
+                    .find_deprecated_key(k, p)
+                    .is_none()
+            })
+            .map(|(p, k)| format!("  {p} :: {k}"))
+            .collect();
+        assert!(
+            missing.is_empty(),
+            "Fleet {} accepts these keys but flint's strict schema rejects them. \
+             Add them to structure.rs, or to NOT_AUTHORED with a reason:\n{}",
+            oracle["fleet_version"],
+            missing.join("\n")
+        );
+
+        let stale: Vec<_> = NOT_AUTHORED
+            .iter()
+            .filter(|(p, k, _)| !keys.contains(&(p, k)))
+            .collect();
+        assert!(
+            stale.is_empty(),
+            "NOT_AUTHORED entries Fleet no longer has: {stale:?}"
+        );
+    }
+
+    /// The other direction. Where Fleet's types list the keys at a path, flint
+    /// must not accept one Fleet's parser rejects there: that passes a file
+    /// `fleetctl gitops` fails. Deprecated spellings (DeprecationRule warns)
+    /// and `FLINT_ONLY` entries are exempt; paths Fleet lists no keys for
+    /// (agent_options, opaque values) are not judged.
+    #[test]
+    fn strict_schema_accepts_no_key_fleet_rejects() {
+        // (path, key, why flint accepts it although Fleet's types don't list it)
+        const FLINT_ONLY: &[(&str, &str, &str)] = &[
+            ("labels[]", "host_ids", "inline labels are not key-checked by Fleet's parser (oracle accepts)"),
+            ("labels[]", "host_vitals", "inline labels are not key-checked by Fleet's parser (oracle accepts)"),
+        ];
+
+        fn collect(node: &SchemaNode, path: &str, out: &mut Vec<(String, String)>) {
+            if let SchemaNode::Mapping(m) = node {
+                for (key, child) in m {
+                    out.push((path.to_string(), key.to_string()));
+                    let child_path = if path.is_empty() { key.to_string() } else { format!("{path}.{key}") };
+                    match child {
+                        SchemaNode::Array(item) => collect(item, &format!("{child_path}[]"), out),
+                        other => collect(other, &child_path, out),
+                    }
+                }
+            }
+        }
+
+        let oracle: serde_json::Value =
+            serde_json::from_str(include_str!("../data/fleet-gitops-keys.json")).unwrap();
+        let fleet: std::collections::HashSet<(&str, &str)> = oracle["keys"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|k| (k["path"].as_str().unwrap(), k["key"].as_str().unwrap()))
+            .collect();
+        let fleet_paths: std::collections::HashSet<&str> = fleet.iter().map(|(p, _)| *p).collect();
+
+        let mut flint = Vec::new();
+        collect(&default_schema(), "", &mut flint);
+        collect(&fleet_schema(), "", &mut flint);
+        flint.sort();
+        flint.dedup();
+
+        let exempt = |p: &str, k: &str| FLINT_ONLY.iter().any(|(ep, ek, _)| *ep == p && *ek == k);
+        let extra: Vec<String> = flint
+            .iter()
+            .filter(|(p, k)| fleet_paths.contains(p.as_str()) && !fleet.contains(&(p.as_str(), k.as_str())))
+            .filter(|(p, k)| crate::deprecations::DEPRECATION_REGISTRY.find_deprecated_key(k, p).is_none())
+            .filter(|(p, k)| !exempt(p, k))
+            .map(|(p, k)| format!("  {p} :: {k}"))
+            .collect();
+        assert!(
+            extra.is_empty(),
+            "flint accepts these keys but Fleet {}'s parser rejects them. \
+             Remove them from structure.rs, or add to FLINT_ONLY with a reason:\n{}",
+            oracle["fleet_version"],
+            extra.join("\n")
+        );
+
+        let stale: Vec<_> = FLINT_ONLY
+            .iter()
+            .filter(|(p, k, _)| fleet.contains(&(p, k)) || !flint.iter().any(|(fp, fk)| fp == p && fk == k))
+            .collect();
+        assert!(stale.is_empty(), "FLINT_ONLY entries that no longer apply: {stale:?}");
     }
 }

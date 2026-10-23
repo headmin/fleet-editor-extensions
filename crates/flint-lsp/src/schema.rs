@@ -256,12 +256,12 @@ pub static FIELD_DOCS: Lazy<HashMap<&'static str, FieldDoc>> = Lazy::new(|| {
     );
 
     m.insert(
-        "policies.conditional_access_bypass_enabled",
+        "policies.continuous_automations_enabled",
         FieldDoc {
-            name: "conditional_access_bypass_enabled",
-            description: "When `true`, this policy's failures can be bypassed by conditional-access-enabled hosts. Critical policies never bypass. Requires Fleet Premium.",
+            name: "continuous_automations_enabled",
+            description: "When `true`, `install_software` and `run_script` re-run on every failing result, not only when the host first fails (webhooks, tickets and calendar events still fire once). Must stay `true` when `patch_when_closed` or `notify_before_patching` is set.",
             valid_values: Some(&["true", "false"]),
-            example: Some("conditional_access_bypass_enabled: true"),
+            example: Some("continuous_automations_enabled: true"),
             required: false,
             field_type: "boolean",
             cli_hint: None,
@@ -1935,20 +1935,7 @@ pub static FIELD_DOCS: Lazy<HashMap<&'static str, FieldDoc>> = Lazy::new(|| {
         },
     );
 
-    // ---- Patch policy version + agent_options.path + Windows/Apple MDM controls ----
-
-    m.insert(
-        "policies.version",
-        FieldDoc {
-            name: "version",
-            description: "Pin a specific Fleet-Maintained App version for a patch policy. Per yaml-files.md:147, when set, the version is included in the auto-generated query. Combined with `type: patch` and `fleet_maintained_app_slug`.",
-            valid_values: None,
-            example: Some("version: \"5.17.0\""),
-            required: false,
-            field_type: "string",
-            cli_hint: None,
-        },
-    );
+    // ---- agent_options.path + Windows/Apple MDM controls ----
 
     m.insert(
         "agent_options.path",
