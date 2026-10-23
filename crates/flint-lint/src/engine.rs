@@ -893,10 +893,8 @@ struct KeyScope {
 /// be followed by whitespace or end-of-line, which is what keeps a bare
 /// `https://example.com` list item from reading as a key called `https`.
 fn mapping_key_of(rest: &str) -> Option<String> {
-    let (raw_key, after) = match rest.find(':') {
-        Some(i) => (&rest[..i], &rest[i + 1..]),
-        None => return None,
-    };
+    let i = rest.find(':')?;
+    let (raw_key, after) = (&rest[..i], &rest[i + 1..]);
     if !(after.is_empty() || after.starts_with(' ') || after.starts_with('\t')) {
         return None;
     }

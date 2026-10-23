@@ -732,10 +732,7 @@ flint is linting with defaults. Fix the file or move it aside."
                 }
             }
 
-            match current.parent() {
-                Some(parent) => current = parent.to_path_buf(),
-                None => return None,
-            }
+            current = current.parent()?.to_path_buf();
         }
     }
 
