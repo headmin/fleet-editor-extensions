@@ -812,6 +812,65 @@ impl Rule for PolicyAutomationLocationRule {
 }
 
 // ============================================================================
+// Reserved fleet names: no-team.yml / unassigned.yml
+// ============================================================================
+
+/// `no-team.yml` / `unassigned.yml` and the names "No team" / "Unassigned" go
+/// together: Fleet's parser rejects either half without the other, comparing
+/// the name case-insensitively and the file by exact basename (gitops.go).
+/// Renaming `no-team.yml` without its `name:` breaks the apply.
+pub(crate) struct ReservedFleetNameRule;
+
+const RESERVED_FLEET_NAMES: &[(&str, &str)] =
+    &[("no-team.yml", "No team"), ("unassigned.yml", "Unassigned")];
+
+impl Rule for ReservedFleetNameRule {
+    fn name(&self) -> &'static str {
+        "reserved-fleet-name"
+    }
+    fn description(&self) -> &'static str {
+        "no-team.yml / unassigned.yml must declare the matching reserved name, and only they may use it"
+    }
+    fn category(&self) -> &'static str {
+        "semantic"
+    }
+
+    fn check(&self, _config: &FleetConfig, file: &Path, source: &str) -> Vec<LintError> {
+        let Some(base) = file.file_name().and_then(|n| n.to_str()) else {
+            return Vec::new();
+        };
+        let Some(yaml) = parse_yaml(source) else {
+            return Vec::new();
+        };
+        // Fleet checks this only for fleet files: a top-level `name`.
+        let Some(name) = mapping_get_str(&yaml, "name") else {
+            return Vec::new();
+        };
+        let line = find_key_line(source, "name", 0);
+
+        let mut errors = Vec::new();
+        for (reserved_file, reserved_name) in RESERVED_FLEET_NAMES {
+            let named = name.eq_ignore_ascii_case(reserved_name);
+            let message = if base == *reserved_file && !named {
+                format!("`name` must be `{reserved_name}` for `{reserved_file}` (found '{name}')")
+            } else if named && base != *reserved_file {
+                format!("The '{reserved_name}' fleet must live in `{reserved_file}`, not `{base}`")
+            } else {
+                continue;
+            };
+            let mut err = LintError::error(message, file).with_help(
+                "Rename `no-team.yml` to `unassigned.yml` and set `name: Unassigned` together (Fleet v4.83+)",
+            );
+            if let Some(line) = line {
+                err = err.with_location(line, 0);
+            }
+            errors.push(err);
+        }
+        errors
+    }
+}
+
+// ============================================================================
 // Rule 4: Hash Format Validation
 // ============================================================================
 
@@ -2252,6 +2311,26 @@ mod tests {
     fn lint_at(rule: &dyn Rule, source: &str, path: &str) -> Vec<LintError> {
         let config: FleetConfig = serde_yaml::from_str(source).unwrap_or_default();
         rule.check(&config, &PathBuf::from(path), source)
+    }
+
+    // -- ReservedFleetNameRule --
+
+    #[test]
+    fn reserved_fleet_name_pairs() {
+        let rule = ReservedFleetNameRule;
+        // Matching pairs are clean, case-insensitive like Fleet.
+        assert!(lint_at(&rule, "name: Unassigned\n", "fleets/unassigned.yml").is_empty());
+        assert!(lint_at(&rule, "name: no TEAM\n", "fleets/no-team.yml").is_empty());
+        assert!(lint_at(&rule, "name: Engineering\n", "fleets/engineering.yml").is_empty());
+        // The migration trap: file renamed, name left behind.
+        let errs = lint_at(&rule, "name: No team\n", "fleets/unassigned.yml");
+        assert_eq!(errs.len(), 2, "{errs:?}");
+        assert!(errs.iter().any(|e| e.message.contains("`name` must be `Unassigned`")));
+        // A reserved name in an ordinary file.
+        let errs = lint_at(&rule, "name: Unassigned\n", "fleets/misc.yml");
+        assert!(errs[0].message.contains("must live in `unassigned.yml`"), "{errs:?}");
+        // default.yml has no top-level name: not judged.
+        assert!(lint_at(&rule, "org_settings: {}\n", "default.yml").is_empty());
     }
 
     // -- LabelTargetingRule --

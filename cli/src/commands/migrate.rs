@@ -18,9 +18,10 @@ pub(crate) fn run(args: MigrateArgs) -> anyhow::Result<()> {
         anyhow::bail!("Not a directory: {}", path.display());
     }
 
-    // Build version context with future_names enabled so all active deprecations fire
-    let mut version_ctx = VersionContext::from_config(&target_version);
-    version_ctx.future_names = true;
+    // A rename applies only from the Fleet release that introduced the new
+    // name: suggesting it for an older target writes YAML that Fleet rejects.
+    // So dormant entries stay dormant here (no future_names).
+    let version_ctx = VersionContext::from_config(&target_version);
 
     let target_ver = version_ctx.version.clone();
     let linter = Linter::with_rules(RuleSet::standard(flint_lint::rules::RuleOptions { version: version_ctx, ..Default::default() }));
@@ -114,15 +115,32 @@ pub(crate) fn run(args: MigrateArgs) -> anyhow::Result<()> {
         }
     }
 
-    // Scan for file renames from registry
+    // File renames, wherever the file lives (no-team.yml normally sits in
+    // teams/ or fleets/, not at the root). `new` already includes any
+    // directory rename, so it is the file's final path.
     let mut file_renames: Vec<serde_json::Value> = Vec::new();
     for dep in DEPRECATION_REGISTRY.active_file_renames(&target_ver) {
         if let DeprecationKind::FileRename { old_name, new_name } = &dep.kind {
-            if path.join(old_name).exists() {
-                file_renames.push(serde_json::json!({
-                    "old": old_name,
-                    "new": new_name,
-                }));
+            for (file_path, _) in &results {
+                if file_path.file_name().and_then(|n| n.to_str()) != Some(*old_name) {
+                    continue;
+                }
+                let rel = file_path.strip_prefix(&path).unwrap_or(file_path);
+                let mut new_rel = rel.with_file_name(new_name).display().to_string();
+                for dir in DEPRECATION_REGISTRY.active_directory_renames(&target_ver) {
+                    if let DeprecationKind::DirectoryRename { old_dir, new_dir } = &dir.kind {
+                        if let Some(rest) = new_rel.strip_prefix(&format!("{old_dir}/")) {
+                            new_rel = format!("{new_dir}/{rest}");
+                        }
+                    }
+                }
+                let mut entry = serde_json::json!({ "old": rel.display().to_string(), "new": new_rel });
+                // Fleet requires the reserved name with the file
+                // (gitops.go): renaming the file alone breaks the apply.
+                if *new_name == "unassigned.yml" {
+                    entry["set_name"] = serde_json::json!("Unassigned");
+                }
+                file_renames.push(entry);
             }
         }
     }

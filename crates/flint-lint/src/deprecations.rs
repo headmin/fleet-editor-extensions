@@ -176,28 +176,11 @@ impl DeprecationRegistry {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Dormant version constant — change this to activate deprecations
-// ---------------------------------------------------------------------------
-
-/// Version when deprecation warnings start for v4.80.1 renames.
-fn deprecated_version() -> Version {
-    Version::new(4, 80, 1)
-}
-
-/// Version when deprecation errors start (grace period ended).
-/// NOTE: This is a projected version — Fleet has not announced an exact date.
-/// Update when Fleet confirms the mandatory cutover version.
-fn mandatory_version() -> Version {
-    Version::new(4, 88, 0)
-}
-
-/// Version when the controls key renames were introduced (PR #42968).
-/// macos_settings → apple_settings, custom_settings → configuration_profiles,
-/// macos_setup → setup_experience, and sub-key renames.
-fn controls_rename_version() -> Version {
-    Version::new(4, 90, 0)
-}
+// Each `deprecated_in` is the Fleet release that introduced the new name
+// (git tag --contains on the renameto / alias commit). From that version the
+// new name is accepted and the old one warns, so it is also the earliest
+// target a migration may rename to. No entry has an error phase: Fleet 4.93
+// still accepts every old name with a warning.
 
 /// Rewrite array indices to the canonical `[]` form used by registered
 /// contexts (`controls.apple_settings.configuration_profiles[3]` →
@@ -227,8 +210,8 @@ pub static DEPRECATION_REGISTRY: Lazy<DeprecationRegistry> = Lazy::new(|| {
                     old_dir: "teams",
                     new_dir: "fleets",
                 },
-                deprecated_in: deprecated_version(),
-                error_in: Some(mandatory_version()),
+                deprecated_in: Version::new(4, 84, 0),
+                error_in: None,
                 removed_in: None,
                 description: "The 'teams/' directory is being renamed to 'fleets/'",
                 file_patterns: &[],
@@ -241,8 +224,8 @@ pub static DEPRECATION_REGISTRY: Lazy<DeprecationRegistry> = Lazy::new(|| {
                     new_key: "settings",
                     context_paths: &[""],
                 },
-                deprecated_in: deprecated_version(),
-                error_in: Some(mandatory_version()),
+                deprecated_in: Version::new(4, 82, 0),
+                error_in: None,
                 removed_in: None,
                 description: "The 'team_settings' key is being renamed to 'settings'",
                 file_patterns: &[],
@@ -255,8 +238,8 @@ pub static DEPRECATION_REGISTRY: Lazy<DeprecationRegistry> = Lazy::new(|| {
                     new_key: "reports",
                     context_paths: &[""],
                 },
-                deprecated_in: deprecated_version(),
-                error_in: Some(mandatory_version()),
+                deprecated_in: Version::new(4, 82, 0),
+                error_in: None,
                 removed_in: None,
                 description: "The 'queries' key is being renamed to 'reports'",
                 file_patterns: &[],
@@ -268,8 +251,8 @@ pub static DEPRECATION_REGISTRY: Lazy<DeprecationRegistry> = Lazy::new(|| {
                     old_name: "no-team.yml",
                     new_name: "unassigned.yml",
                 },
-                deprecated_in: deprecated_version(),
-                error_in: Some(mandatory_version()),
+                deprecated_in: Version::new(4, 83, 0),
+                error_in: None,
                 removed_in: None,
                 description: "The 'no-team.yml' file is being renamed to 'unassigned.yml'",
                 file_patterns: &[],
@@ -283,7 +266,7 @@ pub static DEPRECATION_REGISTRY: Lazy<DeprecationRegistry> = Lazy::new(|| {
                     new_key: "apple_settings",
                     context_paths: &["controls"],
                 },
-                deprecated_in: controls_rename_version(),
+                deprecated_in: Version::new(4, 83, 0),
                 error_in: None,
                 removed_in: None,
                 description: "The 'macos_settings' key is being renamed to 'apple_settings'",
@@ -297,7 +280,7 @@ pub static DEPRECATION_REGISTRY: Lazy<DeprecationRegistry> = Lazy::new(|| {
                     new_key: "configuration_profiles",
                     context_paths: &["*"],
                 },
-                deprecated_in: controls_rename_version(),
+                deprecated_in: Version::new(4, 83, 0),
                 error_in: None,
                 removed_in: None,
                 description: "The 'custom_settings' key is being renamed to 'configuration_profiles'",
@@ -311,7 +294,7 @@ pub static DEPRECATION_REGISTRY: Lazy<DeprecationRegistry> = Lazy::new(|| {
                     new_key: "setup_experience",
                     context_paths: &["controls"],
                 },
-                deprecated_in: controls_rename_version(),
+                deprecated_in: Version::new(4, 83, 0),
                 error_in: None,
                 removed_in: None,
                 description: "The 'macos_setup' key is being renamed to 'setup_experience'",
@@ -333,7 +316,7 @@ pub static DEPRECATION_REGISTRY: Lazy<DeprecationRegistry> = Lazy::new(|| {
                     // same name is the CURRENT key (Fleet v4.92.0).
                     context_paths: &["controls.macos_setup", "controls.setup_experience"],
                 },
-                deprecated_in: deprecated_version(),
+                deprecated_in: Version::new(4, 85, 0),
                 error_in: None,
                 removed_in: None,
                 description: "The 'enable_managed_local_account' key is being renamed to 'enable_create_local_admin_account'",
@@ -347,7 +330,7 @@ pub static DEPRECATION_REGISTRY: Lazy<DeprecationRegistry> = Lazy::new(|| {
                     new_key: "apple_enable_release_device_manually",
                     context_paths: &["*"],
                 },
-                deprecated_in: controls_rename_version(),
+                deprecated_in: Version::new(4, 83, 0),
                 error_in: None,
                 removed_in: None,
                 description: "The 'enable_release_device_manually' key is being renamed to 'apple_enable_release_device_manually'",
@@ -361,7 +344,7 @@ pub static DEPRECATION_REGISTRY: Lazy<DeprecationRegistry> = Lazy::new(|| {
                     new_key: "apple_setup_assistant",
                     context_paths: &["*"],
                 },
-                deprecated_in: controls_rename_version(),
+                deprecated_in: Version::new(4, 83, 0),
                 error_in: None,
                 removed_in: None,
                 description: "The 'macos_setup_assistant' key is being renamed to 'apple_setup_assistant'",
@@ -375,7 +358,7 @@ pub static DEPRECATION_REGISTRY: Lazy<DeprecationRegistry> = Lazy::new(|| {
                     new_key: "macos_script",
                     context_paths: &["controls"],
                 },
-                deprecated_in: controls_rename_version(),
+                deprecated_in: Version::new(4, 83, 0),
                 error_in: None,
                 removed_in: None,
                 description: "The 'script' key under setup_experience is being renamed to 'macos_script'",
@@ -389,7 +372,7 @@ pub static DEPRECATION_REGISTRY: Lazy<DeprecationRegistry> = Lazy::new(|| {
                     new_key: "macos_manual_agent_install",
                     context_paths: &["*"],
                 },
-                deprecated_in: controls_rename_version(),
+                deprecated_in: Version::new(4, 83, 0),
                 error_in: None,
                 removed_in: None,
                 description: "The 'manual_agent_install' key is being renamed to 'macos_manual_agent_install'",
@@ -421,7 +404,7 @@ pub static DEPRECATION_REGISTRY: Lazy<DeprecationRegistry> = Lazy::new(|| {
                         "controls.macos_settings.assets[]",
                     ],
                 },
-                deprecated_in: deprecated_version(),
+                deprecated_in: Version::new(4, 54, 0),
                 error_in: None,
                 removed_in: None,
                 description: "The 'labels' key on profiles is deprecated. Use 'labels_include_all' instead",
@@ -441,7 +424,7 @@ pub static DEPRECATION_REGISTRY: Lazy<DeprecationRegistry> = Lazy::new(|| {
                     new_key: "org_logo_url_dark_mode",
                     context_paths: &["org_settings.org_info"],
                 },
-                deprecated_in: deprecated_version(),
+                deprecated_in: Version::new(4, 86, 0),
                 error_in: None,
                 removed_in: None,
                 description: "The 'org_logo_url' key is being renamed to 'org_logo_url_dark_mode'",
@@ -454,7 +437,7 @@ pub static DEPRECATION_REGISTRY: Lazy<DeprecationRegistry> = Lazy::new(|| {
                     new_key: "org_logo_url_light_mode",
                     context_paths: &["org_settings.org_info"],
                 },
-                deprecated_in: deprecated_version(),
+                deprecated_in: Version::new(4, 86, 0),
                 error_in: None,
                 removed_in: None,
                 description:
@@ -640,57 +623,32 @@ mod tests {
 
     #[test]
     fn test_active_deprecations_dormant() {
-        let registry = &*DEPRECATION_REGISTRY;
-
-        // With a version below v99.0.0, nothing should be active
-        let active = registry.active_deprecations(&Version::new(4, 80, 0));
-        assert!(
-            active.is_empty(),
-            "Expected no active deprecations at v4.80.0 (dormant), got {}",
-            active.len()
-        );
+        // Before the oldest rename (profile labels, Fleet 4.54) nothing is active.
+        let active = DEPRECATION_REGISTRY.active_deprecations(&Version::new(4, 50, 0));
+        assert!(active.is_empty(), "got {}", active.len());
     }
 
     #[test]
     fn test_active_deprecations_warning() {
-        let registry = &*DEPRECATION_REGISTRY;
-
-        // At v4.85.0 (between deprecated_in=4.80.1 and error_in=4.88.0), all
-        // 4.80.1-family entries (4 renames + enable_managed_local_account +
-        // profile labels + the 2 org logo renames) are active as warnings
-        let active = registry.active_deprecations(&Version::new(4, 85, 0));
-        assert_eq!(active.len(), 8);
-        for dep in &active {
-            assert_eq!(
-                dep.phase_for_version(&Version::new(4, 85, 0)),
-                DeprecationPhase::Warning
-            );
+        // Gated by the Fleet release that introduced each new name: at 4.85
+        // the 4.82/4.83 renames are active, the 4.86 logo renames are not.
+        let v = Version::new(4, 85, 0);
+        let active = DEPRECATION_REGISTRY.active_deprecations(&v);
+        let ids: Vec<&str> = active.iter().map(|d| d.id).collect();
+        for id in ["team-settings-to-settings", "macos-settings-to-apple-settings", "enable-managed-local-account-rename"] {
+            assert!(ids.contains(&id), "{id} should be active at 4.85: {ids:?}");
         }
+        assert!(!ids.contains(&"org-logo-url-to-dark-mode"), "{ids:?}");
+        assert!(active.iter().all(|d| d.phase_for_version(&v) == DeprecationPhase::Warning));
     }
 
     #[test]
     fn test_active_deprecations_error() {
-        let registry = &*DEPRECATION_REGISTRY;
-
-        // At v4.88.0 (error_in version), the four mandatory renames escalate
-        // to errors; the rest stay warnings forever (error_in: None — Fleet
-        // still accepts those old names and migrates them itself).
-        let active = registry.active_deprecations(&Version::new(4, 88, 0));
-        assert_eq!(active.len(), 8);
-        let warn_forever = [
-            "enable-managed-local-account-rename",
-            "profile-labels-to-labels-include-all",
-            // NormalizeLogoFields (app.go:1381) migrates these server-side.
-            "org-logo-url-to-dark-mode",
-            "org-logo-url-light-background-to-light-mode",
-        ];
-        for dep in &active {
-            let expected = if warn_forever.contains(&dep.id) {
-                DeprecationPhase::Warning
-            } else {
-                DeprecationPhase::Error
-            };
-            assert_eq!(dep.phase_for_version(&Version::new(4, 88, 0)), expected);
-        }
+        // Fleet 4.93 still accepts every old name with a warning, so nothing
+        // escalates — not even at the latest pinned version.
+        let v = crate::version_gate::VersionContext::latest().version;
+        let active = DEPRECATION_REGISTRY.active_deprecations(&v);
+        assert!(!active.is_empty());
+        assert!(active.iter().all(|d| d.phase_for_version(&v) == DeprecationPhase::Warning));
     }
 }

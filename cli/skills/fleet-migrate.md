@@ -48,26 +48,19 @@ the renamed directory.
 
 ## Step 4: Apply File Renames
 
-Two sources of file renames:
-
-**4a. Root-level renames** from `file_renames[]`:
-- `mv <path>/<old> <path>/<new>`
-
-**4b. Nested renames inside moved directories**:
-Check if any file inside the newly renamed directory also matches a
-`file_renames` entry. Example: after `mv teams/ fleets/`, check if
-`fleets/no-team.yml` exists — if a `file_renames` entry says
-`no-team.yml -> unassigned.yml`, also rename `fleets/no-team.yml`
-to `fleets/unassigned.yml`.
-
-The CLI `file_renames` only checks the repo root. The agent must also
-check inside renamed directories for the same patterns.
+For each entry in `file_renames[]` (found at any depth; `new` already
+includes the directory rename from Step 3):
+1. `mv <path>/<old-after-step-3> <path>/<new>` — e.g. `fleets/no-team.yml`
+   -> `fleets/unassigned.yml` once `teams/` became `fleets/`
+2. If the entry has `set_name`, set the file's top-level `name:` to it in the
+   same step. Fleet rejects `unassigned.yml` unless `name: Unassigned`, and
+   `name: No team` outside `no-team.yml` (`reserved-fleet-name` in flint).
 
 ## Step 5: Apply Key Renames
 
 For each file in `file_changes`:
 1. Determine the actual path:
-   - If `move_to` is set AND the file was renamed in Step 4b, use the post-rename path
+   - If the file was renamed in Step 4, use that entry's `new`
    - Else if `move_to` is set, use `move_to`
    - Else use `path`
 2. Apply `key_renames` bottom-up (highest line number first) to preserve offsets

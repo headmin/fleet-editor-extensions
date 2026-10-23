@@ -12,30 +12,40 @@ Flint helps migrate Fleet GitOps repos between versions. The `flint migrate` com
 flint migrate /path/to/gitops-repo --target-version 4.85.0
 ```
 
-Output:
+`--target-version` defaults to `latest` (the Fleet version flint is pinned to).
+A rename is only reported when the target Fleet already accepts the new name,
+so the report never produces YAML your Fleet rejects.
+
+Output (abridged):
 
 ```json
 {
-  "version": "0.2.0",
+  "version": "0.3.3",
   "target_version": "4.85.0",
   "summary": {
-    "files_scanned": 121,
+    "files_scanned": 4,
+    "deprecations_found": 7,
     "directory_renames": 1,
-    "file_renames": 0,
-    "key_renames": 14,
-    "safe_fixes": 14
+    "file_renames": 1,
+    "key_renames": 5,
+    "safe_fixes": 5,
+    "unsafe_fixes": 0
   },
   "directory_renames": [
-    { "old": "teams", "new": "fleets", "files_affected": 7 }
+    { "old": "teams", "new": "fleets", "files_affected": 2 }
   ],
-  "file_renames": [],
+  "file_renames": [
+    { "old": "teams/no-team.yml", "new": "fleets/unassigned.yml", "set_name": "Unassigned" }
+  ],
   "file_changes": [
     {
       "path": "teams/engineering.yml",
       "move_to": "fleets/engineering.yml",
       "key_renames": [
         { "line": 2, "old_key": "team_settings", "new_key": "settings", "safety": "safe" },
-        { "line": 5, "old_key": "queries", "new_key": "reports", "safety": "safe" }
+        { "line": 6, "old_key": "macos_settings", "new_key": "apple_settings", "safety": "safe" },
+        { "line": 7, "old_key": "custom_settings", "new_key": "configuration_profiles", "safety": "safe" },
+        { "line": 9, "old_key": "queries", "new_key": "reports", "safety": "safe" }
       ]
     }
   ]
@@ -44,19 +54,25 @@ Output:
 
 ## Current renames
 
-These renames were introduced as warnings in Fleet v4.80.1:
+Each rename is available from the Fleet release that introduced the new name.
+Fleet still accepts every old name with a deprecation warning.
 
-| Type | Old | New |
-|---|---|---|
-| Directory | `teams/` | `fleets/` |
-| File | `no-team.yml` | `unassigned.yml` |
-| Key | `team_settings` | `settings` |
-| Key | `queries` | `reports` |
+| Type | Old | New | Fleet |
+|---|---|---|---|
+| Key | `team_settings` | `settings` | 4.82.0 |
+| Key | `queries` | `reports` | 4.82.0 |
+| File | `no-team.yml` (`name: No team`) | `unassigned.yml` (`name: Unassigned`) | 4.83.0 |
+| Key | `macos_settings` | `apple_settings` | 4.83.0 |
+| Key | `custom_settings` | `configuration_profiles` | 4.83.0 |
+| Key | `macos_setup` | `setup_experience` | 4.83.0 |
+| Directory | `teams/` | `fleets/` | 4.84.0 (`fleetctl new` layout) |
 
 ## Migration steps
 
 1. **Directory renames first** — `mv teams/ fleets/`
-2. **File renames** — `mv no-team.yml unassigned.yml` (also inside moved directories)
+2. **File renames** — `mv fleets/no-team.yml fleets/unassigned.yml` **and** set
+   `name: Unassigned` in it. Fleet rejects `unassigned.yml` with any other name,
+   and `name: No team` in any file but `no-team.yml` (flint: `reserved-fleet-name`).
 3. **Key renames** — apply bottom-up by line number to preserve offsets
 4. **Path references** — update `path:` values referencing old directories
 5. **Verify** — `flint check .` should show zero deprecation warnings
@@ -142,10 +158,10 @@ If you're still on `lib/`, move to the standard `platforms/` layout:
 
 | Old | New | Notes |
 |---|---|---|
-| `macos_settings` | `apple_settings` | v4.83 rename |
-| `custom_settings` | `configuration_profiles` | v4.83 rename |
-| `team_settings` | `settings` | v4.82 rename |
-| `queries` | `reports` | v4.82 rename |
+| `macos_settings` | `apple_settings` | Fleet 4.83.0 |
+| `custom_settings` | `configuration_profiles` | Fleet 4.83.0 |
+| `team_settings` | `settings` | Fleet 4.82.0 |
+| `queries` | `reports` | Fleet 4.82.0 |
 
 #### Profile references: per-file to glob patterns
 

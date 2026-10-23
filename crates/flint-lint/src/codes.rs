@@ -40,6 +40,7 @@ pub const LABEL_MEMBERSHIP: &str = "label-membership";
 pub const DATE_FORMAT: &str = "date-format";
 pub const PATCH_POLICY: &str = "patch-policy";
 pub const POLICY_AUTOMATION_LOCATION: &str = "policy-automation-location";
+pub const RESERVED_FLEET_NAME: &str = "reserved-fleet-name";
 pub const HASH_FORMAT: &str = "hash-format";
 pub const CATEGORIES: &str = "categories";
 pub const FILE_EXTENSION: &str = "file-extension";
@@ -210,6 +211,8 @@ pub static REGISTRY: &[RuleMeta] = &[
     meta!(DATE_FORMAT, "semantic", Some(concat_url!("#macos_updates")), false, false),
     meta!(PATCH_POLICY, "semantic", Some(concat_url!("#patch-policy")), false, false),
     meta!(POLICY_AUTOMATION_LOCATION, "semantic", Some(concat_url!("#policies")), false, false),
+    // Not fixable: renaming the file and the fleet is a migration step.
+    meta!(RESERVED_FLEET_NAME, "semantic", None, false, false),
     meta!(HASH_FORMAT, "semantic", Some(concat_url!("#packages")), true, false),
     // Not fixable: the closest default category is offered as text only.
     meta!(
