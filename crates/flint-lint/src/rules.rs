@@ -87,6 +87,7 @@ impl RuleSet {
         set.add_rule(Box::new(super::semantic::LabelMembershipRule));
         set.add_rule(Box::new(super::semantic::PatchPolicyRule));
         set.add_rule(Box::new(super::semantic::PolicyAutomationLocationRule));
+        set.add_rule(Box::new(super::semantic::ReservedFleetNameRule));
         set.add_rule(Box::new(super::semantic::DateFormatRule));
         set.add_rule(Box::new(super::semantic::HashFormatRule));
         set.add_rule(Box::new(super::semantic::EnvVarResolvableRule {

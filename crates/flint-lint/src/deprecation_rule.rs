@@ -329,10 +329,9 @@ controls:
   macos_setup:
     enable_managed_local_account: true
 "#;
-        // 4.80.1 = VersionContext::latest() — the rename already shipped in
-        // Fleet (app.go renameto), so it must warn at the DEFAULT context,
-        // not only behind future_names/4.90.
-        let errors = check_with_version(yaml, "fleets/ccs.yml", Version::new(4, 80, 1));
+        // The rename shipped in Fleet 4.85 (app.go renameto), so it must warn
+        // at the DEFAULT context, not only behind future_names.
+        let errors = check_with_version(yaml, "fleets/ccs.yml", VersionContext::latest().version);
         let err = errors
             .iter()
             .find(|e| e.message.contains("enable_managed_local_account"))
@@ -347,14 +346,14 @@ controls:
   setup_experience:
     enable_managed_local_account: true
 "#;
-        let errors2 = check_with_version(yaml2, "fleets/ccs.yml", Version::new(4, 80, 1));
+        let errors2 = check_with_version(yaml2, "fleets/ccs.yml", VersionContext::latest().version);
         assert!(errors2
             .iter()
             .any(|e| e.message.contains("enable_managed_local_account")));
 
         // Under windows_settings the same name is the CURRENT key (v4.92.0).
         let yaml3 = "controls:\n  windows_settings:\n    enable_managed_local_account: true\n";
-        let errors3 = check_with_version(yaml3, "fleets/ccs.yml", Version::new(4, 80, 1));
+        let errors3 = check_with_version(yaml3, "fleets/ccs.yml", VersionContext::latest().version);
         assert!(errors3.is_empty(), "{errors3:?}");
     }
 
@@ -434,28 +433,14 @@ policies:
     }
 
     #[test]
-    fn test_error_phase_produces_error() {
-        // At v4.88.0 (error_in), the registry entries should produce errors
-        let ctx = VersionContext {
-            version: Version::new(4, 88, 0),
-            source: super::super::version_gate::VersionSource::Config,
-            future_names: false,
-        };
-        let rule = DeprecationRule::new(ctx);
-
+    fn test_old_names_stay_warnings_at_latest() {
+        // Fleet 4.93 accepts `team_settings` with a warning; flint must not
+        // turn a file Fleet applies into an error.
+        let rule = DeprecationRule::new(VersionContext::latest());
         let yaml = "team_settings:\n  features:\n    enable_host_users: true\n";
-        let config = FleetConfig::default();
-        let errors = rule.check(&config, &PathBuf::from("default.yml"), yaml);
-
-        let error_diags: Vec<_> = errors
-            .iter()
-            .filter(|e| e.severity == Severity::Error)
-            .collect();
-        assert!(
-            !error_diags.is_empty(),
-            "Expected errors at version >= error_in"
-        );
-        assert!(error_diags[0].message.contains("team_settings"));
+        let errors = rule.check(&FleetConfig::default(), &PathBuf::from("default.yml"), yaml);
+        assert!(errors.iter().any(|e| e.message.contains("team_settings")), "{errors:?}");
+        assert!(errors.iter().all(|e| e.severity != Severity::Error), "{errors:?}");
     }
 
     #[test]

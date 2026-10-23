@@ -58,10 +58,11 @@ impl VersionContext {
         }
     }
 
-    /// Create a context with the latest known Fleet version.
+    /// Create a context with the latest known Fleet version: the one the
+    /// schema and the oracle are pinned to (tools/gitops-oracle/go.mod).
     pub fn latest() -> Self {
         Self {
-            version: Version::new(4, 80, 1),
+            version: Version::new(4, 93, 0),
             source: VersionSource::Default,
             future_names: false,
         }
@@ -108,7 +109,7 @@ mod tests {
     #[test]
     fn test_from_config_latest() {
         let ctx = VersionContext::from_config("latest");
-        assert_eq!(ctx.version, Version::new(4, 80, 1));
+        assert_eq!(ctx.version, VersionContext::latest().version);
         assert_eq!(ctx.source, VersionSource::Default);
     }
 
@@ -116,7 +117,7 @@ mod tests {
     fn test_from_config_invalid() {
         let ctx = VersionContext::from_config("not-a-version");
         // Falls back to latest
-        assert_eq!(ctx.version, Version::new(4, 80, 1));
+        assert_eq!(ctx.version, VersionContext::latest().version);
     }
 
     #[test]
@@ -130,14 +131,14 @@ mod tests {
     #[test]
     fn test_resolve_without_config() {
         let ctx = VersionContext::resolve(None, false);
-        assert_eq!(ctx.version, Version::new(4, 80, 1));
+        assert_eq!(ctx.version, VersionContext::latest().version);
         assert_eq!(ctx.source, VersionSource::Default);
     }
 
     #[test]
     fn test_resolve_empty_config() {
         let ctx = VersionContext::resolve(Some(""), false);
-        assert_eq!(ctx.version, Version::new(4, 80, 1));
+        assert_eq!(ctx.version, VersionContext::latest().version);
     }
 
     #[test]
@@ -145,5 +146,15 @@ mod tests {
         let ctx = VersionContext::resolve(Some("4.80.0"), true);
         assert_eq!(ctx.version, Version::new(4, 80, 0));
         assert!(ctx.future_names);
+    }
+
+    /// `latest` must be the Fleet the key snapshot was extracted from, so a
+    /// pin bump that forgets one of them fails here.
+    #[test]
+    fn latest_matches_the_key_snapshot() {
+        let snapshot: serde_json::Value =
+            serde_json::from_str(include_str!("../data/fleet-gitops-keys.json")).unwrap();
+        let pinned = snapshot["fleet_version"].as_str().unwrap().trim_start_matches('v');
+        assert_eq!(VersionContext::latest().version, Version::parse(pinned).unwrap());
     }
 }
