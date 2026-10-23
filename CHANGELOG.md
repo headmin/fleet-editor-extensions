@@ -3,7 +3,7 @@
 Milestones per release. Full notes are on each
 [GitHub release](https://github.com/headmin/fleet-editor-extensions/releases).
 
-## v0.3.3 (Unreleased)
+## v0.3.3 (2026-10-23)
 
 - Release builds pin patched TLS crates (rustls-webpki 0.103.16, webpki-roots 1.0.11): emSign roots are no longer trusted.
 - Policies accept `continuous_automations_enabled`; `software.packages[].configuration` and `controls: path:` are accepted; the removed `conditional_access_bypass_enabled` is flagged.
