@@ -539,10 +539,10 @@ mod tests {
         let errs = StructuralValidationRule.check(
             &FleetConfig::default(),
             std::path::Path::new("fleets/a.yml"),
-            "name: ABC - X\ncontrols:\n  path: ../profiles/a.mobileconfig\n",
+            "name: ABC - X\ncontrols:\n  paths: ../scripts/*.sh\n",
         );
         assert!(
-            errs.iter().any(|e| e.message.contains("controls.path")),
+            errs.iter().any(|e| e.message.contains("controls.paths")),
             "got: {:?}",
             errs.iter().map(|e| e.message.clone()).collect::<Vec<_>>()
         );

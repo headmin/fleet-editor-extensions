@@ -281,6 +281,9 @@ fn software_package_item() -> SchemaNode {
         ("uninstall_script", software_asset()),
         ("post_install_script", software_asset()),
         ("icon", software_asset()),
+        // Managed app configuration for .ipa packages; a fleet-level value is
+        // inherited by the package (gitops.go resolveTeamLevelPackage).
+        ("configuration", software_asset()),
     ])
 }
 
@@ -332,6 +335,12 @@ fn software_schema() -> SchemaNode {
 
 fn controls_schema() -> SchemaNode {
     mapping(vec![
+        // `controls: {path: ../lib/controls.yml}` loads the whole section from
+        // another file (gitops.go processControlsPathIfNeeded); only `path`,
+        // not `paths`, and no nesting.
+        // ponytail: the referenced file is not linted as a controls section;
+        // add when someone splits controls out and wants it checked.
+        ("path", leaf()),
         ("scripts", array(controls_script_targeting())),
         ("windows_enabled_and_configured", boolean_leaf()),
         ("windows_entra_tenant_ids", array(leaf())),
@@ -399,8 +408,9 @@ fn policy_inline_strict() -> SchemaNode {
         ("team", leaf()),
         ("fleet", leaf()),
         ("calendar_events_enabled", boolean_leaf()),
+        // Per-policy `conditional_access_bypass_enabled` was dropped in Fleet
+        // 4.84; bypass now lives at integrations.enable_conditional_access_bypass.
         ("conditional_access_enabled", boolean_leaf()),
-        ("conditional_access_bypass_enabled", boolean_leaf()),
         // GitOps-only convenience: maps the policy ID into
         // failing_policies_webhook.policy_ids on apply (gitops.go:221-224).
         ("webhooks_and_tickets_enabled", boolean_leaf()),
@@ -986,6 +996,7 @@ pub(crate) static KEY_REGISTRY: Lazy<KeyRegistry> = Lazy::new(|| {
     reg.register("name", "custom_host_vitals[]");
 
     // controls children
+    reg.register("path", "controls");
     reg.register("scripts", "controls");
     reg.register("windows_enabled_and_configured", "controls");
     reg.register("windows_entra_tenant_ids", "controls");
@@ -1395,7 +1406,6 @@ pub(crate) static KEY_REGISTRY: Lazy<KeyRegistry> = Lazy::new(|| {
     reg.register("fleet", "policies[]"); // renameto target of `team`
     reg.register("calendar_events_enabled", "policies[]");
     reg.register("conditional_access_enabled", "policies[]");
-    reg.register("conditional_access_bypass_enabled", "policies[]");
     reg.register("webhooks_and_tickets_enabled", "policies[]");
     reg.register("software_title_id", "policies[]");
     reg.register("script_id", "policies[]");
@@ -1517,6 +1527,7 @@ pub(crate) static KEY_REGISTRY: Lazy<KeyRegistry> = Lazy::new(|| {
     reg.register("labels_include_all", "software.app_store_apps[]");
     reg.register("icon", "software.app_store_apps[]");
     reg.register("configuration", "software.app_store_apps[]");
+    reg.register("configuration", "software.packages[]");
     reg.register("auto_update_enabled", "software.app_store_apps[]");
     reg.register("auto_update_window_start", "software.app_store_apps[]");
     reg.register("auto_update_window_end", "software.app_store_apps[]");
@@ -1836,5 +1847,131 @@ mod tests {
         assert!(macos.get_child("custom_settings").is_some());
         // scripts should NOT be valid under macos_settings
         assert!(macos.get_child("scripts").is_none());
+    }
+
+    /// Fleet's parser is the authority on which keys exist. `schema-extract`
+    /// walks the Go types the GitOps parser validates against, at the Fleet
+    /// version the oracle pins; every key it reaches must be accepted by the
+    /// strict schema or appear in `NOT_AUTHORED` with a reason. The other
+    /// guard tests only check flint's surfaces agree with each other, so a
+    /// key missing everywhere (issue #26) passes them. Regenerate on a pin bump:
+    ///   (cd tools/gitops-oracle && go run ./cmd/schema-extract) \
+    ///     > crates/flint-lint/data/fleet-gitops-keys.json
+    #[test]
+    fn strict_schema_accepts_every_fleet_gitops_key() {
+        // (path, key, why flint still rejects it): reachable through Fleet's
+        // Go types, but not something a GitOps author writes.
+        const NOT_AUTHORED: &[(&str, &str, &str)] = &[
+            ("controls", "paths", "BaseItem field; controls resolves only `path`"),
+            ("controls.macos_setup", "software", "deprecated in favor of `setup_experience: true` on software items; Fleet logs a warning"),
+            ("controls.setup_experience", "software", "deprecated in favor of `setup_experience: true` on software items; Fleet logs a warning"),
+            ("labels[]", "id", "API field; GitOps matches labels by name"),
+            ("labels[]", "team_id", "API field; GitOps scopes labels by file"),
+            ("labels[]", "fleet_id", "API field; GitOps scopes labels by file"),
+            ("labels[]", "label_type", "API field; GitOps labels are always regular"),
+            ("org_settings", "agent_options", "AppConfig field; default.yml sets it at top level"),
+            ("org_settings", "scripts", "AppConfig field; GitOps uses controls.scripts"),
+            ("org_settings", "smtp_test", "API action flag, not a setting"),
+            ("org_settings", "host_settings", "legacy alias of `features` (AppConfig.DeprecatedHostSettings)"),
+            ("org_settings", "conditional_access", "Okta/Entra conditional-access setup; configured in the UI, absent from yaml-files.md"),
+            ("org_settings.gitops", "exceptions", "GitOps-mode exceptions; configured in the UI, absent from yaml-files.md"),
+            ("org_settings.server_settings", "debug_host_ids", "debug knob, absent from yaml-files.md"),
+            ("org_settings.smtp_settings", "configured", "server-populated status"),
+            ("org_settings.microsoft_graph_credentials[]", "credential_invalid", "server-populated status"),
+            ("org_settings.microsoft_graph_credentials[]", "last_sync_error", "server-populated status"),
+            ("org_settings.microsoft_graph_credentials[]", "last_synced_at", "server-populated status"),
+            ("policies[]", "profile_uuid", "API field; GitOps fills it from resend_configuration_profile"),
+            ("policies[]", "software_package_id", "API field; GitOps fills it from install_software"),
+            ("queries[]", "team", "overwritten with the file's fleet by parseReports"),
+            ("queries[]", "fleet", "renameto of `team`; overwritten by parseReports"),
+            ("reports[]", "team", "overwritten with the file's fleet by parseReports"),
+            ("reports[]", "fleet", "renameto of `team`; overwritten by parseReports"),
+            ("settings", "agent_options", "TeamConfig field; fleet files set it at top level"),
+            ("settings", "mdm", "TeamConfig field; fleet files set MDM under controls"),
+            ("team_settings", "mdm", "TeamConfig field; fleet files set MDM under controls"),
+            ("settings", "scripts", "TeamConfig field; fleet files use controls.scripts"),
+            ("settings", "software", "TeamConfig field; fleet files set it at top level"),
+            ("team_settings", "agent_options", "TeamConfig field; fleet files set it at top level"),
+            ("team_settings", "scripts", "TeamConfig field; fleet files use controls.scripts"),
+            ("team_settings", "software", "TeamConfig field; fleet files set it at top level"),
+            ("software.fleet_maintained_apps[]", "setup_experience_platform", "shared SoftwarePackageSpec field; only .sh/.ipa packages use it"),
+            ("software.packages[]", "paths", "BaseItem field; packages resolve only `path`"),
+            ("software.packages[]", "referenced_yaml_path", "set by fleetctl after resolving `path`"),
+            ("software.packages[]", "slug", "shared SoftwarePackageSpec field; belongs to fleet_maintained_apps[]"),
+            ("software.packages[]", "version", "shared SoftwarePackageSpec field; belongs to fleet_maintained_apps[]"),
+        ];
+
+        // Walks `path` from `root`; a Leaf/OpenMapping on the way is opaque
+        // and accepts anything below it.
+        fn accepts(root: &SchemaNode, path: &str, key: &str) -> bool {
+            let mut node = root;
+            for seg in path.split('.').filter(|s| !s.is_empty()) {
+                let (name, is_array) = seg.strip_suffix("[]").map_or((seg, false), |n| (n, true));
+                node = match node {
+                    SchemaNode::Mapping(m) => match m.get(name) {
+                        Some(child) => child,
+                        None => return false,
+                    },
+                    _ => return true,
+                };
+                if is_array {
+                    node = match node {
+                        SchemaNode::Array(item) => item,
+                        _ => return true,
+                    };
+                }
+            }
+            match node {
+                SchemaNode::Mapping(m) => m.contains_key(key),
+                _ => true,
+            }
+        }
+
+        let oracle: serde_json::Value =
+            serde_json::from_str(include_str!("../data/fleet-gitops-keys.json")).unwrap();
+        let keys: Vec<(&str, &str)> = oracle["keys"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|k| (k["path"].as_str().unwrap(), k["key"].as_str().unwrap()))
+            .collect();
+        let roots = [default_schema(), fleet_schema()];
+
+        let missing: Vec<String> = keys
+            .iter()
+            // An excluded key also excludes everything below it.
+            .filter(|(p, k)| {
+                !NOT_AUTHORED.iter().any(|(ep, ek, _)| {
+                    let full = format!("{ep}.{ek}");
+                    (ep == p && ek == k)
+                        || p.strip_prefix(full.as_str())
+                            .is_some_and(|rest| rest.is_empty() || rest.starts_with(['.', '[']))
+                })
+            })
+            .filter(|(p, k)| !roots.iter().any(|r| accepts(r, p, k)))
+            // A deprecated spelling is covered by DeprecationRule's warning.
+            .filter(|(p, k)| {
+                crate::deprecations::DEPRECATION_REGISTRY
+                    .find_deprecated_key(k, p)
+                    .is_none()
+            })
+            .map(|(p, k)| format!("  {p} :: {k}"))
+            .collect();
+        assert!(
+            missing.is_empty(),
+            "Fleet {} accepts these keys but flint's strict schema rejects them. \
+             Add them to structure.rs, or to NOT_AUTHORED with a reason:\n{}",
+            oracle["fleet_version"],
+            missing.join("\n")
+        );
+
+        let stale: Vec<_> = NOT_AUTHORED
+            .iter()
+            .filter(|(p, k, _)| !keys.contains(&(p, k)))
+            .collect();
+        assert!(
+            stale.is_empty(),
+            "NOT_AUTHORED entries Fleet no longer has: {stale:?}"
+        );
     }
 }

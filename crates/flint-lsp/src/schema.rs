@@ -256,12 +256,12 @@ pub static FIELD_DOCS: Lazy<HashMap<&'static str, FieldDoc>> = Lazy::new(|| {
     );
 
     m.insert(
-        "policies.conditional_access_bypass_enabled",
+        "policies.continuous_automations_enabled",
         FieldDoc {
-            name: "conditional_access_bypass_enabled",
-            description: "When `true`, this policy's failures can be bypassed by conditional-access-enabled hosts. Critical policies never bypass. Requires Fleet Premium.",
+            name: "continuous_automations_enabled",
+            description: "When `true`, `install_software` and `run_script` re-run on every failing result, not only when the host first fails (webhooks, tickets and calendar events still fire once). Must stay `true` when `patch_when_closed` or `notify_before_patching` is set.",
             valid_values: Some(&["true", "false"]),
-            example: Some("conditional_access_bypass_enabled: true"),
+            example: Some("continuous_automations_enabled: true"),
             required: false,
             field_type: "boolean",
             cli_hint: None,

@@ -1,0 +1,6591 @@
+{
+  "fleet_version": "v4.93.0",
+  "count": 1317,
+  "keys": [
+    {
+      "key": "agent_options",
+      "path": "",
+      "type": "topKeys"
+    },
+    {
+      "key": "controls",
+      "path": "",
+      "type": "topKeys"
+    },
+    {
+      "key": "custom_host_vitals",
+      "path": "",
+      "type": "topKeys"
+    },
+    {
+      "key": "labels",
+      "path": "",
+      "type": "topKeys"
+    },
+    {
+      "key": "name",
+      "path": "",
+      "type": "topKeys"
+    },
+    {
+      "key": "org_settings",
+      "path": "",
+      "type": "topKeys"
+    },
+    {
+      "key": "policies",
+      "path": "",
+      "type": "topKeys"
+    },
+    {
+      "key": "queries",
+      "path": "",
+      "type": "topKeys"
+    },
+    {
+      "key": "reports",
+      "path": "",
+      "type": "topKeys"
+    },
+    {
+      "key": "settings",
+      "path": "",
+      "type": "topKeys"
+    },
+    {
+      "key": "software",
+      "path": "",
+      "type": "topKeys"
+    },
+    {
+      "key": "android_enabled_and_configured",
+      "path": "controls",
+      "type": "interface {}"
+    },
+    {
+      "key": "android_settings",
+      "path": "controls",
+      "type": "interface {}"
+    },
+    {
+      "key": "apple_account_provisioning",
+      "path": "controls",
+      "type": "*AppleAccountProvisioning"
+    },
+    {
+      "key": "apple_require_hardware_attestation",
+      "path": "controls",
+      "type": "interface {}"
+    },
+    {
+      "key": "apple_settings",
+      "path": "controls",
+      "type": "interface {}"
+    },
+    {
+      "key": "enable_disk_encryption",
+      "path": "controls",
+      "type": "interface {}"
+    },
+    {
+      "key": "enable_recovery_lock_password",
+      "path": "controls",
+      "type": "interface {}"
+    },
+    {
+      "key": "enable_turn_on_windows_mdm_manually",
+      "path": "controls",
+      "type": "interface {}"
+    },
+    {
+      "key": "ios_updates",
+      "path": "controls",
+      "type": "interface {}"
+    },
+    {
+      "key": "ipados_updates",
+      "path": "controls",
+      "type": "interface {}"
+    },
+    {
+      "key": "linux_settings",
+      "path": "controls",
+      "type": "interface {}"
+    },
+    {
+      "key": "macos_migration",
+      "path": "controls",
+      "type": "interface {}"
+    },
+    {
+      "key": "macos_settings",
+      "path": "controls",
+      "type": "interface {}"
+    },
+    {
+      "key": "macos_setup",
+      "path": "controls",
+      "type": "*MacOSSetup"
+    },
+    {
+      "key": "macos_updates",
+      "path": "controls",
+      "type": "interface {}"
+    },
+    {
+      "key": "name_template",
+      "path": "controls",
+      "type": "interface {}"
+    },
+    {
+      "key": "only_allow_apple_business_enrollment",
+      "path": "controls",
+      "type": "interface {}"
+    },
+    {
+      "key": "path",
+      "path": "controls",
+      "type": "*string"
+    },
+    {
+      "key": "paths",
+      "path": "controls",
+      "type": "*string"
+    },
+    {
+      "key": "scripts",
+      "path": "controls",
+      "type": "[]fleet.BaseItem"
+    },
+    {
+      "key": "setup_experience",
+      "path": "controls",
+      "type": "*MacOSSetup"
+    },
+    {
+      "key": "windows_enabled_and_configured",
+      "path": "controls",
+      "type": "interface {}"
+    },
+    {
+      "key": "windows_entra_client_ids",
+      "path": "controls",
+      "type": "interface {}"
+    },
+    {
+      "key": "windows_entra_tenant_ids",
+      "path": "controls",
+      "type": "interface {}"
+    },
+    {
+      "key": "windows_migration_enabled",
+      "path": "controls",
+      "type": "interface {}"
+    },
+    {
+      "key": "windows_require_bitlocker_pin",
+      "path": "controls",
+      "type": "interface {}"
+    },
+    {
+      "key": "windows_settings",
+      "path": "controls",
+      "type": "interface {}"
+    },
+    {
+      "key": "windows_updates",
+      "path": "controls",
+      "type": "interface {}"
+    },
+    {
+      "key": "certificates",
+      "path": "controls.android_settings",
+      "type": "Slice[github.com/fleetdm/fleet/v4/server/fleet.CertificateTemplateSpec]"
+    },
+    {
+      "key": "configuration_profiles",
+      "path": "controls.android_settings",
+      "type": "Slice[github.com/fleetdm/fleet/v4/server/fleet.MDMProfileSpec]"
+    },
+    {
+      "key": "custom_settings",
+      "path": "controls.android_settings",
+      "type": "Slice[github.com/fleetdm/fleet/v4/server/fleet.MDMProfileSpec]"
+    },
+    {
+      "key": "certificate_authority_name",
+      "path": "controls.android_settings.certificates[]",
+      "type": "string"
+    },
+    {
+      "key": "name",
+      "path": "controls.android_settings.certificates[]",
+      "type": "string"
+    },
+    {
+      "key": "subject_alternative_name",
+      "path": "controls.android_settings.certificates[]",
+      "type": "string"
+    },
+    {
+      "key": "subject_name",
+      "path": "controls.android_settings.certificates[]",
+      "type": "string"
+    },
+    {
+      "key": "activation",
+      "path": "controls.android_settings.configuration_profiles[]",
+      "type": "string"
+    },
+    {
+      "key": "labels",
+      "path": "controls.android_settings.configuration_profiles[]",
+      "type": "[]string"
+    },
+    {
+      "key": "labels_exclude_any",
+      "path": "controls.android_settings.configuration_profiles[]",
+      "type": "[]string"
+    },
+    {
+      "key": "labels_include_all",
+      "path": "controls.android_settings.configuration_profiles[]",
+      "type": "[]string"
+    },
+    {
+      "key": "labels_include_any",
+      "path": "controls.android_settings.configuration_profiles[]",
+      "type": "[]string"
+    },
+    {
+      "key": "path",
+      "path": "controls.android_settings.configuration_profiles[]",
+      "type": "string"
+    },
+    {
+      "key": "paths",
+      "path": "controls.android_settings.configuration_profiles[]",
+      "type": "string"
+    },
+    {
+      "key": "activation",
+      "path": "controls.android_settings.custom_settings[]",
+      "type": "string"
+    },
+    {
+      "key": "labels",
+      "path": "controls.android_settings.custom_settings[]",
+      "type": "[]string"
+    },
+    {
+      "key": "labels_exclude_any",
+      "path": "controls.android_settings.custom_settings[]",
+      "type": "[]string"
+    },
+    {
+      "key": "labels_include_all",
+      "path": "controls.android_settings.custom_settings[]",
+      "type": "[]string"
+    },
+    {
+      "key": "labels_include_any",
+      "path": "controls.android_settings.custom_settings[]",
+      "type": "[]string"
+    },
+    {
+      "key": "path",
+      "path": "controls.android_settings.custom_settings[]",
+      "type": "string"
+    },
+    {
+      "key": "paths",
+      "path": "controls.android_settings.custom_settings[]",
+      "type": "string"
+    },
+    {
+      "key": "oauth_idp_client_id",
+      "path": "controls.apple_account_provisioning",
+      "type": "String"
+    },
+    {
+      "key": "oauth_idp_client_secret",
+      "path": "controls.apple_account_provisioning",
+      "type": "String"
+    },
+    {
+      "key": "oauth_idp_token_url",
+      "path": "controls.apple_account_provisioning",
+      "type": "String"
+    },
+    {
+      "key": "assets",
+      "path": "controls.apple_settings",
+      "type": "[]fleet.MDMProfileSpec"
+    },
+    {
+      "key": "configuration_profiles",
+      "path": "controls.apple_settings",
+      "type": "[]fleet.MDMProfileSpec"
+    },
+    {
+      "key": "custom_settings",
+      "path": "controls.apple_settings",
+      "type": "[]fleet.MDMProfileSpec"
+    },
+    {
+      "key": "enable_disk_encryption",
+      "path": "controls.apple_settings",
+      "type": "Bool"
+    },
+    {
+      "key": "enable_escrow_disk_encryption_key",
+      "path": "controls.apple_settings",
+      "type": "Bool"
+    },
+    {
+      "key": "activation",
+      "path": "controls.apple_settings.assets[]",
+      "type": "string"
+    },
+    {
+      "key": "labels",
+      "path": "controls.apple_settings.assets[]",
+      "type": "[]string"
+    },
+    {
+      "key": "labels_exclude_any",
+      "path": "controls.apple_settings.assets[]",
+      "type": "[]string"
+    },
+    {
+      "key": "labels_include_all",
+      "path": "controls.apple_settings.assets[]",
+      "type": "[]string"
+    },
+    {
+      "key": "labels_include_any",
+      "path": "controls.apple_settings.assets[]",
+      "type": "[]string"
+    },
+    {
+      "key": "path",
+      "path": "controls.apple_settings.assets[]",
+      "type": "string"
+    },
+    {
+      "key": "paths",
+      "path": "controls.apple_settings.assets[]",
+      "type": "string"
+    },
+    {
+      "key": "activation",
+      "path": "controls.apple_settings.configuration_profiles[]",
+      "type": "string"
+    },
+    {
+      "key": "labels",
+      "path": "controls.apple_settings.configuration_profiles[]",
+      "type": "[]string"
+    },
+    {
+      "key": "labels_exclude_any",
+      "path": "controls.apple_settings.configuration_profiles[]",
+      "type": "[]string"
+    },
+    {
+      "key": "labels_include_all",
+      "path": "controls.apple_settings.configuration_profiles[]",
+      "type": "[]string"
+    },
+    {
+      "key": "labels_include_any",
+      "path": "controls.apple_settings.configuration_profiles[]",
+      "type": "[]string"
+    },
+    {
+      "key": "path",
+      "path": "controls.apple_settings.configuration_profiles[]",
+      "type": "string"
+    },
+    {
+      "key": "paths",
+      "path": "controls.apple_settings.configuration_profiles[]",
+      "type": "string"
+    },
+    {
+      "key": "activation",
+      "path": "controls.apple_settings.custom_settings[]",
+      "type": "string"
+    },
+    {
+      "key": "labels",
+      "path": "controls.apple_settings.custom_settings[]",
+      "type": "[]string"
+    },
+    {
+      "key": "labels_exclude_any",
+      "path": "controls.apple_settings.custom_settings[]",
+      "type": "[]string"
+    },
+    {
+      "key": "labels_include_all",
+      "path": "controls.apple_settings.custom_settings[]",
+      "type": "[]string"
+    },
+    {
+      "key": "labels_include_any",
+      "path": "controls.apple_settings.custom_settings[]",
+      "type": "[]string"
+    },
+    {
+      "key": "path",
+      "path": "controls.apple_settings.custom_settings[]",
+      "type": "string"
+    },
+    {
+      "key": "paths",
+      "path": "controls.apple_settings.custom_settings[]",
+      "type": "string"
+    },
+    {
+      "key": "deadline",
+      "path": "controls.ios_updates",
+      "type": "String"
+    },
+    {
+      "key": "deadline_days",
+      "path": "controls.ios_updates",
+      "type": "Int"
+    },
+    {
+      "key": "minimum_version",
+      "path": "controls.ios_updates",
+      "type": "String"
+    },
+    {
+      "key": "update_new_hosts",
+      "path": "controls.ios_updates",
+      "type": "Bool"
+    },
+    {
+      "key": "deadline",
+      "path": "controls.ipados_updates",
+      "type": "String"
+    },
+    {
+      "key": "deadline_days",
+      "path": "controls.ipados_updates",
+      "type": "Int"
+    },
+    {
+      "key": "minimum_version",
+      "path": "controls.ipados_updates",
+      "type": "String"
+    },
+    {
+      "key": "update_new_hosts",
+      "path": "controls.ipados_updates",
+      "type": "Bool"
+    },
+    {
+      "key": "enable_escrow_disk_encryption_key",
+      "path": "controls.linux_settings",
+      "type": "Bool"
+    },
+    {
+      "key": "enable",
+      "path": "controls.macos_migration",
+      "type": "bool"
+    },
+    {
+      "key": "mode",
+      "path": "controls.macos_migration",
+      "type": "MacOSMigrationMode"
+    },
+    {
+      "key": "webhook_url",
+      "path": "controls.macos_migration",
+      "type": "string"
+    },
+    {
+      "key": "assets",
+      "path": "controls.macos_settings",
+      "type": "[]fleet.MDMProfileSpec"
+    },
+    {
+      "key": "configuration_profiles",
+      "path": "controls.macos_settings",
+      "type": "[]fleet.MDMProfileSpec"
+    },
+    {
+      "key": "custom_settings",
+      "path": "controls.macos_settings",
+      "type": "[]fleet.MDMProfileSpec"
+    },
+    {
+      "key": "enable_disk_encryption",
+      "path": "controls.macos_settings",
+      "type": "Bool"
+    },
+    {
+      "key": "enable_escrow_disk_encryption_key",
+      "path": "controls.macos_settings",
+      "type": "Bool"
+    },
+    {
+      "key": "activation",
+      "path": "controls.macos_settings.assets[]",
+      "type": "string"
+    },
+    {
+      "key": "labels",
+      "path": "controls.macos_settings.assets[]",
+      "type": "[]string"
+    },
+    {
+      "key": "labels_exclude_any",
+      "path": "controls.macos_settings.assets[]",
+      "type": "[]string"
+    },
+    {
+      "key": "labels_include_all",
+      "path": "controls.macos_settings.assets[]",
+      "type": "[]string"
+    },
+    {
+      "key": "labels_include_any",
+      "path": "controls.macos_settings.assets[]",
+      "type": "[]string"
+    },
+    {
+      "key": "path",
+      "path": "controls.macos_settings.assets[]",
+      "type": "string"
+    },
+    {
+      "key": "paths",
+      "path": "controls.macos_settings.assets[]",
+      "type": "string"
+    },
+    {
+      "key": "activation",
+      "path": "controls.macos_settings.configuration_profiles[]",
+      "type": "string"
+    },
+    {
+      "key": "labels",
+      "path": "controls.macos_settings.configuration_profiles[]",
+      "type": "[]string"
+    },
+    {
+      "key": "labels_exclude_any",
+      "path": "controls.macos_settings.configuration_profiles[]",
+      "type": "[]string"
+    },
+    {
+      "key": "labels_include_all",
+      "path": "controls.macos_settings.configuration_profiles[]",
+      "type": "[]string"
+    },
+    {
+      "key": "labels_include_any",
+      "path": "controls.macos_settings.configuration_profiles[]",
+      "type": "[]string"
+    },
+    {
+      "key": "path",
+      "path": "controls.macos_settings.configuration_profiles[]",
+      "type": "string"
+    },
+    {
+      "key": "paths",
+      "path": "controls.macos_settings.configuration_profiles[]",
+      "type": "string"
+    },
+    {
+      "key": "activation",
+      "path": "controls.macos_settings.custom_settings[]",
+      "type": "string"
+    },
+    {
+      "key": "labels",
+      "path": "controls.macos_settings.custom_settings[]",
+      "type": "[]string"
+    },
+    {
+      "key": "labels_exclude_any",
+      "path": "controls.macos_settings.custom_settings[]",
+      "type": "[]string"
+    },
+    {
+      "key": "labels_include_all",
+      "path": "controls.macos_settings.custom_settings[]",
+      "type": "[]string"
+    },
+    {
+      "key": "labels_include_any",
+      "path": "controls.macos_settings.custom_settings[]",
+      "type": "[]string"
+    },
+    {
+      "key": "path",
+      "path": "controls.macos_settings.custom_settings[]",
+      "type": "string"
+    },
+    {
+      "key": "paths",
+      "path": "controls.macos_settings.custom_settings[]",
+      "type": "string"
+    },
+    {
+      "key": "apple_enable_release_device_manually",
+      "path": "controls.macos_setup",
+      "type": "Bool"
+    },
+    {
+      "key": "apple_setup_assistant",
+      "path": "controls.macos_setup",
+      "type": "String"
+    },
+    {
+      "key": "bootstrap_package",
+      "path": "controls.macos_setup",
+      "type": "String"
+    },
+    {
+      "key": "enable_create_local_admin_account",
+      "path": "controls.macos_setup",
+      "type": "Bool"
+    },
+    {
+      "key": "enable_end_user_authentication",
+      "path": "controls.macos_setup",
+      "type": "bool"
+    },
+    {
+      "key": "enable_managed_local_account",
+      "path": "controls.macos_setup",
+      "type": "Bool"
+    },
+    {
+      "key": "enable_release_device_manually",
+      "path": "controls.macos_setup",
+      "type": "Bool"
+    },
+    {
+      "key": "end_user_local_account_type",
+      "path": "controls.macos_setup",
+      "type": "String"
+    },
+    {
+      "key": "lock_end_user_info",
+      "path": "controls.macos_setup",
+      "type": "Bool"
+    },
+    {
+      "key": "macos_bootstrap_package",
+      "path": "controls.macos_setup",
+      "type": "String"
+    },
+    {
+      "key": "macos_manual_agent_install",
+      "path": "controls.macos_setup",
+      "type": "Bool"
+    },
+    {
+      "key": "macos_script",
+      "path": "controls.macos_setup",
+      "type": "String"
+    },
+    {
+      "key": "macos_setup_assistant",
+      "path": "controls.macos_setup",
+      "type": "String"
+    },
+    {
+      "key": "manual_agent_install",
+      "path": "controls.macos_setup",
+      "type": "Bool"
+    },
+    {
+      "key": "require_all_software_macos",
+      "path": "controls.macos_setup",
+      "type": "bool"
+    },
+    {
+      "key": "require_all_software_windows",
+      "path": "controls.macos_setup",
+      "type": "bool"
+    },
+    {
+      "key": "script",
+      "path": "controls.macos_setup",
+      "type": "String"
+    },
+    {
+      "key": "software",
+      "path": "controls.macos_setup",
+      "type": "Slice[*github.com/fleetdm/fleet/v4/server/fleet.MacOSSetupSoftware]"
+    },
+    {
+      "key": "app_store_id",
+      "path": "controls.macos_setup.software[]",
+      "type": "string"
+    },
+    {
+      "key": "package_path",
+      "path": "controls.macos_setup.software[]",
+      "type": "string"
+    },
+    {
+      "key": "deadline",
+      "path": "controls.macos_updates",
+      "type": "String"
+    },
+    {
+      "key": "deadline_days",
+      "path": "controls.macos_updates",
+      "type": "Int"
+    },
+    {
+      "key": "minimum_version",
+      "path": "controls.macos_updates",
+      "type": "String"
+    },
+    {
+      "key": "update_new_hosts",
+      "path": "controls.macos_updates",
+      "type": "Bool"
+    },
+    {
+      "key": "path",
+      "path": "controls.scripts[]",
+      "type": "*string"
+    },
+    {
+      "key": "paths",
+      "path": "controls.scripts[]",
+      "type": "*string"
+    },
+    {
+      "key": "apple_enable_release_device_manually",
+      "path": "controls.setup_experience",
+      "type": "Bool"
+    },
+    {
+      "key": "apple_setup_assistant",
+      "path": "controls.setup_experience",
+      "type": "String"
+    },
+    {
+      "key": "bootstrap_package",
+      "path": "controls.setup_experience",
+      "type": "String"
+    },
+    {
+      "key": "enable_create_local_admin_account",
+      "path": "controls.setup_experience",
+      "type": "Bool"
+    },
+    {
+      "key": "enable_end_user_authentication",
+      "path": "controls.setup_experience",
+      "type": "bool"
+    },
+    {
+      "key": "enable_managed_local_account",
+      "path": "controls.setup_experience",
+      "type": "Bool"
+    },
+    {
+      "key": "enable_release_device_manually",
+      "path": "controls.setup_experience",
+      "type": "Bool"
+    },
+    {
+      "key": "end_user_local_account_type",
+      "path": "controls.setup_experience",
+      "type": "String"
+    },
+    {
+      "key": "lock_end_user_info",
+      "path": "controls.setup_experience",
+      "type": "Bool"
+    },
+    {
+      "key": "macos_bootstrap_package",
+      "path": "controls.setup_experience",
+      "type": "String"
+    },
+    {
+      "key": "macos_manual_agent_install",
+      "path": "controls.setup_experience",
+      "type": "Bool"
+    },
+    {
+      "key": "macos_script",
+      "path": "controls.setup_experience",
+      "type": "String"
+    },
+    {
+      "key": "macos_setup_assistant",
+      "path": "controls.setup_experience",
+      "type": "String"
+    },
+    {
+      "key": "manual_agent_install",
+      "path": "controls.setup_experience",
+      "type": "Bool"
+    },
+    {
+      "key": "require_all_software_macos",
+      "path": "controls.setup_experience",
+      "type": "bool"
+    },
+    {
+      "key": "require_all_software_windows",
+      "path": "controls.setup_experience",
+      "type": "bool"
+    },
+    {
+      "key": "script",
+      "path": "controls.setup_experience",
+      "type": "String"
+    },
+    {
+      "key": "software",
+      "path": "controls.setup_experience",
+      "type": "Slice[*github.com/fleetdm/fleet/v4/server/fleet.MacOSSetupSoftware]"
+    },
+    {
+      "key": "app_store_id",
+      "path": "controls.setup_experience.software[]",
+      "type": "string"
+    },
+    {
+      "key": "package_path",
+      "path": "controls.setup_experience.software[]",
+      "type": "string"
+    },
+    {
+      "key": "configuration_profiles",
+      "path": "controls.windows_settings",
+      "type": "Slice[github.com/fleetdm/fleet/v4/server/fleet.MDMProfileSpec]"
+    },
+    {
+      "key": "custom_settings",
+      "path": "controls.windows_settings",
+      "type": "Slice[github.com/fleetdm/fleet/v4/server/fleet.MDMProfileSpec]"
+    },
+    {
+      "key": "enable_disk_encryption",
+      "path": "controls.windows_settings",
+      "type": "Bool"
+    },
+    {
+      "key": "enable_managed_local_account",
+      "path": "controls.windows_settings",
+      "type": "Bool"
+    },
+    {
+      "key": "require_bitlocker_pin",
+      "path": "controls.windows_settings",
+      "type": "Bool"
+    },
+    {
+      "key": "activation",
+      "path": "controls.windows_settings.configuration_profiles[]",
+      "type": "string"
+    },
+    {
+      "key": "labels",
+      "path": "controls.windows_settings.configuration_profiles[]",
+      "type": "[]string"
+    },
+    {
+      "key": "labels_exclude_any",
+      "path": "controls.windows_settings.configuration_profiles[]",
+      "type": "[]string"
+    },
+    {
+      "key": "labels_include_all",
+      "path": "controls.windows_settings.configuration_profiles[]",
+      "type": "[]string"
+    },
+    {
+      "key": "labels_include_any",
+      "path": "controls.windows_settings.configuration_profiles[]",
+      "type": "[]string"
+    },
+    {
+      "key": "path",
+      "path": "controls.windows_settings.configuration_profiles[]",
+      "type": "string"
+    },
+    {
+      "key": "paths",
+      "path": "controls.windows_settings.configuration_profiles[]",
+      "type": "string"
+    },
+    {
+      "key": "activation",
+      "path": "controls.windows_settings.custom_settings[]",
+      "type": "string"
+    },
+    {
+      "key": "labels",
+      "path": "controls.windows_settings.custom_settings[]",
+      "type": "[]string"
+    },
+    {
+      "key": "labels_exclude_any",
+      "path": "controls.windows_settings.custom_settings[]",
+      "type": "[]string"
+    },
+    {
+      "key": "labels_include_all",
+      "path": "controls.windows_settings.custom_settings[]",
+      "type": "[]string"
+    },
+    {
+      "key": "labels_include_any",
+      "path": "controls.windows_settings.custom_settings[]",
+      "type": "[]string"
+    },
+    {
+      "key": "path",
+      "path": "controls.windows_settings.custom_settings[]",
+      "type": "string"
+    },
+    {
+      "key": "paths",
+      "path": "controls.windows_settings.custom_settings[]",
+      "type": "string"
+    },
+    {
+      "key": "deadline_days",
+      "path": "controls.windows_updates",
+      "type": "Int"
+    },
+    {
+      "key": "grace_period_days",
+      "path": "controls.windows_updates",
+      "type": "Int"
+    },
+    {
+      "key": "criteria",
+      "path": "labels[]",
+      "type": "*Value"
+    },
+    {
+      "key": "description",
+      "path": "labels[]",
+      "type": "string"
+    },
+    {
+      "key": "fleet_id",
+      "path": "labels[]",
+      "type": "*uint"
+    },
+    {
+      "key": "hosts",
+      "path": "labels[]",
+      "type": "HostsSlice"
+    },
+    {
+      "key": "id",
+      "path": "labels[]",
+      "type": "uint"
+    },
+    {
+      "key": "label_membership_type",
+      "path": "labels[]",
+      "type": "LabelMembershipType"
+    },
+    {
+      "key": "label_type",
+      "path": "labels[]",
+      "type": "LabelType"
+    },
+    {
+      "key": "name",
+      "path": "labels[]",
+      "type": "string"
+    },
+    {
+      "key": "path",
+      "path": "labels[]",
+      "type": "*string"
+    },
+    {
+      "key": "paths",
+      "path": "labels[]",
+      "type": "*string"
+    },
+    {
+      "key": "platform",
+      "path": "labels[]",
+      "type": "string"
+    },
+    {
+      "key": "query",
+      "path": "labels[]",
+      "type": "string"
+    },
+    {
+      "key": "team_id",
+      "path": "labels[]",
+      "type": "*uint"
+    },
+    {
+      "key": "activity_expiry_settings",
+      "path": "org_settings",
+      "type": "ActivityExpirySettings"
+    },
+    {
+      "key": "agent_options",
+      "path": "org_settings",
+      "type": "*Value"
+    },
+    {
+      "key": "certificate_authorities",
+      "path": "org_settings",
+      "type": "interface {}"
+    },
+    {
+      "key": "conditional_access",
+      "path": "org_settings",
+      "type": "*ConditionalAccessSettings"
+    },
+    {
+      "key": "features",
+      "path": "org_settings",
+      "type": "Features"
+    },
+    {
+      "key": "fleet_desktop",
+      "path": "org_settings",
+      "type": "FleetDesktopSettings"
+    },
+    {
+      "key": "gitops",
+      "path": "org_settings",
+      "type": "GitOpsConfig"
+    },
+    {
+      "key": "host_expiry_settings",
+      "path": "org_settings",
+      "type": "HostExpirySettings"
+    },
+    {
+      "key": "host_settings",
+      "path": "org_settings",
+      "type": "*Features"
+    },
+    {
+      "key": "integrations",
+      "path": "org_settings",
+      "type": "Integrations"
+    },
+    {
+      "key": "mdm",
+      "path": "org_settings",
+      "type": "MDM"
+    },
+    {
+      "key": "microsoft_graph_credentials",
+      "path": "org_settings",
+      "type": "interface {}"
+    },
+    {
+      "key": "org_info",
+      "path": "org_settings",
+      "type": "OrgInfo"
+    },
+    {
+      "key": "scripts",
+      "path": "org_settings",
+      "type": "Slice[string]"
+    },
+    {
+      "key": "secrets",
+      "path": "org_settings",
+      "type": "interface {}"
+    },
+    {
+      "key": "server_settings",
+      "path": "org_settings",
+      "type": "ServerSettings"
+    },
+    {
+      "key": "smtp_settings",
+      "path": "org_settings",
+      "type": "*SMTPSettings"
+    },
+    {
+      "key": "smtp_test",
+      "path": "org_settings",
+      "type": "bool"
+    },
+    {
+      "key": "sso_settings",
+      "path": "org_settings",
+      "type": "*SSOSettings"
+    },
+    {
+      "key": "vulnerability_settings",
+      "path": "org_settings",
+      "type": "VulnerabilitySettings"
+    },
+    {
+      "key": "webhook_settings",
+      "path": "org_settings",
+      "type": "WebhookSettings"
+    },
+    {
+      "key": "yara_rules",
+      "path": "org_settings",
+      "type": "[]fleet.YaraRule"
+    },
+    {
+      "key": "activity_expiry_enabled",
+      "path": "org_settings.activity_expiry_settings",
+      "type": "bool"
+    },
+    {
+      "key": "activity_expiry_window",
+      "path": "org_settings.activity_expiry_settings",
+      "type": "int"
+    },
+    {
+      "key": "preserve_host_activities_on_reenrollment",
+      "path": "org_settings.activity_expiry_settings",
+      "type": "bool"
+    },
+    {
+      "key": "custom_est_proxy",
+      "path": "org_settings.certificate_authorities",
+      "type": "[]fleet.ESTProxyCA"
+    },
+    {
+      "key": "custom_scep_proxy",
+      "path": "org_settings.certificate_authorities",
+      "type": "[]fleet.CustomSCEPProxyCA"
+    },
+    {
+      "key": "digicert",
+      "path": "org_settings.certificate_authorities",
+      "type": "[]fleet.DigiCertCA"
+    },
+    {
+      "key": "hydrant",
+      "path": "org_settings.certificate_authorities",
+      "type": "[]fleet.HydrantCA"
+    },
+    {
+      "key": "ndes_scep_proxy",
+      "path": "org_settings.certificate_authorities",
+      "type": "*NDESSCEPProxyCA"
+    },
+    {
+      "key": "smallstep",
+      "path": "org_settings.certificate_authorities",
+      "type": "[]fleet.SmallstepSCEPProxyCA"
+    },
+    {
+      "key": "name",
+      "path": "org_settings.certificate_authorities.custom_est_proxy[]",
+      "type": "string"
+    },
+    {
+      "key": "password",
+      "path": "org_settings.certificate_authorities.custom_est_proxy[]",
+      "type": "string"
+    },
+    {
+      "key": "url",
+      "path": "org_settings.certificate_authorities.custom_est_proxy[]",
+      "type": "string"
+    },
+    {
+      "key": "username",
+      "path": "org_settings.certificate_authorities.custom_est_proxy[]",
+      "type": "string"
+    },
+    {
+      "key": "challenge",
+      "path": "org_settings.certificate_authorities.custom_scep_proxy[]",
+      "type": "string"
+    },
+    {
+      "key": "name",
+      "path": "org_settings.certificate_authorities.custom_scep_proxy[]",
+      "type": "string"
+    },
+    {
+      "key": "url",
+      "path": "org_settings.certificate_authorities.custom_scep_proxy[]",
+      "type": "string"
+    },
+    {
+      "key": "api_token",
+      "path": "org_settings.certificate_authorities.digicert[]",
+      "type": "string"
+    },
+    {
+      "key": "certificate_common_name",
+      "path": "org_settings.certificate_authorities.digicert[]",
+      "type": "string"
+    },
+    {
+      "key": "certificate_seat_id",
+      "path": "org_settings.certificate_authorities.digicert[]",
+      "type": "string"
+    },
+    {
+      "key": "certificate_user_principal_names",
+      "path": "org_settings.certificate_authorities.digicert[]",
+      "type": "[]string"
+    },
+    {
+      "key": "name",
+      "path": "org_settings.certificate_authorities.digicert[]",
+      "type": "string"
+    },
+    {
+      "key": "profile_id",
+      "path": "org_settings.certificate_authorities.digicert[]",
+      "type": "string"
+    },
+    {
+      "key": "url",
+      "path": "org_settings.certificate_authorities.digicert[]",
+      "type": "string"
+    },
+    {
+      "key": "client_id",
+      "path": "org_settings.certificate_authorities.hydrant[]",
+      "type": "string"
+    },
+    {
+      "key": "client_secret",
+      "path": "org_settings.certificate_authorities.hydrant[]",
+      "type": "string"
+    },
+    {
+      "key": "name",
+      "path": "org_settings.certificate_authorities.hydrant[]",
+      "type": "string"
+    },
+    {
+      "key": "url",
+      "path": "org_settings.certificate_authorities.hydrant[]",
+      "type": "string"
+    },
+    {
+      "key": "admin_url",
+      "path": "org_settings.certificate_authorities.ndes_scep_proxy",
+      "type": "string"
+    },
+    {
+      "key": "password",
+      "path": "org_settings.certificate_authorities.ndes_scep_proxy",
+      "type": "string"
+    },
+    {
+      "key": "url",
+      "path": "org_settings.certificate_authorities.ndes_scep_proxy",
+      "type": "string"
+    },
+    {
+      "key": "username",
+      "path": "org_settings.certificate_authorities.ndes_scep_proxy",
+      "type": "string"
+    },
+    {
+      "key": "challenge_url",
+      "path": "org_settings.certificate_authorities.smallstep[]",
+      "type": "string"
+    },
+    {
+      "key": "name",
+      "path": "org_settings.certificate_authorities.smallstep[]",
+      "type": "string"
+    },
+    {
+      "key": "password",
+      "path": "org_settings.certificate_authorities.smallstep[]",
+      "type": "string"
+    },
+    {
+      "key": "url",
+      "path": "org_settings.certificate_authorities.smallstep[]",
+      "type": "string"
+    },
+    {
+      "key": "username",
+      "path": "org_settings.certificate_authorities.smallstep[]",
+      "type": "string"
+    },
+    {
+      "key": "bypass_disabled",
+      "path": "org_settings.conditional_access",
+      "type": "Bool"
+    },
+    {
+      "key": "microsoft_entra_connection_configured",
+      "path": "org_settings.conditional_access",
+      "type": "bool"
+    },
+    {
+      "key": "microsoft_entra_tenant_id",
+      "path": "org_settings.conditional_access",
+      "type": "string"
+    },
+    {
+      "key": "okta_assertion_consumer_service_url",
+      "path": "org_settings.conditional_access",
+      "type": "String"
+    },
+    {
+      "key": "okta_audience_uri",
+      "path": "org_settings.conditional_access",
+      "type": "String"
+    },
+    {
+      "key": "okta_certificate",
+      "path": "org_settings.conditional_access",
+      "type": "String"
+    },
+    {
+      "key": "okta_idp_id",
+      "path": "org_settings.conditional_access",
+      "type": "String"
+    },
+    {
+      "key": "additional_queries",
+      "path": "org_settings.features",
+      "type": "*Value"
+    },
+    {
+      "key": "detail_query_overrides",
+      "path": "org_settings.features",
+      "type": "map[string]*string"
+    },
+    {
+      "key": "enable_host_users",
+      "path": "org_settings.features",
+      "type": "bool"
+    },
+    {
+      "key": "enable_software_inventory",
+      "path": "org_settings.features",
+      "type": "bool"
+    },
+    {
+      "key": "historical_data",
+      "path": "org_settings.features",
+      "type": "HistoricalDataSettings"
+    },
+    {
+      "key": "vulnerability_exposure_historical_reporting",
+      "path": "org_settings.features",
+      "type": "*VulnExposureFilterSettings"
+    },
+    {
+      "key": "uptime",
+      "path": "org_settings.features.historical_data",
+      "type": "bool"
+    },
+    {
+      "key": "vulnerabilities",
+      "path": "org_settings.features.historical_data",
+      "type": "bool"
+    },
+    {
+      "key": "cvss_max",
+      "path": "org_settings.features.vulnerability_exposure_historical_reporting",
+      "type": "*float64"
+    },
+    {
+      "key": "cvss_min",
+      "path": "org_settings.features.vulnerability_exposure_historical_reporting",
+      "type": "*float64"
+    },
+    {
+      "key": "epss_max",
+      "path": "org_settings.features.vulnerability_exposure_historical_reporting",
+      "type": "*float64"
+    },
+    {
+      "key": "epss_min",
+      "path": "org_settings.features.vulnerability_exposure_historical_reporting",
+      "type": "*float64"
+    },
+    {
+      "key": "exclude_vulnerabilities",
+      "path": "org_settings.features.vulnerability_exposure_historical_reporting",
+      "type": "*[]string"
+    },
+    {
+      "key": "has_known_exploit",
+      "path": "org_settings.features.vulnerability_exposure_historical_reporting",
+      "type": "*bool"
+    },
+    {
+      "key": "software_filters",
+      "path": "org_settings.features.vulnerability_exposure_historical_reporting",
+      "type": "*[]string"
+    },
+    {
+      "key": "alternative_browser_host",
+      "path": "org_settings.fleet_desktop",
+      "type": "string"
+    },
+    {
+      "key": "sso_enabled",
+      "path": "org_settings.fleet_desktop",
+      "type": "bool"
+    },
+    {
+      "key": "transparency_url",
+      "path": "org_settings.fleet_desktop",
+      "type": "string"
+    },
+    {
+      "key": "exceptions",
+      "path": "org_settings.gitops",
+      "type": "GitOpsExceptions"
+    },
+    {
+      "key": "gitops_mode_enabled",
+      "path": "org_settings.gitops",
+      "type": "bool"
+    },
+    {
+      "key": "repository_url",
+      "path": "org_settings.gitops",
+      "type": "string"
+    },
+    {
+      "key": "labels",
+      "path": "org_settings.gitops.exceptions",
+      "type": "bool"
+    },
+    {
+      "key": "secrets",
+      "path": "org_settings.gitops.exceptions",
+      "type": "bool"
+    },
+    {
+      "key": "software",
+      "path": "org_settings.gitops.exceptions",
+      "type": "bool"
+    },
+    {
+      "key": "host_expiry_enabled",
+      "path": "org_settings.host_expiry_settings",
+      "type": "bool"
+    },
+    {
+      "key": "host_expiry_window",
+      "path": "org_settings.host_expiry_settings",
+      "type": "int"
+    },
+    {
+      "key": "additional_queries",
+      "path": "org_settings.host_settings",
+      "type": "*Value"
+    },
+    {
+      "key": "detail_query_overrides",
+      "path": "org_settings.host_settings",
+      "type": "map[string]*string"
+    },
+    {
+      "key": "enable_host_users",
+      "path": "org_settings.host_settings",
+      "type": "bool"
+    },
+    {
+      "key": "enable_software_inventory",
+      "path": "org_settings.host_settings",
+      "type": "bool"
+    },
+    {
+      "key": "historical_data",
+      "path": "org_settings.host_settings",
+      "type": "HistoricalDataSettings"
+    },
+    {
+      "key": "vulnerability_exposure_historical_reporting",
+      "path": "org_settings.host_settings",
+      "type": "*VulnExposureFilterSettings"
+    },
+    {
+      "key": "uptime",
+      "path": "org_settings.host_settings.historical_data",
+      "type": "bool"
+    },
+    {
+      "key": "vulnerabilities",
+      "path": "org_settings.host_settings.historical_data",
+      "type": "bool"
+    },
+    {
+      "key": "cvss_max",
+      "path": "org_settings.host_settings.vulnerability_exposure_historical_reporting",
+      "type": "*float64"
+    },
+    {
+      "key": "cvss_min",
+      "path": "org_settings.host_settings.vulnerability_exposure_historical_reporting",
+      "type": "*float64"
+    },
+    {
+      "key": "epss_max",
+      "path": "org_settings.host_settings.vulnerability_exposure_historical_reporting",
+      "type": "*float64"
+    },
+    {
+      "key": "epss_min",
+      "path": "org_settings.host_settings.vulnerability_exposure_historical_reporting",
+      "type": "*float64"
+    },
+    {
+      "key": "exclude_vulnerabilities",
+      "path": "org_settings.host_settings.vulnerability_exposure_historical_reporting",
+      "type": "*[]string"
+    },
+    {
+      "key": "has_known_exploit",
+      "path": "org_settings.host_settings.vulnerability_exposure_historical_reporting",
+      "type": "*bool"
+    },
+    {
+      "key": "software_filters",
+      "path": "org_settings.host_settings.vulnerability_exposure_historical_reporting",
+      "type": "*[]string"
+    },
+    {
+      "key": "certificates_disable_host_end_user_binding",
+      "path": "org_settings.integrations",
+      "type": "Bool"
+    },
+    {
+      "key": "certificates_idp_client_ids",
+      "path": "org_settings.integrations",
+      "type": "Slice[string]"
+    },
+    {
+      "key": "certificates_idp_introspection_urls",
+      "path": "org_settings.integrations",
+      "type": "Slice[string]"
+    },
+    {
+      "key": "conditional_access_enabled",
+      "path": "org_settings.integrations",
+      "type": "Bool"
+    },
+    {
+      "key": "google_calendar",
+      "path": "org_settings.integrations",
+      "type": "[]*fleet.GoogleCalendarIntegration"
+    },
+    {
+      "key": "google_workspace",
+      "path": "org_settings.integrations",
+      "type": "[]*fleet.GoogleWorkspaceIntegration"
+    },
+    {
+      "key": "jira",
+      "path": "org_settings.integrations",
+      "type": "[]*fleet.JiraIntegration"
+    },
+    {
+      "key": "zendesk",
+      "path": "org_settings.integrations",
+      "type": "[]*fleet.ZendeskIntegration"
+    },
+    {
+      "key": "api_key_json",
+      "path": "org_settings.integrations.google_calendar[]",
+      "type": "GoogleCalendarApiKey"
+    },
+    {
+      "key": "domain",
+      "path": "org_settings.integrations.google_calendar[]",
+      "type": "string"
+    },
+    {
+      "key": "api_key_json",
+      "path": "org_settings.integrations.google_workspace[]",
+      "type": "GoogleCalendarApiKey"
+    },
+    {
+      "key": "domain",
+      "path": "org_settings.integrations.google_workspace[]",
+      "type": "string"
+    },
+    {
+      "key": "impersonated_user_email",
+      "path": "org_settings.integrations.google_workspace[]",
+      "type": "string"
+    },
+    {
+      "key": "api_token",
+      "path": "org_settings.integrations.jira[]",
+      "type": "string"
+    },
+    {
+      "key": "enable_failing_policies",
+      "path": "org_settings.integrations.jira[]",
+      "type": "bool"
+    },
+    {
+      "key": "enable_software_vulnerabilities",
+      "path": "org_settings.integrations.jira[]",
+      "type": "bool"
+    },
+    {
+      "key": "project_key",
+      "path": "org_settings.integrations.jira[]",
+      "type": "string"
+    },
+    {
+      "key": "url",
+      "path": "org_settings.integrations.jira[]",
+      "type": "string"
+    },
+    {
+      "key": "username",
+      "path": "org_settings.integrations.jira[]",
+      "type": "string"
+    },
+    {
+      "key": "api_token",
+      "path": "org_settings.integrations.zendesk[]",
+      "type": "string"
+    },
+    {
+      "key": "email",
+      "path": "org_settings.integrations.zendesk[]",
+      "type": "string"
+    },
+    {
+      "key": "enable_failing_policies",
+      "path": "org_settings.integrations.zendesk[]",
+      "type": "bool"
+    },
+    {
+      "key": "enable_software_vulnerabilities",
+      "path": "org_settings.integrations.zendesk[]",
+      "type": "bool"
+    },
+    {
+      "key": "group_id",
+      "path": "org_settings.integrations.zendesk[]",
+      "type": "int64"
+    },
+    {
+      "key": "url",
+      "path": "org_settings.integrations.zendesk[]",
+      "type": "string"
+    },
+    {
+      "key": "android_enabled_and_configured",
+      "path": "org_settings.mdm",
+      "type": "bool"
+    },
+    {
+      "key": "android_settings",
+      "path": "org_settings.mdm",
+      "type": "AndroidSettings"
+    },
+    {
+      "key": "apple_account_provisioning",
+      "path": "org_settings.mdm",
+      "type": "AppleAccountProvisioning"
+    },
+    {
+      "key": "apple_bm_default_team",
+      "path": "org_settings.mdm",
+      "type": "string"
+    },
+    {
+      "key": "apple_bm_enabled_and_configured",
+      "path": "org_settings.mdm",
+      "type": "bool"
+    },
+    {
+      "key": "apple_bm_terms_expired",
+      "path": "org_settings.mdm",
+      "type": "bool"
+    },
+    {
+      "key": "apple_business",
+      "path": "org_settings.mdm",
+      "type": "Slice[github.com/fleetdm/fleet/v4/server/fleet.MDMAppleABMAssignmentInfo]"
+    },
+    {
+      "key": "apple_business_manager",
+      "path": "org_settings.mdm",
+      "type": "Slice[github.com/fleetdm/fleet/v4/server/fleet.MDMAppleABMAssignmentInfo]"
+    },
+    {
+      "key": "apple_require_hardware_attestation",
+      "path": "org_settings.mdm",
+      "type": "bool"
+    },
+    {
+      "key": "apple_server_url",
+      "path": "org_settings.mdm",
+      "type": "string"
+    },
+    {
+      "key": "apple_settings",
+      "path": "org_settings.mdm",
+      "type": "MacOSSettings"
+    },
+    {
+      "key": "enable_disk_encryption",
+      "path": "org_settings.mdm",
+      "type": "Bool"
+    },
+    {
+      "key": "enable_recovery_lock_password",
+      "path": "org_settings.mdm",
+      "type": "Bool"
+    },
+    {
+      "key": "enable_turn_on_windows_mdm_manually",
+      "path": "org_settings.mdm",
+      "type": "bool"
+    },
+    {
+      "key": "enabled_and_configured",
+      "path": "org_settings.mdm",
+      "type": "bool"
+    },
+    {
+      "key": "end_user_authentication",
+      "path": "org_settings.mdm",
+      "type": "MDMEndUserAuthentication"
+    },
+    {
+      "key": "end_user_license_agreement",
+      "path": "org_settings.mdm",
+      "type": "interface {}"
+    },
+    {
+      "key": "ios_updates",
+      "path": "org_settings.mdm",
+      "type": "AppleOSUpdateSettings"
+    },
+    {
+      "key": "ipados_updates",
+      "path": "org_settings.mdm",
+      "type": "AppleOSUpdateSettings"
+    },
+    {
+      "key": "linux_settings",
+      "path": "org_settings.mdm",
+      "type": "LinuxSettings"
+    },
+    {
+      "key": "macos_migration",
+      "path": "org_settings.mdm",
+      "type": "MacOSMigration"
+    },
+    {
+      "key": "macos_settings",
+      "path": "org_settings.mdm",
+      "type": "MacOSSettings"
+    },
+    {
+      "key": "macos_setup",
+      "path": "org_settings.mdm",
+      "type": "MacOSSetup"
+    },
+    {
+      "key": "macos_updates",
+      "path": "org_settings.mdm",
+      "type": "AppleOSUpdateSettings"
+    },
+    {
+      "key": "microsoft_graph_credential_invalid",
+      "path": "org_settings.mdm",
+      "type": "bool"
+    },
+    {
+      "key": "name_template",
+      "path": "org_settings.mdm",
+      "type": "String"
+    },
+    {
+      "key": "only_allow_apple_business_enrollment",
+      "path": "org_settings.mdm",
+      "type": "bool"
+    },
+    {
+      "key": "setup_experience",
+      "path": "org_settings.mdm",
+      "type": "MacOSSetup"
+    },
+    {
+      "key": "volume_purchasing_program",
+      "path": "org_settings.mdm",
+      "type": "Slice[github.com/fleetdm/fleet/v4/server/fleet.MDMAppleVolumePurchasingProgramInfo]"
+    },
+    {
+      "key": "windows_automatic_enrollment",
+      "path": "org_settings.mdm",
+      "type": "Any[github.com/fleetdm/fleet/v4/server/fleet.WindowsAutomaticEnrollment]"
+    },
+    {
+      "key": "windows_enabled_and_configured",
+      "path": "org_settings.mdm",
+      "type": "bool"
+    },
+    {
+      "key": "windows_entra_client_ids",
+      "path": "org_settings.mdm",
+      "type": "Slice[string]"
+    },
+    {
+      "key": "windows_entra_tenant_ids",
+      "path": "org_settings.mdm",
+      "type": "Slice[string]"
+    },
+    {
+      "key": "windows_migration_enabled",
+      "path": "org_settings.mdm",
+      "type": "bool"
+    },
+    {
+      "key": "windows_require_bitlocker_pin",
+      "path": "org_settings.mdm",
+      "type": "Bool"
+    },
+    {
+      "key": "windows_settings",
+      "path": "org_settings.mdm",
+      "type": "WindowsSettings"
+    },
+    {
+      "key": "windows_updates",
+      "path": "org_settings.mdm",
+      "type": "WindowsUpdates"
+    },
+    {
+      "key": "certificates",
+      "path": "org_settings.mdm.android_settings",
+      "type": "Slice[github.com/fleetdm/fleet/v4/server/fleet.CertificateTemplateSpec]"
+    },
+    {
+      "key": "configuration_profiles",
+      "path": "org_settings.mdm.android_settings",
+      "type": "Slice[github.com/fleetdm/fleet/v4/server/fleet.MDMProfileSpec]"
+    },
+    {
+      "key": "custom_settings",
+      "path": "org_settings.mdm.android_settings",
+      "type": "Slice[github.com/fleetdm/fleet/v4/server/fleet.MDMProfileSpec]"
+    },
+    {
+      "key": "certificate_authority_name",
+      "path": "org_settings.mdm.android_settings.certificates[]",
+      "type": "string"
+    },
+    {
+      "key": "name",
+      "path": "org_settings.mdm.android_settings.certificates[]",
+      "type": "string"
+    },
+    {
+      "key": "subject_alternative_name",
+      "path": "org_settings.mdm.android_settings.certificates[]",
+      "type": "string"
+    },
+    {
+      "key": "subject_name",
+      "path": "org_settings.mdm.android_settings.certificates[]",
+      "type": "string"
+    },
+    {
+      "key": "activation",
+      "path": "org_settings.mdm.android_settings.configuration_profiles[]",
+      "type": "string"
+    },
+    {
+      "key": "labels",
+      "path": "org_settings.mdm.android_settings.configuration_profiles[]",
+      "type": "[]string"
+    },
+    {
+      "key": "labels_exclude_any",
+      "path": "org_settings.mdm.android_settings.configuration_profiles[]",
+      "type": "[]string"
+    },
+    {
+      "key": "labels_include_all",
+      "path": "org_settings.mdm.android_settings.configuration_profiles[]",
+      "type": "[]string"
+    },
+    {
+      "key": "labels_include_any",
+      "path": "org_settings.mdm.android_settings.configuration_profiles[]",
+      "type": "[]string"
+    },
+    {
+      "key": "path",
+      "path": "org_settings.mdm.android_settings.configuration_profiles[]",
+      "type": "string"
+    },
+    {
+      "key": "paths",
+      "path": "org_settings.mdm.android_settings.configuration_profiles[]",
+      "type": "string"
+    },
+    {
+      "key": "activation",
+      "path": "org_settings.mdm.android_settings.custom_settings[]",
+      "type": "string"
+    },
+    {
+      "key": "labels",
+      "path": "org_settings.mdm.android_settings.custom_settings[]",
+      "type": "[]string"
+    },
+    {
+      "key": "labels_exclude_any",
+      "path": "org_settings.mdm.android_settings.custom_settings[]",
+      "type": "[]string"
+    },
+    {
+      "key": "labels_include_all",
+      "path": "org_settings.mdm.android_settings.custom_settings[]",
+      "type": "[]string"
+    },
+    {
+      "key": "labels_include_any",
+      "path": "org_settings.mdm.android_settings.custom_settings[]",
+      "type": "[]string"
+    },
+    {
+      "key": "path",
+      "path": "org_settings.mdm.android_settings.custom_settings[]",
+      "type": "string"
+    },
+    {
+      "key": "paths",
+      "path": "org_settings.mdm.android_settings.custom_settings[]",
+      "type": "string"
+    },
+    {
+      "key": "oauth_idp_client_id",
+      "path": "org_settings.mdm.apple_account_provisioning",
+      "type": "String"
+    },
+    {
+      "key": "oauth_idp_client_secret",
+      "path": "org_settings.mdm.apple_account_provisioning",
+      "type": "String"
+    },
+    {
+      "key": "oauth_idp_token_url",
+      "path": "org_settings.mdm.apple_account_provisioning",
+      "type": "String"
+    },
+    {
+      "key": "byod_fleet",
+      "path": "org_settings.mdm.apple_business[]",
+      "type": "string"
+    },
+    {
+      "key": "byod_team",
+      "path": "org_settings.mdm.apple_business[]",
+      "type": "string"
+    },
+    {
+      "key": "default",
+      "path": "org_settings.mdm.apple_business[]",
+      "type": "bool"
+    },
+    {
+      "key": "ios_fleet",
+      "path": "org_settings.mdm.apple_business[]",
+      "type": "string"
+    },
+    {
+      "key": "ios_team",
+      "path": "org_settings.mdm.apple_business[]",
+      "type": "string"
+    },
+    {
+      "key": "ipados_fleet",
+      "path": "org_settings.mdm.apple_business[]",
+      "type": "string"
+    },
+    {
+      "key": "ipados_team",
+      "path": "org_settings.mdm.apple_business[]",
+      "type": "string"
+    },
+    {
+      "key": "macos_fleet",
+      "path": "org_settings.mdm.apple_business[]",
+      "type": "string"
+    },
+    {
+      "key": "macos_team",
+      "path": "org_settings.mdm.apple_business[]",
+      "type": "string"
+    },
+    {
+      "key": "organization_name",
+      "path": "org_settings.mdm.apple_business[]",
+      "type": "string"
+    },
+    {
+      "key": "byod_fleet",
+      "path": "org_settings.mdm.apple_business_manager[]",
+      "type": "string"
+    },
+    {
+      "key": "byod_team",
+      "path": "org_settings.mdm.apple_business_manager[]",
+      "type": "string"
+    },
+    {
+      "key": "default",
+      "path": "org_settings.mdm.apple_business_manager[]",
+      "type": "bool"
+    },
+    {
+      "key": "ios_fleet",
+      "path": "org_settings.mdm.apple_business_manager[]",
+      "type": "string"
+    },
+    {
+      "key": "ios_team",
+      "path": "org_settings.mdm.apple_business_manager[]",
+      "type": "string"
+    },
+    {
+      "key": "ipados_fleet",
+      "path": "org_settings.mdm.apple_business_manager[]",
+      "type": "string"
+    },
+    {
+      "key": "ipados_team",
+      "path": "org_settings.mdm.apple_business_manager[]",
+      "type": "string"
+    },
+    {
+      "key": "macos_fleet",
+      "path": "org_settings.mdm.apple_business_manager[]",
+      "type": "string"
+    },
+    {
+      "key": "macos_team",
+      "path": "org_settings.mdm.apple_business_manager[]",
+      "type": "string"
+    },
+    {
+      "key": "organization_name",
+      "path": "org_settings.mdm.apple_business_manager[]",
+      "type": "string"
+    },
+    {
+      "key": "assets",
+      "path": "org_settings.mdm.apple_settings",
+      "type": "[]fleet.MDMProfileSpec"
+    },
+    {
+      "key": "configuration_profiles",
+      "path": "org_settings.mdm.apple_settings",
+      "type": "[]fleet.MDMProfileSpec"
+    },
+    {
+      "key": "custom_settings",
+      "path": "org_settings.mdm.apple_settings",
+      "type": "[]fleet.MDMProfileSpec"
+    },
+    {
+      "key": "enable_disk_encryption",
+      "path": "org_settings.mdm.apple_settings",
+      "type": "Bool"
+    },
+    {
+      "key": "enable_escrow_disk_encryption_key",
+      "path": "org_settings.mdm.apple_settings",
+      "type": "Bool"
+    },
+    {
+      "key": "activation",
+      "path": "org_settings.mdm.apple_settings.assets[]",
+      "type": "string"
+    },
+    {
+      "key": "labels",
+      "path": "org_settings.mdm.apple_settings.assets[]",
+      "type": "[]string"
+    },
+    {
+      "key": "labels_exclude_any",
+      "path": "org_settings.mdm.apple_settings.assets[]",
+      "type": "[]string"
+    },
+    {
+      "key": "labels_include_all",
+      "path": "org_settings.mdm.apple_settings.assets[]",
+      "type": "[]string"
+    },
+    {
+      "key": "labels_include_any",
+      "path": "org_settings.mdm.apple_settings.assets[]",
+      "type": "[]string"
+    },
+    {
+      "key": "path",
+      "path": "org_settings.mdm.apple_settings.assets[]",
+      "type": "string"
+    },
+    {
+      "key": "paths",
+      "path": "org_settings.mdm.apple_settings.assets[]",
+      "type": "string"
+    },
+    {
+      "key": "activation",
+      "path": "org_settings.mdm.apple_settings.configuration_profiles[]",
+      "type": "string"
+    },
+    {
+      "key": "labels",
+      "path": "org_settings.mdm.apple_settings.configuration_profiles[]",
+      "type": "[]string"
+    },
+    {
+      "key": "labels_exclude_any",
+      "path": "org_settings.mdm.apple_settings.configuration_profiles[]",
+      "type": "[]string"
+    },
+    {
+      "key": "labels_include_all",
+      "path": "org_settings.mdm.apple_settings.configuration_profiles[]",
+      "type": "[]string"
+    },
+    {
+      "key": "labels_include_any",
+      "path": "org_settings.mdm.apple_settings.configuration_profiles[]",
+      "type": "[]string"
+    },
+    {
+      "key": "path",
+      "path": "org_settings.mdm.apple_settings.configuration_profiles[]",
+      "type": "string"
+    },
+    {
+      "key": "paths",
+      "path": "org_settings.mdm.apple_settings.configuration_profiles[]",
+      "type": "string"
+    },
+    {
+      "key": "activation",
+      "path": "org_settings.mdm.apple_settings.custom_settings[]",
+      "type": "string"
+    },
+    {
+      "key": "labels",
+      "path": "org_settings.mdm.apple_settings.custom_settings[]",
+      "type": "[]string"
+    },
+    {
+      "key": "labels_exclude_any",
+      "path": "org_settings.mdm.apple_settings.custom_settings[]",
+      "type": "[]string"
+    },
+    {
+      "key": "labels_include_all",
+      "path": "org_settings.mdm.apple_settings.custom_settings[]",
+      "type": "[]string"
+    },
+    {
+      "key": "labels_include_any",
+      "path": "org_settings.mdm.apple_settings.custom_settings[]",
+      "type": "[]string"
+    },
+    {
+      "key": "path",
+      "path": "org_settings.mdm.apple_settings.custom_settings[]",
+      "type": "string"
+    },
+    {
+      "key": "paths",
+      "path": "org_settings.mdm.apple_settings.custom_settings[]",
+      "type": "string"
+    },
+    {
+      "key": "entity_id",
+      "path": "org_settings.mdm.end_user_authentication",
+      "type": "string"
+    },
+    {
+      "key": "idp_name",
+      "path": "org_settings.mdm.end_user_authentication",
+      "type": "string"
+    },
+    {
+      "key": "issuer_uri",
+      "path": "org_settings.mdm.end_user_authentication",
+      "type": "string"
+    },
+    {
+      "key": "metadata",
+      "path": "org_settings.mdm.end_user_authentication",
+      "type": "string"
+    },
+    {
+      "key": "metadata_url",
+      "path": "org_settings.mdm.end_user_authentication",
+      "type": "string"
+    },
+    {
+      "key": "deadline",
+      "path": "org_settings.mdm.ios_updates",
+      "type": "String"
+    },
+    {
+      "key": "deadline_days",
+      "path": "org_settings.mdm.ios_updates",
+      "type": "Int"
+    },
+    {
+      "key": "minimum_version",
+      "path": "org_settings.mdm.ios_updates",
+      "type": "String"
+    },
+    {
+      "key": "update_new_hosts",
+      "path": "org_settings.mdm.ios_updates",
+      "type": "Bool"
+    },
+    {
+      "key": "deadline",
+      "path": "org_settings.mdm.ipados_updates",
+      "type": "String"
+    },
+    {
+      "key": "deadline_days",
+      "path": "org_settings.mdm.ipados_updates",
+      "type": "Int"
+    },
+    {
+      "key": "minimum_version",
+      "path": "org_settings.mdm.ipados_updates",
+      "type": "String"
+    },
+    {
+      "key": "update_new_hosts",
+      "path": "org_settings.mdm.ipados_updates",
+      "type": "Bool"
+    },
+    {
+      "key": "enable_escrow_disk_encryption_key",
+      "path": "org_settings.mdm.linux_settings",
+      "type": "Bool"
+    },
+    {
+      "key": "enable",
+      "path": "org_settings.mdm.macos_migration",
+      "type": "bool"
+    },
+    {
+      "key": "mode",
+      "path": "org_settings.mdm.macos_migration",
+      "type": "MacOSMigrationMode"
+    },
+    {
+      "key": "webhook_url",
+      "path": "org_settings.mdm.macos_migration",
+      "type": "string"
+    },
+    {
+      "key": "assets",
+      "path": "org_settings.mdm.macos_settings",
+      "type": "[]fleet.MDMProfileSpec"
+    },
+    {
+      "key": "configuration_profiles",
+      "path": "org_settings.mdm.macos_settings",
+      "type": "[]fleet.MDMProfileSpec"
+    },
+    {
+      "key": "custom_settings",
+      "path": "org_settings.mdm.macos_settings",
+      "type": "[]fleet.MDMProfileSpec"
+    },
+    {
+      "key": "enable_disk_encryption",
+      "path": "org_settings.mdm.macos_settings",
+      "type": "Bool"
+    },
+    {
+      "key": "enable_escrow_disk_encryption_key",
+      "path": "org_settings.mdm.macos_settings",
+      "type": "Bool"
+    },
+    {
+      "key": "activation",
+      "path": "org_settings.mdm.macos_settings.assets[]",
+      "type": "string"
+    },
+    {
+      "key": "labels",
+      "path": "org_settings.mdm.macos_settings.assets[]",
+      "type": "[]string"
+    },
+    {
+      "key": "labels_exclude_any",
+      "path": "org_settings.mdm.macos_settings.assets[]",
+      "type": "[]string"
+    },
+    {
+      "key": "labels_include_all",
+      "path": "org_settings.mdm.macos_settings.assets[]",
+      "type": "[]string"
+    },
+    {
+      "key": "labels_include_any",
+      "path": "org_settings.mdm.macos_settings.assets[]",
+      "type": "[]string"
+    },
+    {
+      "key": "path",
+      "path": "org_settings.mdm.macos_settings.assets[]",
+      "type": "string"
+    },
+    {
+      "key": "paths",
+      "path": "org_settings.mdm.macos_settings.assets[]",
+      "type": "string"
+    },
+    {
+      "key": "activation",
+      "path": "org_settings.mdm.macos_settings.configuration_profiles[]",
+      "type": "string"
+    },
+    {
+      "key": "labels",
+      "path": "org_settings.mdm.macos_settings.configuration_profiles[]",
+      "type": "[]string"
+    },
+    {
+      "key": "labels_exclude_any",
+      "path": "org_settings.mdm.macos_settings.configuration_profiles[]",
+      "type": "[]string"
+    },
+    {
+      "key": "labels_include_all",
+      "path": "org_settings.mdm.macos_settings.configuration_profiles[]",
+      "type": "[]string"
+    },
+    {
+      "key": "labels_include_any",
+      "path": "org_settings.mdm.macos_settings.configuration_profiles[]",
+      "type": "[]string"
+    },
+    {
+      "key": "path",
+      "path": "org_settings.mdm.macos_settings.configuration_profiles[]",
+      "type": "string"
+    },
+    {
+      "key": "paths",
+      "path": "org_settings.mdm.macos_settings.configuration_profiles[]",
+      "type": "string"
+    },
+    {
+      "key": "activation",
+      "path": "org_settings.mdm.macos_settings.custom_settings[]",
+      "type": "string"
+    },
+    {
+      "key": "labels",
+      "path": "org_settings.mdm.macos_settings.custom_settings[]",
+      "type": "[]string"
+    },
+    {
+      "key": "labels_exclude_any",
+      "path": "org_settings.mdm.macos_settings.custom_settings[]",
+      "type": "[]string"
+    },
+    {
+      "key": "labels_include_all",
+      "path": "org_settings.mdm.macos_settings.custom_settings[]",
+      "type": "[]string"
+    },
+    {
+      "key": "labels_include_any",
+      "path": "org_settings.mdm.macos_settings.custom_settings[]",
+      "type": "[]string"
+    },
+    {
+      "key": "path",
+      "path": "org_settings.mdm.macos_settings.custom_settings[]",
+      "type": "string"
+    },
+    {
+      "key": "paths",
+      "path": "org_settings.mdm.macos_settings.custom_settings[]",
+      "type": "string"
+    },
+    {
+      "key": "apple_enable_release_device_manually",
+      "path": "org_settings.mdm.macos_setup",
+      "type": "Bool"
+    },
+    {
+      "key": "apple_setup_assistant",
+      "path": "org_settings.mdm.macos_setup",
+      "type": "String"
+    },
+    {
+      "key": "bootstrap_package",
+      "path": "org_settings.mdm.macos_setup",
+      "type": "String"
+    },
+    {
+      "key": "enable_create_local_admin_account",
+      "path": "org_settings.mdm.macos_setup",
+      "type": "Bool"
+    },
+    {
+      "key": "enable_end_user_authentication",
+      "path": "org_settings.mdm.macos_setup",
+      "type": "bool"
+    },
+    {
+      "key": "enable_managed_local_account",
+      "path": "org_settings.mdm.macos_setup",
+      "type": "Bool"
+    },
+    {
+      "key": "enable_release_device_manually",
+      "path": "org_settings.mdm.macos_setup",
+      "type": "Bool"
+    },
+    {
+      "key": "end_user_local_account_type",
+      "path": "org_settings.mdm.macos_setup",
+      "type": "String"
+    },
+    {
+      "key": "lock_end_user_info",
+      "path": "org_settings.mdm.macos_setup",
+      "type": "Bool"
+    },
+    {
+      "key": "macos_bootstrap_package",
+      "path": "org_settings.mdm.macos_setup",
+      "type": "String"
+    },
+    {
+      "key": "macos_manual_agent_install",
+      "path": "org_settings.mdm.macos_setup",
+      "type": "Bool"
+    },
+    {
+      "key": "macos_script",
+      "path": "org_settings.mdm.macos_setup",
+      "type": "String"
+    },
+    {
+      "key": "macos_setup_assistant",
+      "path": "org_settings.mdm.macos_setup",
+      "type": "String"
+    },
+    {
+      "key": "manual_agent_install",
+      "path": "org_settings.mdm.macos_setup",
+      "type": "Bool"
+    },
+    {
+      "key": "require_all_software_macos",
+      "path": "org_settings.mdm.macos_setup",
+      "type": "bool"
+    },
+    {
+      "key": "require_all_software_windows",
+      "path": "org_settings.mdm.macos_setup",
+      "type": "bool"
+    },
+    {
+      "key": "script",
+      "path": "org_settings.mdm.macos_setup",
+      "type": "String"
+    },
+    {
+      "key": "software",
+      "path": "org_settings.mdm.macos_setup",
+      "type": "Slice[*github.com/fleetdm/fleet/v4/server/fleet.MacOSSetupSoftware]"
+    },
+    {
+      "key": "app_store_id",
+      "path": "org_settings.mdm.macos_setup.software[]",
+      "type": "string"
+    },
+    {
+      "key": "package_path",
+      "path": "org_settings.mdm.macos_setup.software[]",
+      "type": "string"
+    },
+    {
+      "key": "deadline",
+      "path": "org_settings.mdm.macos_updates",
+      "type": "String"
+    },
+    {
+      "key": "deadline_days",
+      "path": "org_settings.mdm.macos_updates",
+      "type": "Int"
+    },
+    {
+      "key": "minimum_version",
+      "path": "org_settings.mdm.macos_updates",
+      "type": "String"
+    },
+    {
+      "key": "update_new_hosts",
+      "path": "org_settings.mdm.macos_updates",
+      "type": "Bool"
+    },
+    {
+      "key": "apple_enable_release_device_manually",
+      "path": "org_settings.mdm.setup_experience",
+      "type": "Bool"
+    },
+    {
+      "key": "apple_setup_assistant",
+      "path": "org_settings.mdm.setup_experience",
+      "type": "String"
+    },
+    {
+      "key": "bootstrap_package",
+      "path": "org_settings.mdm.setup_experience",
+      "type": "String"
+    },
+    {
+      "key": "enable_create_local_admin_account",
+      "path": "org_settings.mdm.setup_experience",
+      "type": "Bool"
+    },
+    {
+      "key": "enable_end_user_authentication",
+      "path": "org_settings.mdm.setup_experience",
+      "type": "bool"
+    },
+    {
+      "key": "enable_managed_local_account",
+      "path": "org_settings.mdm.setup_experience",
+      "type": "Bool"
+    },
+    {
+      "key": "enable_release_device_manually",
+      "path": "org_settings.mdm.setup_experience",
+      "type": "Bool"
+    },
+    {
+      "key": "end_user_local_account_type",
+      "path": "org_settings.mdm.setup_experience",
+      "type": "String"
+    },
+    {
+      "key": "lock_end_user_info",
+      "path": "org_settings.mdm.setup_experience",
+      "type": "Bool"
+    },
+    {
+      "key": "macos_bootstrap_package",
+      "path": "org_settings.mdm.setup_experience",
+      "type": "String"
+    },
+    {
+      "key": "macos_manual_agent_install",
+      "path": "org_settings.mdm.setup_experience",
+      "type": "Bool"
+    },
+    {
+      "key": "macos_script",
+      "path": "org_settings.mdm.setup_experience",
+      "type": "String"
+    },
+    {
+      "key": "macos_setup_assistant",
+      "path": "org_settings.mdm.setup_experience",
+      "type": "String"
+    },
+    {
+      "key": "manual_agent_install",
+      "path": "org_settings.mdm.setup_experience",
+      "type": "Bool"
+    },
+    {
+      "key": "require_all_software_macos",
+      "path": "org_settings.mdm.setup_experience",
+      "type": "bool"
+    },
+    {
+      "key": "require_all_software_windows",
+      "path": "org_settings.mdm.setup_experience",
+      "type": "bool"
+    },
+    {
+      "key": "script",
+      "path": "org_settings.mdm.setup_experience",
+      "type": "String"
+    },
+    {
+      "key": "software",
+      "path": "org_settings.mdm.setup_experience",
+      "type": "Slice[*github.com/fleetdm/fleet/v4/server/fleet.MacOSSetupSoftware]"
+    },
+    {
+      "key": "app_store_id",
+      "path": "org_settings.mdm.setup_experience.software[]",
+      "type": "string"
+    },
+    {
+      "key": "package_path",
+      "path": "org_settings.mdm.setup_experience.software[]",
+      "type": "string"
+    },
+    {
+      "key": "fleets",
+      "path": "org_settings.mdm.volume_purchasing_program[]",
+      "type": "[]string"
+    },
+    {
+      "key": "location",
+      "path": "org_settings.mdm.volume_purchasing_program[]",
+      "type": "string"
+    },
+    {
+      "key": "teams",
+      "path": "org_settings.mdm.volume_purchasing_program[]",
+      "type": "[]string"
+    },
+    {
+      "key": "default_fleet",
+      "path": "org_settings.mdm.windows_automatic_enrollment",
+      "type": "string"
+    },
+    {
+      "key": "configuration_profiles",
+      "path": "org_settings.mdm.windows_settings",
+      "type": "Slice[github.com/fleetdm/fleet/v4/server/fleet.MDMProfileSpec]"
+    },
+    {
+      "key": "custom_settings",
+      "path": "org_settings.mdm.windows_settings",
+      "type": "Slice[github.com/fleetdm/fleet/v4/server/fleet.MDMProfileSpec]"
+    },
+    {
+      "key": "enable_disk_encryption",
+      "path": "org_settings.mdm.windows_settings",
+      "type": "Bool"
+    },
+    {
+      "key": "enable_managed_local_account",
+      "path": "org_settings.mdm.windows_settings",
+      "type": "Bool"
+    },
+    {
+      "key": "require_bitlocker_pin",
+      "path": "org_settings.mdm.windows_settings",
+      "type": "Bool"
+    },
+    {
+      "key": "activation",
+      "path": "org_settings.mdm.windows_settings.configuration_profiles[]",
+      "type": "string"
+    },
+    {
+      "key": "labels",
+      "path": "org_settings.mdm.windows_settings.configuration_profiles[]",
+      "type": "[]string"
+    },
+    {
+      "key": "labels_exclude_any",
+      "path": "org_settings.mdm.windows_settings.configuration_profiles[]",
+      "type": "[]string"
+    },
+    {
+      "key": "labels_include_all",
+      "path": "org_settings.mdm.windows_settings.configuration_profiles[]",
+      "type": "[]string"
+    },
+    {
+      "key": "labels_include_any",
+      "path": "org_settings.mdm.windows_settings.configuration_profiles[]",
+      "type": "[]string"
+    },
+    {
+      "key": "path",
+      "path": "org_settings.mdm.windows_settings.configuration_profiles[]",
+      "type": "string"
+    },
+    {
+      "key": "paths",
+      "path": "org_settings.mdm.windows_settings.configuration_profiles[]",
+      "type": "string"
+    },
+    {
+      "key": "activation",
+      "path": "org_settings.mdm.windows_settings.custom_settings[]",
+      "type": "string"
+    },
+    {
+      "key": "labels",
+      "path": "org_settings.mdm.windows_settings.custom_settings[]",
+      "type": "[]string"
+    },
+    {
+      "key": "labels_exclude_any",
+      "path": "org_settings.mdm.windows_settings.custom_settings[]",
+      "type": "[]string"
+    },
+    {
+      "key": "labels_include_all",
+      "path": "org_settings.mdm.windows_settings.custom_settings[]",
+      "type": "[]string"
+    },
+    {
+      "key": "labels_include_any",
+      "path": "org_settings.mdm.windows_settings.custom_settings[]",
+      "type": "[]string"
+    },
+    {
+      "key": "path",
+      "path": "org_settings.mdm.windows_settings.custom_settings[]",
+      "type": "string"
+    },
+    {
+      "key": "paths",
+      "path": "org_settings.mdm.windows_settings.custom_settings[]",
+      "type": "string"
+    },
+    {
+      "key": "deadline_days",
+      "path": "org_settings.mdm.windows_updates",
+      "type": "Int"
+    },
+    {
+      "key": "grace_period_days",
+      "path": "org_settings.mdm.windows_updates",
+      "type": "Int"
+    },
+    {
+      "key": "client_id",
+      "path": "org_settings.microsoft_graph_credentials[]",
+      "type": "string"
+    },
+    {
+      "key": "client_secret",
+      "path": "org_settings.microsoft_graph_credentials[]",
+      "type": "string"
+    },
+    {
+      "key": "credential_invalid",
+      "path": "org_settings.microsoft_graph_credentials[]",
+      "type": "bool"
+    },
+    {
+      "key": "last_sync_error",
+      "path": "org_settings.microsoft_graph_credentials[]",
+      "type": "*string"
+    },
+    {
+      "key": "last_synced_at",
+      "path": "org_settings.microsoft_graph_credentials[]",
+      "type": "*Time"
+    },
+    {
+      "key": "tenant_id",
+      "path": "org_settings.microsoft_graph_credentials[]",
+      "type": "string"
+    },
+    {
+      "key": "contact_url",
+      "path": "org_settings.org_info",
+      "type": "string"
+    },
+    {
+      "key": "org_logo_path_dark_mode",
+      "path": "org_settings.org_info",
+      "type": "string"
+    },
+    {
+      "key": "org_logo_path_light_mode",
+      "path": "org_settings.org_info",
+      "type": "string"
+    },
+    {
+      "key": "org_logo_url",
+      "path": "org_settings.org_info",
+      "type": "string"
+    },
+    {
+      "key": "org_logo_url_dark_mode",
+      "path": "org_settings.org_info",
+      "type": "string"
+    },
+    {
+      "key": "org_logo_url_light_background",
+      "path": "org_settings.org_info",
+      "type": "string"
+    },
+    {
+      "key": "org_logo_url_light_mode",
+      "path": "org_settings.org_info",
+      "type": "string"
+    },
+    {
+      "key": "org_name",
+      "path": "org_settings.org_info",
+      "type": "string"
+    },
+    {
+      "key": "ai_features_disabled",
+      "path": "org_settings.server_settings",
+      "type": "bool"
+    },
+    {
+      "key": "debug_host_ids",
+      "path": "org_settings.server_settings",
+      "type": "[]uint"
+    },
+    {
+      "key": "deferred_save_host",
+      "path": "org_settings.server_settings",
+      "type": "bool"
+    },
+    {
+      "key": "discard_reports_data",
+      "path": "org_settings.server_settings",
+      "type": "bool"
+    },
+    {
+      "key": "enable_analytics",
+      "path": "org_settings.server_settings",
+      "type": "bool"
+    },
+    {
+      "key": "live_query_disabled",
+      "path": "org_settings.server_settings",
+      "type": "bool"
+    },
+    {
+      "key": "live_reporting_disabled",
+      "path": "org_settings.server_settings",
+      "type": "bool"
+    },
+    {
+      "key": "query_report_cap",
+      "path": "org_settings.server_settings",
+      "type": "int"
+    },
+    {
+      "key": "query_reports_disabled",
+      "path": "org_settings.server_settings",
+      "type": "bool"
+    },
+    {
+      "key": "report_cap",
+      "path": "org_settings.server_settings",
+      "type": "int"
+    },
+    {
+      "key": "scripts_disabled",
+      "path": "org_settings.server_settings",
+      "type": "bool"
+    },
+    {
+      "key": "server_url",
+      "path": "org_settings.server_settings",
+      "type": "string"
+    },
+    {
+      "key": "authentication_method",
+      "path": "org_settings.smtp_settings",
+      "type": "string"
+    },
+    {
+      "key": "authentication_type",
+      "path": "org_settings.smtp_settings",
+      "type": "string"
+    },
+    {
+      "key": "configured",
+      "path": "org_settings.smtp_settings",
+      "type": "bool"
+    },
+    {
+      "key": "domain",
+      "path": "org_settings.smtp_settings",
+      "type": "string"
+    },
+    {
+      "key": "enable_smtp",
+      "path": "org_settings.smtp_settings",
+      "type": "bool"
+    },
+    {
+      "key": "enable_ssl_tls",
+      "path": "org_settings.smtp_settings",
+      "type": "bool"
+    },
+    {
+      "key": "enable_start_tls",
+      "path": "org_settings.smtp_settings",
+      "type": "bool"
+    },
+    {
+      "key": "password",
+      "path": "org_settings.smtp_settings",
+      "type": "string"
+    },
+    {
+      "key": "port",
+      "path": "org_settings.smtp_settings",
+      "type": "uint"
+    },
+    {
+      "key": "sender_address",
+      "path": "org_settings.smtp_settings",
+      "type": "string"
+    },
+    {
+      "key": "server",
+      "path": "org_settings.smtp_settings",
+      "type": "string"
+    },
+    {
+      "key": "user_name",
+      "path": "org_settings.smtp_settings",
+      "type": "string"
+    },
+    {
+      "key": "verify_ssl_certs",
+      "path": "org_settings.smtp_settings",
+      "type": "bool"
+    },
+    {
+      "key": "enable_jit_provisioning",
+      "path": "org_settings.sso_settings",
+      "type": "bool"
+    },
+    {
+      "key": "enable_jit_role_sync",
+      "path": "org_settings.sso_settings",
+      "type": "bool"
+    },
+    {
+      "key": "enable_sso",
+      "path": "org_settings.sso_settings",
+      "type": "bool"
+    },
+    {
+      "key": "enable_sso_idp_login",
+      "path": "org_settings.sso_settings",
+      "type": "bool"
+    },
+    {
+      "key": "entity_id",
+      "path": "org_settings.sso_settings",
+      "type": "string"
+    },
+    {
+      "key": "idp_image_url",
+      "path": "org_settings.sso_settings",
+      "type": "string"
+    },
+    {
+      "key": "idp_name",
+      "path": "org_settings.sso_settings",
+      "type": "string"
+    },
+    {
+      "key": "issuer_uri",
+      "path": "org_settings.sso_settings",
+      "type": "string"
+    },
+    {
+      "key": "metadata",
+      "path": "org_settings.sso_settings",
+      "type": "string"
+    },
+    {
+      "key": "metadata_url",
+      "path": "org_settings.sso_settings",
+      "type": "string"
+    },
+    {
+      "key": "sso_server_url",
+      "path": "org_settings.sso_settings",
+      "type": "string"
+    },
+    {
+      "key": "databases_path",
+      "path": "org_settings.vulnerability_settings",
+      "type": "string"
+    },
+    {
+      "key": "activities_webhook",
+      "path": "org_settings.webhook_settings",
+      "type": "ActivitiesWebhookSettings"
+    },
+    {
+      "key": "failing_policies_webhook",
+      "path": "org_settings.webhook_settings",
+      "type": "FailingPoliciesWebhookSettings"
+    },
+    {
+      "key": "host_status_webhook",
+      "path": "org_settings.webhook_settings",
+      "type": "HostStatusWebhookSettings"
+    },
+    {
+      "key": "interval",
+      "path": "org_settings.webhook_settings",
+      "type": "Duration"
+    },
+    {
+      "key": "vulnerabilities_webhook",
+      "path": "org_settings.webhook_settings",
+      "type": "VulnerabilitiesWebhookSettings"
+    },
+    {
+      "key": "destination_url",
+      "path": "org_settings.webhook_settings.activities_webhook",
+      "type": "string"
+    },
+    {
+      "key": "enable_activities_webhook",
+      "path": "org_settings.webhook_settings.activities_webhook",
+      "type": "bool"
+    },
+    {
+      "key": "destination_url",
+      "path": "org_settings.webhook_settings.failing_policies_webhook",
+      "type": "string"
+    },
+    {
+      "key": "enable_failing_policies_webhook",
+      "path": "org_settings.webhook_settings.failing_policies_webhook",
+      "type": "bool"
+    },
+    {
+      "key": "host_batch_size",
+      "path": "org_settings.webhook_settings.failing_policies_webhook",
+      "type": "int"
+    },
+    {
+      "key": "policy_ids",
+      "path": "org_settings.webhook_settings.failing_policies_webhook",
+      "type": "[]uint"
+    },
+    {
+      "key": "days_count",
+      "path": "org_settings.webhook_settings.host_status_webhook",
+      "type": "int"
+    },
+    {
+      "key": "destination_url",
+      "path": "org_settings.webhook_settings.host_status_webhook",
+      "type": "string"
+    },
+    {
+      "key": "enable_host_status_webhook",
+      "path": "org_settings.webhook_settings.host_status_webhook",
+      "type": "bool"
+    },
+    {
+      "key": "host_percentage",
+      "path": "org_settings.webhook_settings.host_status_webhook",
+      "type": "float64"
+    },
+    {
+      "key": "destination_url",
+      "path": "org_settings.webhook_settings.vulnerabilities_webhook",
+      "type": "string"
+    },
+    {
+      "key": "enable_vulnerabilities_webhook",
+      "path": "org_settings.webhook_settings.vulnerabilities_webhook",
+      "type": "bool"
+    },
+    {
+      "key": "host_batch_size",
+      "path": "org_settings.webhook_settings.vulnerabilities_webhook",
+      "type": "int"
+    },
+    {
+      "key": "contents",
+      "path": "org_settings.yara_rules[]",
+      "type": "string"
+    },
+    {
+      "key": "name",
+      "path": "org_settings.yara_rules[]",
+      "type": "string"
+    },
+    {
+      "key": "calendar_events_enabled",
+      "path": "policies[]",
+      "type": "bool"
+    },
+    {
+      "key": "conditional_access_enabled",
+      "path": "policies[]",
+      "type": "bool"
+    },
+    {
+      "key": "continuous_automations_enabled",
+      "path": "policies[]",
+      "type": "Bool"
+    },
+    {
+      "key": "critical",
+      "path": "policies[]",
+      "type": "bool"
+    },
+    {
+      "key": "description",
+      "path": "policies[]",
+      "type": "string"
+    },
+    {
+      "key": "fleet",
+      "path": "policies[]",
+      "type": "string"
+    },
+    {
+      "key": "fleet_maintained_app_slug",
+      "path": "policies[]",
+      "type": "string"
+    },
+    {
+      "key": "install_software",
+      "path": "policies[]",
+      "type": "BoolOr[*github.com/fleetdm/fleet/v4/pkg/spec.PolicyInstallSoftware]"
+    },
+    {
+      "key": "labels_exclude_all",
+      "path": "policies[]",
+      "type": "[]string"
+    },
+    {
+      "key": "labels_exclude_any",
+      "path": "policies[]",
+      "type": "[]string"
+    },
+    {
+      "key": "labels_include_all",
+      "path": "policies[]",
+      "type": "[]string"
+    },
+    {
+      "key": "labels_include_any",
+      "path": "policies[]",
+      "type": "[]string"
+    },
+    {
+      "key": "name",
+      "path": "policies[]",
+      "type": "string"
+    },
+    {
+      "key": "notify_before_patching",
+      "path": "policies[]",
+      "type": "bool"
+    },
+    {
+      "key": "patch_when_closed",
+      "path": "policies[]",
+      "type": "bool"
+    },
+    {
+      "key": "path",
+      "path": "policies[]",
+      "type": "*string"
+    },
+    {
+      "key": "paths",
+      "path": "policies[]",
+      "type": "*string"
+    },
+    {
+      "key": "platform",
+      "path": "policies[]",
+      "type": "string"
+    },
+    {
+      "key": "profile_uuid",
+      "path": "policies[]",
+      "type": "*string"
+    },
+    {
+      "key": "query",
+      "path": "policies[]",
+      "type": "string"
+    },
+    {
+      "key": "resend_configuration_profile",
+      "path": "policies[]",
+      "type": "string"
+    },
+    {
+      "key": "resolution",
+      "path": "policies[]",
+      "type": "string"
+    },
+    {
+      "key": "run_script",
+      "path": "policies[]",
+      "type": "*PolicyRunScript"
+    },
+    {
+      "key": "script_id",
+      "path": "policies[]",
+      "type": "*uint"
+    },
+    {
+      "key": "software_package_id",
+      "path": "policies[]",
+      "type": "*uint"
+    },
+    {
+      "key": "software_title_id",
+      "path": "policies[]",
+      "type": "*uint"
+    },
+    {
+      "key": "team",
+      "path": "policies[]",
+      "type": "string"
+    },
+    {
+      "key": "type",
+      "path": "policies[]",
+      "type": "string"
+    },
+    {
+      "key": "webhooks_and_tickets_enabled",
+      "path": "policies[]",
+      "type": "bool"
+    },
+    {
+      "key": "app_store_id",
+      "path": "policies[].install_software",
+      "type": "string"
+    },
+    {
+      "key": "fleet_maintained_app_slug",
+      "path": "policies[].install_software",
+      "type": "string"
+    },
+    {
+      "key": "hash_sha256",
+      "path": "policies[].install_software",
+      "type": "string"
+    },
+    {
+      "key": "package_path",
+      "path": "policies[].install_software",
+      "type": "string"
+    },
+    {
+      "key": "path",
+      "path": "policies[].run_script",
+      "type": "string"
+    },
+    {
+      "key": "automations_enabled",
+      "path": "queries[]",
+      "type": "bool"
+    },
+    {
+      "key": "description",
+      "path": "queries[]",
+      "type": "string"
+    },
+    {
+      "key": "discard_data",
+      "path": "queries[]",
+      "type": "bool"
+    },
+    {
+      "key": "fleet",
+      "path": "queries[]",
+      "type": "string"
+    },
+    {
+      "key": "interval",
+      "path": "queries[]",
+      "type": "uint"
+    },
+    {
+      "key": "labels_include_all",
+      "path": "queries[]",
+      "type": "[]string"
+    },
+    {
+      "key": "labels_include_any",
+      "path": "queries[]",
+      "type": "[]string"
+    },
+    {
+      "key": "logging",
+      "path": "queries[]",
+      "type": "string"
+    },
+    {
+      "key": "min_osquery_version",
+      "path": "queries[]",
+      "type": "string"
+    },
+    {
+      "key": "name",
+      "path": "queries[]",
+      "type": "string"
+    },
+    {
+      "key": "observer_can_run",
+      "path": "queries[]",
+      "type": "bool"
+    },
+    {
+      "key": "path",
+      "path": "queries[]",
+      "type": "*string"
+    },
+    {
+      "key": "paths",
+      "path": "queries[]",
+      "type": "*string"
+    },
+    {
+      "key": "platform",
+      "path": "queries[]",
+      "type": "string"
+    },
+    {
+      "key": "query",
+      "path": "queries[]",
+      "type": "string"
+    },
+    {
+      "key": "team",
+      "path": "queries[]",
+      "type": "string"
+    },
+    {
+      "key": "automations_enabled",
+      "path": "reports[]",
+      "type": "bool"
+    },
+    {
+      "key": "description",
+      "path": "reports[]",
+      "type": "string"
+    },
+    {
+      "key": "discard_data",
+      "path": "reports[]",
+      "type": "bool"
+    },
+    {
+      "key": "fleet",
+      "path": "reports[]",
+      "type": "string"
+    },
+    {
+      "key": "interval",
+      "path": "reports[]",
+      "type": "uint"
+    },
+    {
+      "key": "labels_include_all",
+      "path": "reports[]",
+      "type": "[]string"
+    },
+    {
+      "key": "labels_include_any",
+      "path": "reports[]",
+      "type": "[]string"
+    },
+    {
+      "key": "logging",
+      "path": "reports[]",
+      "type": "string"
+    },
+    {
+      "key": "min_osquery_version",
+      "path": "reports[]",
+      "type": "string"
+    },
+    {
+      "key": "name",
+      "path": "reports[]",
+      "type": "string"
+    },
+    {
+      "key": "observer_can_run",
+      "path": "reports[]",
+      "type": "bool"
+    },
+    {
+      "key": "path",
+      "path": "reports[]",
+      "type": "*string"
+    },
+    {
+      "key": "paths",
+      "path": "reports[]",
+      "type": "*string"
+    },
+    {
+      "key": "platform",
+      "path": "reports[]",
+      "type": "string"
+    },
+    {
+      "key": "query",
+      "path": "reports[]",
+      "type": "string"
+    },
+    {
+      "key": "team",
+      "path": "reports[]",
+      "type": "string"
+    },
+    {
+      "key": "agent_options",
+      "path": "settings",
+      "type": "*Value"
+    },
+    {
+      "key": "features",
+      "path": "settings",
+      "type": "Features"
+    },
+    {
+      "key": "host_expiry_settings",
+      "path": "settings",
+      "type": "HostExpirySettings"
+    },
+    {
+      "key": "integrations",
+      "path": "settings",
+      "type": "TeamIntegrations"
+    },
+    {
+      "key": "mdm",
+      "path": "settings",
+      "type": "TeamMDM"
+    },
+    {
+      "key": "scripts",
+      "path": "settings",
+      "type": "Slice[string]"
+    },
+    {
+      "key": "secrets",
+      "path": "settings",
+      "type": "interface {}"
+    },
+    {
+      "key": "software",
+      "path": "settings",
+      "type": "*SoftwareSpec"
+    },
+    {
+      "key": "webhook_settings",
+      "path": "settings",
+      "type": "TeamWebhookSettings"
+    },
+    {
+      "key": "additional_queries",
+      "path": "settings.features",
+      "type": "*Value"
+    },
+    {
+      "key": "detail_query_overrides",
+      "path": "settings.features",
+      "type": "map[string]*string"
+    },
+    {
+      "key": "enable_host_users",
+      "path": "settings.features",
+      "type": "bool"
+    },
+    {
+      "key": "enable_software_inventory",
+      "path": "settings.features",
+      "type": "bool"
+    },
+    {
+      "key": "historical_data",
+      "path": "settings.features",
+      "type": "HistoricalDataSettings"
+    },
+    {
+      "key": "vulnerability_exposure_historical_reporting",
+      "path": "settings.features",
+      "type": "*VulnExposureFilterSettings"
+    },
+    {
+      "key": "uptime",
+      "path": "settings.features.historical_data",
+      "type": "bool"
+    },
+    {
+      "key": "vulnerabilities",
+      "path": "settings.features.historical_data",
+      "type": "bool"
+    },
+    {
+      "key": "cvss_max",
+      "path": "settings.features.vulnerability_exposure_historical_reporting",
+      "type": "*float64"
+    },
+    {
+      "key": "cvss_min",
+      "path": "settings.features.vulnerability_exposure_historical_reporting",
+      "type": "*float64"
+    },
+    {
+      "key": "epss_max",
+      "path": "settings.features.vulnerability_exposure_historical_reporting",
+      "type": "*float64"
+    },
+    {
+      "key": "epss_min",
+      "path": "settings.features.vulnerability_exposure_historical_reporting",
+      "type": "*float64"
+    },
+    {
+      "key": "exclude_vulnerabilities",
+      "path": "settings.features.vulnerability_exposure_historical_reporting",
+      "type": "*[]string"
+    },
+    {
+      "key": "has_known_exploit",
+      "path": "settings.features.vulnerability_exposure_historical_reporting",
+      "type": "*bool"
+    },
+    {
+      "key": "software_filters",
+      "path": "settings.features.vulnerability_exposure_historical_reporting",
+      "type": "*[]string"
+    },
+    {
+      "key": "host_expiry_enabled",
+      "path": "settings.host_expiry_settings",
+      "type": "bool"
+    },
+    {
+      "key": "host_expiry_window",
+      "path": "settings.host_expiry_settings",
+      "type": "int"
+    },
+    {
+      "key": "conditional_access_enabled",
+      "path": "settings.integrations",
+      "type": "Bool"
+    },
+    {
+      "key": "google_calendar",
+      "path": "settings.integrations",
+      "type": "*TeamGoogleCalendarIntegration"
+    },
+    {
+      "key": "jira",
+      "path": "settings.integrations",
+      "type": "[]*fleet.TeamJiraIntegration"
+    },
+    {
+      "key": "zendesk",
+      "path": "settings.integrations",
+      "type": "[]*fleet.TeamZendeskIntegration"
+    },
+    {
+      "key": "enable_calendar_events",
+      "path": "settings.integrations.google_calendar",
+      "type": "bool"
+    },
+    {
+      "key": "webhook_url",
+      "path": "settings.integrations.google_calendar",
+      "type": "string"
+    },
+    {
+      "key": "enable_failing_policies",
+      "path": "settings.integrations.jira[]",
+      "type": "bool"
+    },
+    {
+      "key": "project_key",
+      "path": "settings.integrations.jira[]",
+      "type": "string"
+    },
+    {
+      "key": "url",
+      "path": "settings.integrations.jira[]",
+      "type": "string"
+    },
+    {
+      "key": "enable_failing_policies",
+      "path": "settings.integrations.zendesk[]",
+      "type": "bool"
+    },
+    {
+      "key": "group_id",
+      "path": "settings.integrations.zendesk[]",
+      "type": "int64"
+    },
+    {
+      "key": "url",
+      "path": "settings.integrations.zendesk[]",
+      "type": "string"
+    },
+    {
+      "key": "android_settings",
+      "path": "settings.mdm",
+      "type": "AndroidSettings"
+    },
+    {
+      "key": "apple_settings",
+      "path": "settings.mdm",
+      "type": "MacOSSettings"
+    },
+    {
+      "key": "enable_disk_encryption",
+      "path": "settings.mdm",
+      "type": "bool"
+    },
+    {
+      "key": "enable_recovery_lock_password",
+      "path": "settings.mdm",
+      "type": "bool"
+    },
+    {
+      "key": "ios_updates",
+      "path": "settings.mdm",
+      "type": "AppleOSUpdateSettings"
+    },
+    {
+      "key": "ipados_updates",
+      "path": "settings.mdm",
+      "type": "AppleOSUpdateSettings"
+    },
+    {
+      "key": "linux_settings",
+      "path": "settings.mdm",
+      "type": "LinuxSettings"
+    },
+    {
+      "key": "macos_settings",
+      "path": "settings.mdm",
+      "type": "MacOSSettings"
+    },
+    {
+      "key": "macos_setup",
+      "path": "settings.mdm",
+      "type": "MacOSSetup"
+    },
+    {
+      "key": "macos_updates",
+      "path": "settings.mdm",
+      "type": "AppleOSUpdateSettings"
+    },
+    {
+      "key": "name_template",
+      "path": "settings.mdm",
+      "type": "string"
+    },
+    {
+      "key": "setup_experience",
+      "path": "settings.mdm",
+      "type": "MacOSSetup"
+    },
+    {
+      "key": "windows_require_bitlocker_pin",
+      "path": "settings.mdm",
+      "type": "bool"
+    },
+    {
+      "key": "windows_settings",
+      "path": "settings.mdm",
+      "type": "WindowsSettings"
+    },
+    {
+      "key": "windows_updates",
+      "path": "settings.mdm",
+      "type": "WindowsUpdates"
+    },
+    {
+      "key": "certificates",
+      "path": "settings.mdm.android_settings",
+      "type": "Slice[github.com/fleetdm/fleet/v4/server/fleet.CertificateTemplateSpec]"
+    },
+    {
+      "key": "configuration_profiles",
+      "path": "settings.mdm.android_settings",
+      "type": "Slice[github.com/fleetdm/fleet/v4/server/fleet.MDMProfileSpec]"
+    },
+    {
+      "key": "custom_settings",
+      "path": "settings.mdm.android_settings",
+      "type": "Slice[github.com/fleetdm/fleet/v4/server/fleet.MDMProfileSpec]"
+    },
+    {
+      "key": "certificate_authority_name",
+      "path": "settings.mdm.android_settings.certificates[]",
+      "type": "string"
+    },
+    {
+      "key": "name",
+      "path": "settings.mdm.android_settings.certificates[]",
+      "type": "string"
+    },
+    {
+      "key": "subject_alternative_name",
+      "path": "settings.mdm.android_settings.certificates[]",
+      "type": "string"
+    },
+    {
+      "key": "subject_name",
+      "path": "settings.mdm.android_settings.certificates[]",
+      "type": "string"
+    },
+    {
+      "key": "activation",
+      "path": "settings.mdm.android_settings.configuration_profiles[]",
+      "type": "string"
+    },
+    {
+      "key": "labels",
+      "path": "settings.mdm.android_settings.configuration_profiles[]",
+      "type": "[]string"
+    },
+    {
+      "key": "labels_exclude_any",
+      "path": "settings.mdm.android_settings.configuration_profiles[]",
+      "type": "[]string"
+    },
+    {
+      "key": "labels_include_all",
+      "path": "settings.mdm.android_settings.configuration_profiles[]",
+      "type": "[]string"
+    },
+    {
+      "key": "labels_include_any",
+      "path": "settings.mdm.android_settings.configuration_profiles[]",
+      "type": "[]string"
+    },
+    {
+      "key": "path",
+      "path": "settings.mdm.android_settings.configuration_profiles[]",
+      "type": "string"
+    },
+    {
+      "key": "paths",
+      "path": "settings.mdm.android_settings.configuration_profiles[]",
+      "type": "string"
+    },
+    {
+      "key": "activation",
+      "path": "settings.mdm.android_settings.custom_settings[]",
+      "type": "string"
+    },
+    {
+      "key": "labels",
+      "path": "settings.mdm.android_settings.custom_settings[]",
+      "type": "[]string"
+    },
+    {
+      "key": "labels_exclude_any",
+      "path": "settings.mdm.android_settings.custom_settings[]",
+      "type": "[]string"
+    },
+    {
+      "key": "labels_include_all",
+      "path": "settings.mdm.android_settings.custom_settings[]",
+      "type": "[]string"
+    },
+    {
+      "key": "labels_include_any",
+      "path": "settings.mdm.android_settings.custom_settings[]",
+      "type": "[]string"
+    },
+    {
+      "key": "path",
+      "path": "settings.mdm.android_settings.custom_settings[]",
+      "type": "string"
+    },
+    {
+      "key": "paths",
+      "path": "settings.mdm.android_settings.custom_settings[]",
+      "type": "string"
+    },
+    {
+      "key": "assets",
+      "path": "settings.mdm.apple_settings",
+      "type": "[]fleet.MDMProfileSpec"
+    },
+    {
+      "key": "configuration_profiles",
+      "path": "settings.mdm.apple_settings",
+      "type": "[]fleet.MDMProfileSpec"
+    },
+    {
+      "key": "custom_settings",
+      "path": "settings.mdm.apple_settings",
+      "type": "[]fleet.MDMProfileSpec"
+    },
+    {
+      "key": "enable_disk_encryption",
+      "path": "settings.mdm.apple_settings",
+      "type": "Bool"
+    },
+    {
+      "key": "enable_escrow_disk_encryption_key",
+      "path": "settings.mdm.apple_settings",
+      "type": "Bool"
+    },
+    {
+      "key": "activation",
+      "path": "settings.mdm.apple_settings.assets[]",
+      "type": "string"
+    },
+    {
+      "key": "labels",
+      "path": "settings.mdm.apple_settings.assets[]",
+      "type": "[]string"
+    },
+    {
+      "key": "labels_exclude_any",
+      "path": "settings.mdm.apple_settings.assets[]",
+      "type": "[]string"
+    },
+    {
+      "key": "labels_include_all",
+      "path": "settings.mdm.apple_settings.assets[]",
+      "type": "[]string"
+    },
+    {
+      "key": "labels_include_any",
+      "path": "settings.mdm.apple_settings.assets[]",
+      "type": "[]string"
+    },
+    {
+      "key": "path",
+      "path": "settings.mdm.apple_settings.assets[]",
+      "type": "string"
+    },
+    {
+      "key": "paths",
+      "path": "settings.mdm.apple_settings.assets[]",
+      "type": "string"
+    },
+    {
+      "key": "activation",
+      "path": "settings.mdm.apple_settings.configuration_profiles[]",
+      "type": "string"
+    },
+    {
+      "key": "labels",
+      "path": "settings.mdm.apple_settings.configuration_profiles[]",
+      "type": "[]string"
+    },
+    {
+      "key": "labels_exclude_any",
+      "path": "settings.mdm.apple_settings.configuration_profiles[]",
+      "type": "[]string"
+    },
+    {
+      "key": "labels_include_all",
+      "path": "settings.mdm.apple_settings.configuration_profiles[]",
+      "type": "[]string"
+    },
+    {
+      "key": "labels_include_any",
+      "path": "settings.mdm.apple_settings.configuration_profiles[]",
+      "type": "[]string"
+    },
+    {
+      "key": "path",
+      "path": "settings.mdm.apple_settings.configuration_profiles[]",
+      "type": "string"
+    },
+    {
+      "key": "paths",
+      "path": "settings.mdm.apple_settings.configuration_profiles[]",
+      "type": "string"
+    },
+    {
+      "key": "activation",
+      "path": "settings.mdm.apple_settings.custom_settings[]",
+      "type": "string"
+    },
+    {
+      "key": "labels",
+      "path": "settings.mdm.apple_settings.custom_settings[]",
+      "type": "[]string"
+    },
+    {
+      "key": "labels_exclude_any",
+      "path": "settings.mdm.apple_settings.custom_settings[]",
+      "type": "[]string"
+    },
+    {
+      "key": "labels_include_all",
+      "path": "settings.mdm.apple_settings.custom_settings[]",
+      "type": "[]string"
+    },
+    {
+      "key": "labels_include_any",
+      "path": "settings.mdm.apple_settings.custom_settings[]",
+      "type": "[]string"
+    },
+    {
+      "key": "path",
+      "path": "settings.mdm.apple_settings.custom_settings[]",
+      "type": "string"
+    },
+    {
+      "key": "paths",
+      "path": "settings.mdm.apple_settings.custom_settings[]",
+      "type": "string"
+    },
+    {
+      "key": "deadline",
+      "path": "settings.mdm.ios_updates",
+      "type": "String"
+    },
+    {
+      "key": "deadline_days",
+      "path": "settings.mdm.ios_updates",
+      "type": "Int"
+    },
+    {
+      "key": "minimum_version",
+      "path": "settings.mdm.ios_updates",
+      "type": "String"
+    },
+    {
+      "key": "update_new_hosts",
+      "path": "settings.mdm.ios_updates",
+      "type": "Bool"
+    },
+    {
+      "key": "deadline",
+      "path": "settings.mdm.ipados_updates",
+      "type": "String"
+    },
+    {
+      "key": "deadline_days",
+      "path": "settings.mdm.ipados_updates",
+      "type": "Int"
+    },
+    {
+      "key": "minimum_version",
+      "path": "settings.mdm.ipados_updates",
+      "type": "String"
+    },
+    {
+      "key": "update_new_hosts",
+      "path": "settings.mdm.ipados_updates",
+      "type": "Bool"
+    },
+    {
+      "key": "enable_escrow_disk_encryption_key",
+      "path": "settings.mdm.linux_settings",
+      "type": "Bool"
+    },
+    {
+      "key": "assets",
+      "path": "settings.mdm.macos_settings",
+      "type": "[]fleet.MDMProfileSpec"
+    },
+    {
+      "key": "configuration_profiles",
+      "path": "settings.mdm.macos_settings",
+      "type": "[]fleet.MDMProfileSpec"
+    },
+    {
+      "key": "custom_settings",
+      "path": "settings.mdm.macos_settings",
+      "type": "[]fleet.MDMProfileSpec"
+    },
+    {
+      "key": "enable_disk_encryption",
+      "path": "settings.mdm.macos_settings",
+      "type": "Bool"
+    },
+    {
+      "key": "enable_escrow_disk_encryption_key",
+      "path": "settings.mdm.macos_settings",
+      "type": "Bool"
+    },
+    {
+      "key": "activation",
+      "path": "settings.mdm.macos_settings.assets[]",
+      "type": "string"
+    },
+    {
+      "key": "labels",
+      "path": "settings.mdm.macos_settings.assets[]",
+      "type": "[]string"
+    },
+    {
+      "key": "labels_exclude_any",
+      "path": "settings.mdm.macos_settings.assets[]",
+      "type": "[]string"
+    },
+    {
+      "key": "labels_include_all",
+      "path": "settings.mdm.macos_settings.assets[]",
+      "type": "[]string"
+    },
+    {
+      "key": "labels_include_any",
+      "path": "settings.mdm.macos_settings.assets[]",
+      "type": "[]string"
+    },
+    {
+      "key": "path",
+      "path": "settings.mdm.macos_settings.assets[]",
+      "type": "string"
+    },
+    {
+      "key": "paths",
+      "path": "settings.mdm.macos_settings.assets[]",
+      "type": "string"
+    },
+    {
+      "key": "activation",
+      "path": "settings.mdm.macos_settings.configuration_profiles[]",
+      "type": "string"
+    },
+    {
+      "key": "labels",
+      "path": "settings.mdm.macos_settings.configuration_profiles[]",
+      "type": "[]string"
+    },
+    {
+      "key": "labels_exclude_any",
+      "path": "settings.mdm.macos_settings.configuration_profiles[]",
+      "type": "[]string"
+    },
+    {
+      "key": "labels_include_all",
+      "path": "settings.mdm.macos_settings.configuration_profiles[]",
+      "type": "[]string"
+    },
+    {
+      "key": "labels_include_any",
+      "path": "settings.mdm.macos_settings.configuration_profiles[]",
+      "type": "[]string"
+    },
+    {
+      "key": "path",
+      "path": "settings.mdm.macos_settings.configuration_profiles[]",
+      "type": "string"
+    },
+    {
+      "key": "paths",
+      "path": "settings.mdm.macos_settings.configuration_profiles[]",
+      "type": "string"
+    },
+    {
+      "key": "activation",
+      "path": "settings.mdm.macos_settings.custom_settings[]",
+      "type": "string"
+    },
+    {
+      "key": "labels",
+      "path": "settings.mdm.macos_settings.custom_settings[]",
+      "type": "[]string"
+    },
+    {
+      "key": "labels_exclude_any",
+      "path": "settings.mdm.macos_settings.custom_settings[]",
+      "type": "[]string"
+    },
+    {
+      "key": "labels_include_all",
+      "path": "settings.mdm.macos_settings.custom_settings[]",
+      "type": "[]string"
+    },
+    {
+      "key": "labels_include_any",
+      "path": "settings.mdm.macos_settings.custom_settings[]",
+      "type": "[]string"
+    },
+    {
+      "key": "path",
+      "path": "settings.mdm.macos_settings.custom_settings[]",
+      "type": "string"
+    },
+    {
+      "key": "paths",
+      "path": "settings.mdm.macos_settings.custom_settings[]",
+      "type": "string"
+    },
+    {
+      "key": "apple_enable_release_device_manually",
+      "path": "settings.mdm.macos_setup",
+      "type": "Bool"
+    },
+    {
+      "key": "apple_setup_assistant",
+      "path": "settings.mdm.macos_setup",
+      "type": "String"
+    },
+    {
+      "key": "bootstrap_package",
+      "path": "settings.mdm.macos_setup",
+      "type": "String"
+    },
+    {
+      "key": "enable_create_local_admin_account",
+      "path": "settings.mdm.macos_setup",
+      "type": "Bool"
+    },
+    {
+      "key": "enable_end_user_authentication",
+      "path": "settings.mdm.macos_setup",
+      "type": "bool"
+    },
+    {
+      "key": "enable_managed_local_account",
+      "path": "settings.mdm.macos_setup",
+      "type": "Bool"
+    },
+    {
+      "key": "enable_release_device_manually",
+      "path": "settings.mdm.macos_setup",
+      "type": "Bool"
+    },
+    {
+      "key": "end_user_local_account_type",
+      "path": "settings.mdm.macos_setup",
+      "type": "String"
+    },
+    {
+      "key": "lock_end_user_info",
+      "path": "settings.mdm.macos_setup",
+      "type": "Bool"
+    },
+    {
+      "key": "macos_bootstrap_package",
+      "path": "settings.mdm.macos_setup",
+      "type": "String"
+    },
+    {
+      "key": "macos_manual_agent_install",
+      "path": "settings.mdm.macos_setup",
+      "type": "Bool"
+    },
+    {
+      "key": "macos_script",
+      "path": "settings.mdm.macos_setup",
+      "type": "String"
+    },
+    {
+      "key": "macos_setup_assistant",
+      "path": "settings.mdm.macos_setup",
+      "type": "String"
+    },
+    {
+      "key": "manual_agent_install",
+      "path": "settings.mdm.macos_setup",
+      "type": "Bool"
+    },
+    {
+      "key": "require_all_software_macos",
+      "path": "settings.mdm.macos_setup",
+      "type": "bool"
+    },
+    {
+      "key": "require_all_software_windows",
+      "path": "settings.mdm.macos_setup",
+      "type": "bool"
+    },
+    {
+      "key": "script",
+      "path": "settings.mdm.macos_setup",
+      "type": "String"
+    },
+    {
+      "key": "software",
+      "path": "settings.mdm.macos_setup",
+      "type": "Slice[*github.com/fleetdm/fleet/v4/server/fleet.MacOSSetupSoftware]"
+    },
+    {
+      "key": "app_store_id",
+      "path": "settings.mdm.macos_setup.software[]",
+      "type": "string"
+    },
+    {
+      "key": "package_path",
+      "path": "settings.mdm.macos_setup.software[]",
+      "type": "string"
+    },
+    {
+      "key": "deadline",
+      "path": "settings.mdm.macos_updates",
+      "type": "String"
+    },
+    {
+      "key": "deadline_days",
+      "path": "settings.mdm.macos_updates",
+      "type": "Int"
+    },
+    {
+      "key": "minimum_version",
+      "path": "settings.mdm.macos_updates",
+      "type": "String"
+    },
+    {
+      "key": "update_new_hosts",
+      "path": "settings.mdm.macos_updates",
+      "type": "Bool"
+    },
+    {
+      "key": "apple_enable_release_device_manually",
+      "path": "settings.mdm.setup_experience",
+      "type": "Bool"
+    },
+    {
+      "key": "apple_setup_assistant",
+      "path": "settings.mdm.setup_experience",
+      "type": "String"
+    },
+    {
+      "key": "bootstrap_package",
+      "path": "settings.mdm.setup_experience",
+      "type": "String"
+    },
+    {
+      "key": "enable_create_local_admin_account",
+      "path": "settings.mdm.setup_experience",
+      "type": "Bool"
+    },
+    {
+      "key": "enable_end_user_authentication",
+      "path": "settings.mdm.setup_experience",
+      "type": "bool"
+    },
+    {
+      "key": "enable_managed_local_account",
+      "path": "settings.mdm.setup_experience",
+      "type": "Bool"
+    },
+    {
+      "key": "enable_release_device_manually",
+      "path": "settings.mdm.setup_experience",
+      "type": "Bool"
+    },
+    {
+      "key": "end_user_local_account_type",
+      "path": "settings.mdm.setup_experience",
+      "type": "String"
+    },
+    {
+      "key": "lock_end_user_info",
+      "path": "settings.mdm.setup_experience",
+      "type": "Bool"
+    },
+    {
+      "key": "macos_bootstrap_package",
+      "path": "settings.mdm.setup_experience",
+      "type": "String"
+    },
+    {
+      "key": "macos_manual_agent_install",
+      "path": "settings.mdm.setup_experience",
+      "type": "Bool"
+    },
+    {
+      "key": "macos_script",
+      "path": "settings.mdm.setup_experience",
+      "type": "String"
+    },
+    {
+      "key": "macos_setup_assistant",
+      "path": "settings.mdm.setup_experience",
+      "type": "String"
+    },
+    {
+      "key": "manual_agent_install",
+      "path": "settings.mdm.setup_experience",
+      "type": "Bool"
+    },
+    {
+      "key": "require_all_software_macos",
+      "path": "settings.mdm.setup_experience",
+      "type": "bool"
+    },
+    {
+      "key": "require_all_software_windows",
+      "path": "settings.mdm.setup_experience",
+      "type": "bool"
+    },
+    {
+      "key": "script",
+      "path": "settings.mdm.setup_experience",
+      "type": "String"
+    },
+    {
+      "key": "software",
+      "path": "settings.mdm.setup_experience",
+      "type": "Slice[*github.com/fleetdm/fleet/v4/server/fleet.MacOSSetupSoftware]"
+    },
+    {
+      "key": "app_store_id",
+      "path": "settings.mdm.setup_experience.software[]",
+      "type": "string"
+    },
+    {
+      "key": "package_path",
+      "path": "settings.mdm.setup_experience.software[]",
+      "type": "string"
+    },
+    {
+      "key": "configuration_profiles",
+      "path": "settings.mdm.windows_settings",
+      "type": "Slice[github.com/fleetdm/fleet/v4/server/fleet.MDMProfileSpec]"
+    },
+    {
+      "key": "custom_settings",
+      "path": "settings.mdm.windows_settings",
+      "type": "Slice[github.com/fleetdm/fleet/v4/server/fleet.MDMProfileSpec]"
+    },
+    {
+      "key": "enable_disk_encryption",
+      "path": "settings.mdm.windows_settings",
+      "type": "Bool"
+    },
+    {
+      "key": "enable_managed_local_account",
+      "path": "settings.mdm.windows_settings",
+      "type": "Bool"
+    },
+    {
+      "key": "require_bitlocker_pin",
+      "path": "settings.mdm.windows_settings",
+      "type": "Bool"
+    },
+    {
+      "key": "activation",
+      "path": "settings.mdm.windows_settings.configuration_profiles[]",
+      "type": "string"
+    },
+    {
+      "key": "labels",
+      "path": "settings.mdm.windows_settings.configuration_profiles[]",
+      "type": "[]string"
+    },
+    {
+      "key": "labels_exclude_any",
+      "path": "settings.mdm.windows_settings.configuration_profiles[]",
+      "type": "[]string"
+    },
+    {
+      "key": "labels_include_all",
+      "path": "settings.mdm.windows_settings.configuration_profiles[]",
+      "type": "[]string"
+    },
+    {
+      "key": "labels_include_any",
+      "path": "settings.mdm.windows_settings.configuration_profiles[]",
+      "type": "[]string"
+    },
+    {
+      "key": "path",
+      "path": "settings.mdm.windows_settings.configuration_profiles[]",
+      "type": "string"
+    },
+    {
+      "key": "paths",
+      "path": "settings.mdm.windows_settings.configuration_profiles[]",
+      "type": "string"
+    },
+    {
+      "key": "activation",
+      "path": "settings.mdm.windows_settings.custom_settings[]",
+      "type": "string"
+    },
+    {
+      "key": "labels",
+      "path": "settings.mdm.windows_settings.custom_settings[]",
+      "type": "[]string"
+    },
+    {
+      "key": "labels_exclude_any",
+      "path": "settings.mdm.windows_settings.custom_settings[]",
+      "type": "[]string"
+    },
+    {
+      "key": "labels_include_all",
+      "path": "settings.mdm.windows_settings.custom_settings[]",
+      "type": "[]string"
+    },
+    {
+      "key": "labels_include_any",
+      "path": "settings.mdm.windows_settings.custom_settings[]",
+      "type": "[]string"
+    },
+    {
+      "key": "path",
+      "path": "settings.mdm.windows_settings.custom_settings[]",
+      "type": "string"
+    },
+    {
+      "key": "paths",
+      "path": "settings.mdm.windows_settings.custom_settings[]",
+      "type": "string"
+    },
+    {
+      "key": "deadline_days",
+      "path": "settings.mdm.windows_updates",
+      "type": "Int"
+    },
+    {
+      "key": "grace_period_days",
+      "path": "settings.mdm.windows_updates",
+      "type": "Int"
+    },
+    {
+      "key": "app_store_apps",
+      "path": "settings.software",
+      "type": "Slice[github.com/fleetdm/fleet/v4/server/fleet.TeamSpecAppStoreApp]"
+    },
+    {
+      "key": "fleet_maintained_apps",
+      "path": "settings.software",
+      "type": "Slice[github.com/fleetdm/fleet/v4/server/fleet.MaintainedAppSpec]"
+    },
+    {
+      "key": "packages",
+      "path": "settings.software",
+      "type": "Slice[github.com/fleetdm/fleet/v4/server/fleet.SoftwarePackageSpec]"
+    },
+    {
+      "key": "app_store_id",
+      "path": "settings.software.app_store_apps[]",
+      "type": "string"
+    },
+    {
+      "key": "auto_update_enabled",
+      "path": "settings.software.app_store_apps[]",
+      "type": "*bool"
+    },
+    {
+      "key": "auto_update_window_end",
+      "path": "settings.software.app_store_apps[]",
+      "type": "*string"
+    },
+    {
+      "key": "auto_update_window_start",
+      "path": "settings.software.app_store_apps[]",
+      "type": "*string"
+    },
+    {
+      "key": "categories",
+      "path": "settings.software.app_store_apps[]",
+      "type": "[]string"
+    },
+    {
+      "key": "configuration",
+      "path": "settings.software.app_store_apps[]",
+      "type": "TeamSpecSoftwareAsset"
+    },
+    {
+      "key": "display_name",
+      "path": "settings.software.app_store_apps[]",
+      "type": "string"
+    },
+    {
+      "key": "icon",
+      "path": "settings.software.app_store_apps[]",
+      "type": "TeamSpecSoftwareAsset"
+    },
+    {
+      "key": "labels_exclude_any",
+      "path": "settings.software.app_store_apps[]",
+      "type": "[]string"
+    },
+    {
+      "key": "labels_include_all",
+      "path": "settings.software.app_store_apps[]",
+      "type": "[]string"
+    },
+    {
+      "key": "labels_include_any",
+      "path": "settings.software.app_store_apps[]",
+      "type": "[]string"
+    },
+    {
+      "key": "platform",
+      "path": "settings.software.app_store_apps[]",
+      "type": "string"
+    },
+    {
+      "key": "self_service",
+      "path": "settings.software.app_store_apps[]",
+      "type": "bool"
+    },
+    {
+      "key": "setup_experience",
+      "path": "settings.software.app_store_apps[]",
+      "type": "Bool"
+    },
+    {
+      "key": "path",
+      "path": "settings.software.app_store_apps[].configuration",
+      "type": "string"
+    },
+    {
+      "key": "path",
+      "path": "settings.software.app_store_apps[].icon",
+      "type": "string"
+    },
+    {
+      "key": "categories",
+      "path": "settings.software.fleet_maintained_apps[]",
+      "type": "Slice[string]"
+    },
+    {
+      "key": "display_name",
+      "path": "settings.software.fleet_maintained_apps[]",
+      "type": "string"
+    },
+    {
+      "key": "icon",
+      "path": "settings.software.fleet_maintained_apps[]",
+      "type": "TeamSpecSoftwareAsset"
+    },
+    {
+      "key": "install_script",
+      "path": "settings.software.fleet_maintained_apps[]",
+      "type": "TeamSpecSoftwareAsset"
+    },
+    {
+      "key": "labels_exclude_any",
+      "path": "settings.software.fleet_maintained_apps[]",
+      "type": "[]string"
+    },
+    {
+      "key": "labels_include_all",
+      "path": "settings.software.fleet_maintained_apps[]",
+      "type": "[]string"
+    },
+    {
+      "key": "labels_include_any",
+      "path": "settings.software.fleet_maintained_apps[]",
+      "type": "[]string"
+    },
+    {
+      "key": "post_install_script",
+      "path": "settings.software.fleet_maintained_apps[]",
+      "type": "TeamSpecSoftwareAsset"
+    },
+    {
+      "key": "pre_install_query",
+      "path": "settings.software.fleet_maintained_apps[]",
+      "type": "TeamSpecSoftwareAsset"
+    },
+    {
+      "key": "self_service",
+      "path": "settings.software.fleet_maintained_apps[]",
+      "type": "bool"
+    },
+    {
+      "key": "setup_experience",
+      "path": "settings.software.fleet_maintained_apps[]",
+      "type": "Bool"
+    },
+    {
+      "key": "setup_experience_platform",
+      "path": "settings.software.fleet_maintained_apps[]",
+      "type": "String"
+    },
+    {
+      "key": "slug",
+      "path": "settings.software.fleet_maintained_apps[]",
+      "type": "string"
+    },
+    {
+      "key": "uninstall_script",
+      "path": "settings.software.fleet_maintained_apps[]",
+      "type": "TeamSpecSoftwareAsset"
+    },
+    {
+      "key": "version",
+      "path": "settings.software.fleet_maintained_apps[]",
+      "type": "string"
+    },
+    {
+      "key": "path",
+      "path": "settings.software.fleet_maintained_apps[].icon",
+      "type": "string"
+    },
+    {
+      "key": "path",
+      "path": "settings.software.fleet_maintained_apps[].install_script",
+      "type": "string"
+    },
+    {
+      "key": "path",
+      "path": "settings.software.fleet_maintained_apps[].post_install_script",
+      "type": "string"
+    },
+    {
+      "key": "path",
+      "path": "settings.software.fleet_maintained_apps[].pre_install_query",
+      "type": "string"
+    },
+    {
+      "key": "path",
+      "path": "settings.software.fleet_maintained_apps[].uninstall_script",
+      "type": "string"
+    },
+    {
+      "key": "always_download",
+      "path": "settings.software.packages[]",
+      "type": "bool"
+    },
+    {
+      "key": "categories",
+      "path": "settings.software.packages[]",
+      "type": "Slice[string]"
+    },
+    {
+      "key": "configuration",
+      "path": "settings.software.packages[]",
+      "type": "TeamSpecSoftwareAsset"
+    },
+    {
+      "key": "display_name",
+      "path": "settings.software.packages[]",
+      "type": "string"
+    },
+    {
+      "key": "hash_sha256",
+      "path": "settings.software.packages[]",
+      "type": "string"
+    },
+    {
+      "key": "icon",
+      "path": "settings.software.packages[]",
+      "type": "TeamSpecSoftwareAsset"
+    },
+    {
+      "key": "install_script",
+      "path": "settings.software.packages[]",
+      "type": "TeamSpecSoftwareAsset"
+    },
+    {
+      "key": "labels_exclude_any",
+      "path": "settings.software.packages[]",
+      "type": "[]string"
+    },
+    {
+      "key": "labels_include_all",
+      "path": "settings.software.packages[]",
+      "type": "[]string"
+    },
+    {
+      "key": "labels_include_any",
+      "path": "settings.software.packages[]",
+      "type": "[]string"
+    },
+    {
+      "key": "post_install_script",
+      "path": "settings.software.packages[]",
+      "type": "TeamSpecSoftwareAsset"
+    },
+    {
+      "key": "pre_install_query",
+      "path": "settings.software.packages[]",
+      "type": "TeamSpecSoftwareAsset"
+    },
+    {
+      "key": "referenced_yaml_path",
+      "path": "settings.software.packages[]",
+      "type": "string"
+    },
+    {
+      "key": "self_service",
+      "path": "settings.software.packages[]",
+      "type": "bool"
+    },
+    {
+      "key": "setup_experience",
+      "path": "settings.software.packages[]",
+      "type": "Bool"
+    },
+    {
+      "key": "setup_experience_platform",
+      "path": "settings.software.packages[]",
+      "type": "String"
+    },
+    {
+      "key": "slug",
+      "path": "settings.software.packages[]",
+      "type": "*string"
+    },
+    {
+      "key": "uninstall_script",
+      "path": "settings.software.packages[]",
+      "type": "TeamSpecSoftwareAsset"
+    },
+    {
+      "key": "url",
+      "path": "settings.software.packages[]",
+      "type": "string"
+    },
+    {
+      "key": "version",
+      "path": "settings.software.packages[]",
+      "type": "string"
+    },
+    {
+      "key": "path",
+      "path": "settings.software.packages[].configuration",
+      "type": "string"
+    },
+    {
+      "key": "path",
+      "path": "settings.software.packages[].icon",
+      "type": "string"
+    },
+    {
+      "key": "path",
+      "path": "settings.software.packages[].install_script",
+      "type": "string"
+    },
+    {
+      "key": "path",
+      "path": "settings.software.packages[].post_install_script",
+      "type": "string"
+    },
+    {
+      "key": "path",
+      "path": "settings.software.packages[].pre_install_query",
+      "type": "string"
+    },
+    {
+      "key": "path",
+      "path": "settings.software.packages[].uninstall_script",
+      "type": "string"
+    },
+    {
+      "key": "failing_policies_webhook",
+      "path": "settings.webhook_settings",
+      "type": "FailingPoliciesWebhookSettings"
+    },
+    {
+      "key": "host_activities_webhook",
+      "path": "settings.webhook_settings",
+      "type": "*HostActivitiesWebhookSettings"
+    },
+    {
+      "key": "host_status_webhook",
+      "path": "settings.webhook_settings",
+      "type": "*HostStatusWebhookSettings"
+    },
+    {
+      "key": "destination_url",
+      "path": "settings.webhook_settings.failing_policies_webhook",
+      "type": "string"
+    },
+    {
+      "key": "enable_failing_policies_webhook",
+      "path": "settings.webhook_settings.failing_policies_webhook",
+      "type": "bool"
+    },
+    {
+      "key": "host_batch_size",
+      "path": "settings.webhook_settings.failing_policies_webhook",
+      "type": "int"
+    },
+    {
+      "key": "policy_ids",
+      "path": "settings.webhook_settings.failing_policies_webhook",
+      "type": "[]uint"
+    },
+    {
+      "key": "destination_url",
+      "path": "settings.webhook_settings.host_activities_webhook",
+      "type": "string"
+    },
+    {
+      "key": "enable_host_activities_webhook",
+      "path": "settings.webhook_settings.host_activities_webhook",
+      "type": "bool"
+    },
+    {
+      "key": "days_count",
+      "path": "settings.webhook_settings.host_status_webhook",
+      "type": "int"
+    },
+    {
+      "key": "destination_url",
+      "path": "settings.webhook_settings.host_status_webhook",
+      "type": "string"
+    },
+    {
+      "key": "enable_host_status_webhook",
+      "path": "settings.webhook_settings.host_status_webhook",
+      "type": "bool"
+    },
+    {
+      "key": "host_percentage",
+      "path": "settings.webhook_settings.host_status_webhook",
+      "type": "float64"
+    },
+    {
+      "key": "app_store_apps",
+      "path": "software",
+      "type": "GitOpsSoftware"
+    },
+    {
+      "key": "fleet_maintained_apps",
+      "path": "software",
+      "type": "GitOpsSoftware"
+    },
+    {
+      "key": "packages",
+      "path": "software",
+      "type": "GitOpsSoftware"
+    },
+    {
+      "key": "app_store_id",
+      "path": "software.app_store_apps[]",
+      "type": "string"
+    },
+    {
+      "key": "auto_update_enabled",
+      "path": "software.app_store_apps[]",
+      "type": "*bool"
+    },
+    {
+      "key": "auto_update_window_end",
+      "path": "software.app_store_apps[]",
+      "type": "*string"
+    },
+    {
+      "key": "auto_update_window_start",
+      "path": "software.app_store_apps[]",
+      "type": "*string"
+    },
+    {
+      "key": "categories",
+      "path": "software.app_store_apps[]",
+      "type": "[]string"
+    },
+    {
+      "key": "configuration",
+      "path": "software.app_store_apps[]",
+      "type": "TeamSpecSoftwareAsset"
+    },
+    {
+      "key": "display_name",
+      "path": "software.app_store_apps[]",
+      "type": "string"
+    },
+    {
+      "key": "icon",
+      "path": "software.app_store_apps[]",
+      "type": "TeamSpecSoftwareAsset"
+    },
+    {
+      "key": "labels_exclude_any",
+      "path": "software.app_store_apps[]",
+      "type": "[]string"
+    },
+    {
+      "key": "labels_include_all",
+      "path": "software.app_store_apps[]",
+      "type": "[]string"
+    },
+    {
+      "key": "labels_include_any",
+      "path": "software.app_store_apps[]",
+      "type": "[]string"
+    },
+    {
+      "key": "platform",
+      "path": "software.app_store_apps[]",
+      "type": "string"
+    },
+    {
+      "key": "self_service",
+      "path": "software.app_store_apps[]",
+      "type": "bool"
+    },
+    {
+      "key": "setup_experience",
+      "path": "software.app_store_apps[]",
+      "type": "Bool"
+    },
+    {
+      "key": "path",
+      "path": "software.app_store_apps[].configuration",
+      "type": "string"
+    },
+    {
+      "key": "path",
+      "path": "software.app_store_apps[].icon",
+      "type": "string"
+    },
+    {
+      "key": "categories",
+      "path": "software.fleet_maintained_apps[]",
+      "type": "Slice[string]"
+    },
+    {
+      "key": "display_name",
+      "path": "software.fleet_maintained_apps[]",
+      "type": "string"
+    },
+    {
+      "key": "icon",
+      "path": "software.fleet_maintained_apps[]",
+      "type": "TeamSpecSoftwareAsset"
+    },
+    {
+      "key": "install_script",
+      "path": "software.fleet_maintained_apps[]",
+      "type": "TeamSpecSoftwareAsset"
+    },
+    {
+      "key": "labels_exclude_any",
+      "path": "software.fleet_maintained_apps[]",
+      "type": "[]string"
+    },
+    {
+      "key": "labels_include_all",
+      "path": "software.fleet_maintained_apps[]",
+      "type": "[]string"
+    },
+    {
+      "key": "labels_include_any",
+      "path": "software.fleet_maintained_apps[]",
+      "type": "[]string"
+    },
+    {
+      "key": "post_install_script",
+      "path": "software.fleet_maintained_apps[]",
+      "type": "TeamSpecSoftwareAsset"
+    },
+    {
+      "key": "pre_install_query",
+      "path": "software.fleet_maintained_apps[]",
+      "type": "TeamSpecSoftwareAsset"
+    },
+    {
+      "key": "self_service",
+      "path": "software.fleet_maintained_apps[]",
+      "type": "bool"
+    },
+    {
+      "key": "setup_experience",
+      "path": "software.fleet_maintained_apps[]",
+      "type": "Bool"
+    },
+    {
+      "key": "setup_experience_platform",
+      "path": "software.fleet_maintained_apps[]",
+      "type": "String"
+    },
+    {
+      "key": "slug",
+      "path": "software.fleet_maintained_apps[]",
+      "type": "string"
+    },
+    {
+      "key": "uninstall_script",
+      "path": "software.fleet_maintained_apps[]",
+      "type": "TeamSpecSoftwareAsset"
+    },
+    {
+      "key": "version",
+      "path": "software.fleet_maintained_apps[]",
+      "type": "string"
+    },
+    {
+      "key": "path",
+      "path": "software.fleet_maintained_apps[].icon",
+      "type": "string"
+    },
+    {
+      "key": "path",
+      "path": "software.fleet_maintained_apps[].install_script",
+      "type": "string"
+    },
+    {
+      "key": "path",
+      "path": "software.fleet_maintained_apps[].post_install_script",
+      "type": "string"
+    },
+    {
+      "key": "path",
+      "path": "software.fleet_maintained_apps[].pre_install_query",
+      "type": "string"
+    },
+    {
+      "key": "path",
+      "path": "software.fleet_maintained_apps[].uninstall_script",
+      "type": "string"
+    },
+    {
+      "key": "always_download",
+      "path": "software.packages[]",
+      "type": "bool"
+    },
+    {
+      "key": "categories",
+      "path": "software.packages[]",
+      "type": "Slice[string]"
+    },
+    {
+      "key": "configuration",
+      "path": "software.packages[]",
+      "type": "TeamSpecSoftwareAsset"
+    },
+    {
+      "key": "display_name",
+      "path": "software.packages[]",
+      "type": "string"
+    },
+    {
+      "key": "hash_sha256",
+      "path": "software.packages[]",
+      "type": "string"
+    },
+    {
+      "key": "icon",
+      "path": "software.packages[]",
+      "type": "TeamSpecSoftwareAsset"
+    },
+    {
+      "key": "install_script",
+      "path": "software.packages[]",
+      "type": "TeamSpecSoftwareAsset"
+    },
+    {
+      "key": "labels_exclude_any",
+      "path": "software.packages[]",
+      "type": "[]string"
+    },
+    {
+      "key": "labels_include_all",
+      "path": "software.packages[]",
+      "type": "[]string"
+    },
+    {
+      "key": "labels_include_any",
+      "path": "software.packages[]",
+      "type": "[]string"
+    },
+    {
+      "key": "path",
+      "path": "software.packages[]",
+      "type": "*string"
+    },
+    {
+      "key": "paths",
+      "path": "software.packages[]",
+      "type": "*string"
+    },
+    {
+      "key": "post_install_script",
+      "path": "software.packages[]",
+      "type": "TeamSpecSoftwareAsset"
+    },
+    {
+      "key": "pre_install_query",
+      "path": "software.packages[]",
+      "type": "TeamSpecSoftwareAsset"
+    },
+    {
+      "key": "referenced_yaml_path",
+      "path": "software.packages[]",
+      "type": "string"
+    },
+    {
+      "key": "self_service",
+      "path": "software.packages[]",
+      "type": "bool"
+    },
+    {
+      "key": "setup_experience",
+      "path": "software.packages[]",
+      "type": "Bool"
+    },
+    {
+      "key": "setup_experience_platform",
+      "path": "software.packages[]",
+      "type": "String"
+    },
+    {
+      "key": "slug",
+      "path": "software.packages[]",
+      "type": "*string"
+    },
+    {
+      "key": "uninstall_script",
+      "path": "software.packages[]",
+      "type": "TeamSpecSoftwareAsset"
+    },
+    {
+      "key": "url",
+      "path": "software.packages[]",
+      "type": "string"
+    },
+    {
+      "key": "version",
+      "path": "software.packages[]",
+      "type": "string"
+    },
+    {
+      "key": "path",
+      "path": "software.packages[].configuration",
+      "type": "string"
+    },
+    {
+      "key": "path",
+      "path": "software.packages[].icon",
+      "type": "string"
+    },
+    {
+      "key": "path",
+      "path": "software.packages[].install_script",
+      "type": "string"
+    },
+    {
+      "key": "path",
+      "path": "software.packages[].post_install_script",
+      "type": "string"
+    },
+    {
+      "key": "path",
+      "path": "software.packages[].pre_install_query",
+      "type": "string"
+    },
+    {
+      "key": "path",
+      "path": "software.packages[].uninstall_script",
+      "type": "string"
+    },
+    {
+      "key": "agent_options",
+      "path": "team_settings",
+      "type": "*Value"
+    },
+    {
+      "key": "features",
+      "path": "team_settings",
+      "type": "Features"
+    },
+    {
+      "key": "host_expiry_settings",
+      "path": "team_settings",
+      "type": "HostExpirySettings"
+    },
+    {
+      "key": "integrations",
+      "path": "team_settings",
+      "type": "TeamIntegrations"
+    },
+    {
+      "key": "mdm",
+      "path": "team_settings",
+      "type": "TeamMDM"
+    },
+    {
+      "key": "scripts",
+      "path": "team_settings",
+      "type": "Slice[string]"
+    },
+    {
+      "key": "secrets",
+      "path": "team_settings",
+      "type": "interface {}"
+    },
+    {
+      "key": "software",
+      "path": "team_settings",
+      "type": "*SoftwareSpec"
+    },
+    {
+      "key": "webhook_settings",
+      "path": "team_settings",
+      "type": "TeamWebhookSettings"
+    },
+    {
+      "key": "additional_queries",
+      "path": "team_settings.features",
+      "type": "*Value"
+    },
+    {
+      "key": "detail_query_overrides",
+      "path": "team_settings.features",
+      "type": "map[string]*string"
+    },
+    {
+      "key": "enable_host_users",
+      "path": "team_settings.features",
+      "type": "bool"
+    },
+    {
+      "key": "enable_software_inventory",
+      "path": "team_settings.features",
+      "type": "bool"
+    },
+    {
+      "key": "historical_data",
+      "path": "team_settings.features",
+      "type": "HistoricalDataSettings"
+    },
+    {
+      "key": "vulnerability_exposure_historical_reporting",
+      "path": "team_settings.features",
+      "type": "*VulnExposureFilterSettings"
+    },
+    {
+      "key": "uptime",
+      "path": "team_settings.features.historical_data",
+      "type": "bool"
+    },
+    {
+      "key": "vulnerabilities",
+      "path": "team_settings.features.historical_data",
+      "type": "bool"
+    },
+    {
+      "key": "cvss_max",
+      "path": "team_settings.features.vulnerability_exposure_historical_reporting",
+      "type": "*float64"
+    },
+    {
+      "key": "cvss_min",
+      "path": "team_settings.features.vulnerability_exposure_historical_reporting",
+      "type": "*float64"
+    },
+    {
+      "key": "epss_max",
+      "path": "team_settings.features.vulnerability_exposure_historical_reporting",
+      "type": "*float64"
+    },
+    {
+      "key": "epss_min",
+      "path": "team_settings.features.vulnerability_exposure_historical_reporting",
+      "type": "*float64"
+    },
+    {
+      "key": "exclude_vulnerabilities",
+      "path": "team_settings.features.vulnerability_exposure_historical_reporting",
+      "type": "*[]string"
+    },
+    {
+      "key": "has_known_exploit",
+      "path": "team_settings.features.vulnerability_exposure_historical_reporting",
+      "type": "*bool"
+    },
+    {
+      "key": "software_filters",
+      "path": "team_settings.features.vulnerability_exposure_historical_reporting",
+      "type": "*[]string"
+    },
+    {
+      "key": "host_expiry_enabled",
+      "path": "team_settings.host_expiry_settings",
+      "type": "bool"
+    },
+    {
+      "key": "host_expiry_window",
+      "path": "team_settings.host_expiry_settings",
+      "type": "int"
+    },
+    {
+      "key": "conditional_access_enabled",
+      "path": "team_settings.integrations",
+      "type": "Bool"
+    },
+    {
+      "key": "google_calendar",
+      "path": "team_settings.integrations",
+      "type": "*TeamGoogleCalendarIntegration"
+    },
+    {
+      "key": "jira",
+      "path": "team_settings.integrations",
+      "type": "[]*fleet.TeamJiraIntegration"
+    },
+    {
+      "key": "zendesk",
+      "path": "team_settings.integrations",
+      "type": "[]*fleet.TeamZendeskIntegration"
+    },
+    {
+      "key": "enable_calendar_events",
+      "path": "team_settings.integrations.google_calendar",
+      "type": "bool"
+    },
+    {
+      "key": "webhook_url",
+      "path": "team_settings.integrations.google_calendar",
+      "type": "string"
+    },
+    {
+      "key": "enable_failing_policies",
+      "path": "team_settings.integrations.jira[]",
+      "type": "bool"
+    },
+    {
+      "key": "project_key",
+      "path": "team_settings.integrations.jira[]",
+      "type": "string"
+    },
+    {
+      "key": "url",
+      "path": "team_settings.integrations.jira[]",
+      "type": "string"
+    },
+    {
+      "key": "enable_failing_policies",
+      "path": "team_settings.integrations.zendesk[]",
+      "type": "bool"
+    },
+    {
+      "key": "group_id",
+      "path": "team_settings.integrations.zendesk[]",
+      "type": "int64"
+    },
+    {
+      "key": "url",
+      "path": "team_settings.integrations.zendesk[]",
+      "type": "string"
+    },
+    {
+      "key": "android_settings",
+      "path": "team_settings.mdm",
+      "type": "AndroidSettings"
+    },
+    {
+      "key": "apple_settings",
+      "path": "team_settings.mdm",
+      "type": "MacOSSettings"
+    },
+    {
+      "key": "enable_disk_encryption",
+      "path": "team_settings.mdm",
+      "type": "bool"
+    },
+    {
+      "key": "enable_recovery_lock_password",
+      "path": "team_settings.mdm",
+      "type": "bool"
+    },
+    {
+      "key": "ios_updates",
+      "path": "team_settings.mdm",
+      "type": "AppleOSUpdateSettings"
+    },
+    {
+      "key": "ipados_updates",
+      "path": "team_settings.mdm",
+      "type": "AppleOSUpdateSettings"
+    },
+    {
+      "key": "linux_settings",
+      "path": "team_settings.mdm",
+      "type": "LinuxSettings"
+    },
+    {
+      "key": "macos_settings",
+      "path": "team_settings.mdm",
+      "type": "MacOSSettings"
+    },
+    {
+      "key": "macos_setup",
+      "path": "team_settings.mdm",
+      "type": "MacOSSetup"
+    },
+    {
+      "key": "macos_updates",
+      "path": "team_settings.mdm",
+      "type": "AppleOSUpdateSettings"
+    },
+    {
+      "key": "name_template",
+      "path": "team_settings.mdm",
+      "type": "string"
+    },
+    {
+      "key": "setup_experience",
+      "path": "team_settings.mdm",
+      "type": "MacOSSetup"
+    },
+    {
+      "key": "windows_require_bitlocker_pin",
+      "path": "team_settings.mdm",
+      "type": "bool"
+    },
+    {
+      "key": "windows_settings",
+      "path": "team_settings.mdm",
+      "type": "WindowsSettings"
+    },
+    {
+      "key": "windows_updates",
+      "path": "team_settings.mdm",
+      "type": "WindowsUpdates"
+    },
+    {
+      "key": "certificates",
+      "path": "team_settings.mdm.android_settings",
+      "type": "Slice[github.com/fleetdm/fleet/v4/server/fleet.CertificateTemplateSpec]"
+    },
+    {
+      "key": "configuration_profiles",
+      "path": "team_settings.mdm.android_settings",
+      "type": "Slice[github.com/fleetdm/fleet/v4/server/fleet.MDMProfileSpec]"
+    },
+    {
+      "key": "custom_settings",
+      "path": "team_settings.mdm.android_settings",
+      "type": "Slice[github.com/fleetdm/fleet/v4/server/fleet.MDMProfileSpec]"
+    },
+    {
+      "key": "certificate_authority_name",
+      "path": "team_settings.mdm.android_settings.certificates[]",
+      "type": "string"
+    },
+    {
+      "key": "name",
+      "path": "team_settings.mdm.android_settings.certificates[]",
+      "type": "string"
+    },
+    {
+      "key": "subject_alternative_name",
+      "path": "team_settings.mdm.android_settings.certificates[]",
+      "type": "string"
+    },
+    {
+      "key": "subject_name",
+      "path": "team_settings.mdm.android_settings.certificates[]",
+      "type": "string"
+    },
+    {
+      "key": "activation",
+      "path": "team_settings.mdm.android_settings.configuration_profiles[]",
+      "type": "string"
+    },
+    {
+      "key": "labels",
+      "path": "team_settings.mdm.android_settings.configuration_profiles[]",
+      "type": "[]string"
+    },
+    {
+      "key": "labels_exclude_any",
+      "path": "team_settings.mdm.android_settings.configuration_profiles[]",
+      "type": "[]string"
+    },
+    {
+      "key": "labels_include_all",
+      "path": "team_settings.mdm.android_settings.configuration_profiles[]",
+      "type": "[]string"
+    },
+    {
+      "key": "labels_include_any",
+      "path": "team_settings.mdm.android_settings.configuration_profiles[]",
+      "type": "[]string"
+    },
+    {
+      "key": "path",
+      "path": "team_settings.mdm.android_settings.configuration_profiles[]",
+      "type": "string"
+    },
+    {
+      "key": "paths",
+      "path": "team_settings.mdm.android_settings.configuration_profiles[]",
+      "type": "string"
+    },
+    {
+      "key": "activation",
+      "path": "team_settings.mdm.android_settings.custom_settings[]",
+      "type": "string"
+    },
+    {
+      "key": "labels",
+      "path": "team_settings.mdm.android_settings.custom_settings[]",
+      "type": "[]string"
+    },
+    {
+      "key": "labels_exclude_any",
+      "path": "team_settings.mdm.android_settings.custom_settings[]",
+      "type": "[]string"
+    },
+    {
+      "key": "labels_include_all",
+      "path": "team_settings.mdm.android_settings.custom_settings[]",
+      "type": "[]string"
+    },
+    {
+      "key": "labels_include_any",
+      "path": "team_settings.mdm.android_settings.custom_settings[]",
+      "type": "[]string"
+    },
+    {
+      "key": "path",
+      "path": "team_settings.mdm.android_settings.custom_settings[]",
+      "type": "string"
+    },
+    {
+      "key": "paths",
+      "path": "team_settings.mdm.android_settings.custom_settings[]",
+      "type": "string"
+    },
+    {
+      "key": "assets",
+      "path": "team_settings.mdm.apple_settings",
+      "type": "[]fleet.MDMProfileSpec"
+    },
+    {
+      "key": "configuration_profiles",
+      "path": "team_settings.mdm.apple_settings",
+      "type": "[]fleet.MDMProfileSpec"
+    },
+    {
+      "key": "custom_settings",
+      "path": "team_settings.mdm.apple_settings",
+      "type": "[]fleet.MDMProfileSpec"
+    },
+    {
+      "key": "enable_disk_encryption",
+      "path": "team_settings.mdm.apple_settings",
+      "type": "Bool"
+    },
+    {
+      "key": "enable_escrow_disk_encryption_key",
+      "path": "team_settings.mdm.apple_settings",
+      "type": "Bool"
+    },
+    {
+      "key": "activation",
+      "path": "team_settings.mdm.apple_settings.assets[]",
+      "type": "string"
+    },
+    {
+      "key": "labels",
+      "path": "team_settings.mdm.apple_settings.assets[]",
+      "type": "[]string"
+    },
+    {
+      "key": "labels_exclude_any",
+      "path": "team_settings.mdm.apple_settings.assets[]",
+      "type": "[]string"
+    },
+    {
+      "key": "labels_include_all",
+      "path": "team_settings.mdm.apple_settings.assets[]",
+      "type": "[]string"
+    },
+    {
+      "key": "labels_include_any",
+      "path": "team_settings.mdm.apple_settings.assets[]",
+      "type": "[]string"
+    },
+    {
+      "key": "path",
+      "path": "team_settings.mdm.apple_settings.assets[]",
+      "type": "string"
+    },
+    {
+      "key": "paths",
+      "path": "team_settings.mdm.apple_settings.assets[]",
+      "type": "string"
+    },
+    {
+      "key": "activation",
+      "path": "team_settings.mdm.apple_settings.configuration_profiles[]",
+      "type": "string"
+    },
+    {
+      "key": "labels",
+      "path": "team_settings.mdm.apple_settings.configuration_profiles[]",
+      "type": "[]string"
+    },
+    {
+      "key": "labels_exclude_any",
+      "path": "team_settings.mdm.apple_settings.configuration_profiles[]",
+      "type": "[]string"
+    },
+    {
+      "key": "labels_include_all",
+      "path": "team_settings.mdm.apple_settings.configuration_profiles[]",
+      "type": "[]string"
+    },
+    {
+      "key": "labels_include_any",
+      "path": "team_settings.mdm.apple_settings.configuration_profiles[]",
+      "type": "[]string"
+    },
+    {
+      "key": "path",
+      "path": "team_settings.mdm.apple_settings.configuration_profiles[]",
+      "type": "string"
+    },
+    {
+      "key": "paths",
+      "path": "team_settings.mdm.apple_settings.configuration_profiles[]",
+      "type": "string"
+    },
+    {
+      "key": "activation",
+      "path": "team_settings.mdm.apple_settings.custom_settings[]",
+      "type": "string"
+    },
+    {
+      "key": "labels",
+      "path": "team_settings.mdm.apple_settings.custom_settings[]",
+      "type": "[]string"
+    },
+    {
+      "key": "labels_exclude_any",
+      "path": "team_settings.mdm.apple_settings.custom_settings[]",
+      "type": "[]string"
+    },
+    {
+      "key": "labels_include_all",
+      "path": "team_settings.mdm.apple_settings.custom_settings[]",
+      "type": "[]string"
+    },
+    {
+      "key": "labels_include_any",
+      "path": "team_settings.mdm.apple_settings.custom_settings[]",
+      "type": "[]string"
+    },
+    {
+      "key": "path",
+      "path": "team_settings.mdm.apple_settings.custom_settings[]",
+      "type": "string"
+    },
+    {
+      "key": "paths",
+      "path": "team_settings.mdm.apple_settings.custom_settings[]",
+      "type": "string"
+    },
+    {
+      "key": "deadline",
+      "path": "team_settings.mdm.ios_updates",
+      "type": "String"
+    },
+    {
+      "key": "deadline_days",
+      "path": "team_settings.mdm.ios_updates",
+      "type": "Int"
+    },
+    {
+      "key": "minimum_version",
+      "path": "team_settings.mdm.ios_updates",
+      "type": "String"
+    },
+    {
+      "key": "update_new_hosts",
+      "path": "team_settings.mdm.ios_updates",
+      "type": "Bool"
+    },
+    {
+      "key": "deadline",
+      "path": "team_settings.mdm.ipados_updates",
+      "type": "String"
+    },
+    {
+      "key": "deadline_days",
+      "path": "team_settings.mdm.ipados_updates",
+      "type": "Int"
+    },
+    {
+      "key": "minimum_version",
+      "path": "team_settings.mdm.ipados_updates",
+      "type": "String"
+    },
+    {
+      "key": "update_new_hosts",
+      "path": "team_settings.mdm.ipados_updates",
+      "type": "Bool"
+    },
+    {
+      "key": "enable_escrow_disk_encryption_key",
+      "path": "team_settings.mdm.linux_settings",
+      "type": "Bool"
+    },
+    {
+      "key": "assets",
+      "path": "team_settings.mdm.macos_settings",
+      "type": "[]fleet.MDMProfileSpec"
+    },
+    {
+      "key": "configuration_profiles",
+      "path": "team_settings.mdm.macos_settings",
+      "type": "[]fleet.MDMProfileSpec"
+    },
+    {
+      "key": "custom_settings",
+      "path": "team_settings.mdm.macos_settings",
+      "type": "[]fleet.MDMProfileSpec"
+    },
+    {
+      "key": "enable_disk_encryption",
+      "path": "team_settings.mdm.macos_settings",
+      "type": "Bool"
+    },
+    {
+      "key": "enable_escrow_disk_encryption_key",
+      "path": "team_settings.mdm.macos_settings",
+      "type": "Bool"
+    },
+    {
+      "key": "activation",
+      "path": "team_settings.mdm.macos_settings.assets[]",
+      "type": "string"
+    },
+    {
+      "key": "labels",
+      "path": "team_settings.mdm.macos_settings.assets[]",
+      "type": "[]string"
+    },
+    {
+      "key": "labels_exclude_any",
+      "path": "team_settings.mdm.macos_settings.assets[]",
+      "type": "[]string"
+    },
+    {
+      "key": "labels_include_all",
+      "path": "team_settings.mdm.macos_settings.assets[]",
+      "type": "[]string"
+    },
+    {
+      "key": "labels_include_any",
+      "path": "team_settings.mdm.macos_settings.assets[]",
+      "type": "[]string"
+    },
+    {
+      "key": "path",
+      "path": "team_settings.mdm.macos_settings.assets[]",
+      "type": "string"
+    },
+    {
+      "key": "paths",
+      "path": "team_settings.mdm.macos_settings.assets[]",
+      "type": "string"
+    },
+    {
+      "key": "activation",
+      "path": "team_settings.mdm.macos_settings.configuration_profiles[]",
+      "type": "string"
+    },
+    {
+      "key": "labels",
+      "path": "team_settings.mdm.macos_settings.configuration_profiles[]",
+      "type": "[]string"
+    },
+    {
+      "key": "labels_exclude_any",
+      "path": "team_settings.mdm.macos_settings.configuration_profiles[]",
+      "type": "[]string"
+    },
+    {
+      "key": "labels_include_all",
+      "path": "team_settings.mdm.macos_settings.configuration_profiles[]",
+      "type": "[]string"
+    },
+    {
+      "key": "labels_include_any",
+      "path": "team_settings.mdm.macos_settings.configuration_profiles[]",
+      "type": "[]string"
+    },
+    {
+      "key": "path",
+      "path": "team_settings.mdm.macos_settings.configuration_profiles[]",
+      "type": "string"
+    },
+    {
+      "key": "paths",
+      "path": "team_settings.mdm.macos_settings.configuration_profiles[]",
+      "type": "string"
+    },
+    {
+      "key": "activation",
+      "path": "team_settings.mdm.macos_settings.custom_settings[]",
+      "type": "string"
+    },
+    {
+      "key": "labels",
+      "path": "team_settings.mdm.macos_settings.custom_settings[]",
+      "type": "[]string"
+    },
+    {
+      "key": "labels_exclude_any",
+      "path": "team_settings.mdm.macos_settings.custom_settings[]",
+      "type": "[]string"
+    },
+    {
+      "key": "labels_include_all",
+      "path": "team_settings.mdm.macos_settings.custom_settings[]",
+      "type": "[]string"
+    },
+    {
+      "key": "labels_include_any",
+      "path": "team_settings.mdm.macos_settings.custom_settings[]",
+      "type": "[]string"
+    },
+    {
+      "key": "path",
+      "path": "team_settings.mdm.macos_settings.custom_settings[]",
+      "type": "string"
+    },
+    {
+      "key": "paths",
+      "path": "team_settings.mdm.macos_settings.custom_settings[]",
+      "type": "string"
+    },
+    {
+      "key": "apple_enable_release_device_manually",
+      "path": "team_settings.mdm.macos_setup",
+      "type": "Bool"
+    },
+    {
+      "key": "apple_setup_assistant",
+      "path": "team_settings.mdm.macos_setup",
+      "type": "String"
+    },
+    {
+      "key": "bootstrap_package",
+      "path": "team_settings.mdm.macos_setup",
+      "type": "String"
+    },
+    {
+      "key": "enable_create_local_admin_account",
+      "path": "team_settings.mdm.macos_setup",
+      "type": "Bool"
+    },
+    {
+      "key": "enable_end_user_authentication",
+      "path": "team_settings.mdm.macos_setup",
+      "type": "bool"
+    },
+    {
+      "key": "enable_managed_local_account",
+      "path": "team_settings.mdm.macos_setup",
+      "type": "Bool"
+    },
+    {
+      "key": "enable_release_device_manually",
+      "path": "team_settings.mdm.macos_setup",
+      "type": "Bool"
+    },
+    {
+      "key": "end_user_local_account_type",
+      "path": "team_settings.mdm.macos_setup",
+      "type": "String"
+    },
+    {
+      "key": "lock_end_user_info",
+      "path": "team_settings.mdm.macos_setup",
+      "type": "Bool"
+    },
+    {
+      "key": "macos_bootstrap_package",
+      "path": "team_settings.mdm.macos_setup",
+      "type": "String"
+    },
+    {
+      "key": "macos_manual_agent_install",
+      "path": "team_settings.mdm.macos_setup",
+      "type": "Bool"
+    },
+    {
+      "key": "macos_script",
+      "path": "team_settings.mdm.macos_setup",
+      "type": "String"
+    },
+    {
+      "key": "macos_setup_assistant",
+      "path": "team_settings.mdm.macos_setup",
+      "type": "String"
+    },
+    {
+      "key": "manual_agent_install",
+      "path": "team_settings.mdm.macos_setup",
+      "type": "Bool"
+    },
+    {
+      "key": "require_all_software_macos",
+      "path": "team_settings.mdm.macos_setup",
+      "type": "bool"
+    },
+    {
+      "key": "require_all_software_windows",
+      "path": "team_settings.mdm.macos_setup",
+      "type": "bool"
+    },
+    {
+      "key": "script",
+      "path": "team_settings.mdm.macos_setup",
+      "type": "String"
+    },
+    {
+      "key": "software",
+      "path": "team_settings.mdm.macos_setup",
+      "type": "Slice[*github.com/fleetdm/fleet/v4/server/fleet.MacOSSetupSoftware]"
+    },
+    {
+      "key": "app_store_id",
+      "path": "team_settings.mdm.macos_setup.software[]",
+      "type": "string"
+    },
+    {
+      "key": "package_path",
+      "path": "team_settings.mdm.macos_setup.software[]",
+      "type": "string"
+    },
+    {
+      "key": "deadline",
+      "path": "team_settings.mdm.macos_updates",
+      "type": "String"
+    },
+    {
+      "key": "deadline_days",
+      "path": "team_settings.mdm.macos_updates",
+      "type": "Int"
+    },
+    {
+      "key": "minimum_version",
+      "path": "team_settings.mdm.macos_updates",
+      "type": "String"
+    },
+    {
+      "key": "update_new_hosts",
+      "path": "team_settings.mdm.macos_updates",
+      "type": "Bool"
+    },
+    {
+      "key": "apple_enable_release_device_manually",
+      "path": "team_settings.mdm.setup_experience",
+      "type": "Bool"
+    },
+    {
+      "key": "apple_setup_assistant",
+      "path": "team_settings.mdm.setup_experience",
+      "type": "String"
+    },
+    {
+      "key": "bootstrap_package",
+      "path": "team_settings.mdm.setup_experience",
+      "type": "String"
+    },
+    {
+      "key": "enable_create_local_admin_account",
+      "path": "team_settings.mdm.setup_experience",
+      "type": "Bool"
+    },
+    {
+      "key": "enable_end_user_authentication",
+      "path": "team_settings.mdm.setup_experience",
+      "type": "bool"
+    },
+    {
+      "key": "enable_managed_local_account",
+      "path": "team_settings.mdm.setup_experience",
+      "type": "Bool"
+    },
+    {
+      "key": "enable_release_device_manually",
+      "path": "team_settings.mdm.setup_experience",
+      "type": "Bool"
+    },
+    {
+      "key": "end_user_local_account_type",
+      "path": "team_settings.mdm.setup_experience",
+      "type": "String"
+    },
+    {
+      "key": "lock_end_user_info",
+      "path": "team_settings.mdm.setup_experience",
+      "type": "Bool"
+    },
+    {
+      "key": "macos_bootstrap_package",
+      "path": "team_settings.mdm.setup_experience",
+      "type": "String"
+    },
+    {
+      "key": "macos_manual_agent_install",
+      "path": "team_settings.mdm.setup_experience",
+      "type": "Bool"
+    },
+    {
+      "key": "macos_script",
+      "path": "team_settings.mdm.setup_experience",
+      "type": "String"
+    },
+    {
+      "key": "macos_setup_assistant",
+      "path": "team_settings.mdm.setup_experience",
+      "type": "String"
+    },
+    {
+      "key": "manual_agent_install",
+      "path": "team_settings.mdm.setup_experience",
+      "type": "Bool"
+    },
+    {
+      "key": "require_all_software_macos",
+      "path": "team_settings.mdm.setup_experience",
+      "type": "bool"
+    },
+    {
+      "key": "require_all_software_windows",
+      "path": "team_settings.mdm.setup_experience",
+      "type": "bool"
+    },
+    {
+      "key": "script",
+      "path": "team_settings.mdm.setup_experience",
+      "type": "String"
+    },
+    {
+      "key": "software",
+      "path": "team_settings.mdm.setup_experience",
+      "type": "Slice[*github.com/fleetdm/fleet/v4/server/fleet.MacOSSetupSoftware]"
+    },
+    {
+      "key": "app_store_id",
+      "path": "team_settings.mdm.setup_experience.software[]",
+      "type": "string"
+    },
+    {
+      "key": "package_path",
+      "path": "team_settings.mdm.setup_experience.software[]",
+      "type": "string"
+    },
+    {
+      "key": "configuration_profiles",
+      "path": "team_settings.mdm.windows_settings",
+      "type": "Slice[github.com/fleetdm/fleet/v4/server/fleet.MDMProfileSpec]"
+    },
+    {
+      "key": "custom_settings",
+      "path": "team_settings.mdm.windows_settings",
+      "type": "Slice[github.com/fleetdm/fleet/v4/server/fleet.MDMProfileSpec]"
+    },
+    {
+      "key": "enable_disk_encryption",
+      "path": "team_settings.mdm.windows_settings",
+      "type": "Bool"
+    },
+    {
+      "key": "enable_managed_local_account",
+      "path": "team_settings.mdm.windows_settings",
+      "type": "Bool"
+    },
+    {
+      "key": "require_bitlocker_pin",
+      "path": "team_settings.mdm.windows_settings",
+      "type": "Bool"
+    },
+    {
+      "key": "activation",
+      "path": "team_settings.mdm.windows_settings.configuration_profiles[]",
+      "type": "string"
+    },
+    {
+      "key": "labels",
+      "path": "team_settings.mdm.windows_settings.configuration_profiles[]",
+      "type": "[]string"
+    },
+    {
+      "key": "labels_exclude_any",
+      "path": "team_settings.mdm.windows_settings.configuration_profiles[]",
+      "type": "[]string"
+    },
+    {
+      "key": "labels_include_all",
+      "path": "team_settings.mdm.windows_settings.configuration_profiles[]",
+      "type": "[]string"
+    },
+    {
+      "key": "labels_include_any",
+      "path": "team_settings.mdm.windows_settings.configuration_profiles[]",
+      "type": "[]string"
+    },
+    {
+      "key": "path",
+      "path": "team_settings.mdm.windows_settings.configuration_profiles[]",
+      "type": "string"
+    },
+    {
+      "key": "paths",
+      "path": "team_settings.mdm.windows_settings.configuration_profiles[]",
+      "type": "string"
+    },
+    {
+      "key": "activation",
+      "path": "team_settings.mdm.windows_settings.custom_settings[]",
+      "type": "string"
+    },
+    {
+      "key": "labels",
+      "path": "team_settings.mdm.windows_settings.custom_settings[]",
+      "type": "[]string"
+    },
+    {
+      "key": "labels_exclude_any",
+      "path": "team_settings.mdm.windows_settings.custom_settings[]",
+      "type": "[]string"
+    },
+    {
+      "key": "labels_include_all",
+      "path": "team_settings.mdm.windows_settings.custom_settings[]",
+      "type": "[]string"
+    },
+    {
+      "key": "labels_include_any",
+      "path": "team_settings.mdm.windows_settings.custom_settings[]",
+      "type": "[]string"
+    },
+    {
+      "key": "path",
+      "path": "team_settings.mdm.windows_settings.custom_settings[]",
+      "type": "string"
+    },
+    {
+      "key": "paths",
+      "path": "team_settings.mdm.windows_settings.custom_settings[]",
+      "type": "string"
+    },
+    {
+      "key": "deadline_days",
+      "path": "team_settings.mdm.windows_updates",
+      "type": "Int"
+    },
+    {
+      "key": "grace_period_days",
+      "path": "team_settings.mdm.windows_updates",
+      "type": "Int"
+    },
+    {
+      "key": "app_store_apps",
+      "path": "team_settings.software",
+      "type": "Slice[github.com/fleetdm/fleet/v4/server/fleet.TeamSpecAppStoreApp]"
+    },
+    {
+      "key": "fleet_maintained_apps",
+      "path": "team_settings.software",
+      "type": "Slice[github.com/fleetdm/fleet/v4/server/fleet.MaintainedAppSpec]"
+    },
+    {
+      "key": "packages",
+      "path": "team_settings.software",
+      "type": "Slice[github.com/fleetdm/fleet/v4/server/fleet.SoftwarePackageSpec]"
+    },
+    {
+      "key": "app_store_id",
+      "path": "team_settings.software.app_store_apps[]",
+      "type": "string"
+    },
+    {
+      "key": "auto_update_enabled",
+      "path": "team_settings.software.app_store_apps[]",
+      "type": "*bool"
+    },
+    {
+      "key": "auto_update_window_end",
+      "path": "team_settings.software.app_store_apps[]",
+      "type": "*string"
+    },
+    {
+      "key": "auto_update_window_start",
+      "path": "team_settings.software.app_store_apps[]",
+      "type": "*string"
+    },
+    {
+      "key": "categories",
+      "path": "team_settings.software.app_store_apps[]",
+      "type": "[]string"
+    },
+    {
+      "key": "configuration",
+      "path": "team_settings.software.app_store_apps[]",
+      "type": "TeamSpecSoftwareAsset"
+    },
+    {
+      "key": "display_name",
+      "path": "team_settings.software.app_store_apps[]",
+      "type": "string"
+    },
+    {
+      "key": "icon",
+      "path": "team_settings.software.app_store_apps[]",
+      "type": "TeamSpecSoftwareAsset"
+    },
+    {
+      "key": "labels_exclude_any",
+      "path": "team_settings.software.app_store_apps[]",
+      "type": "[]string"
+    },
+    {
+      "key": "labels_include_all",
+      "path": "team_settings.software.app_store_apps[]",
+      "type": "[]string"
+    },
+    {
+      "key": "labels_include_any",
+      "path": "team_settings.software.app_store_apps[]",
+      "type": "[]string"
+    },
+    {
+      "key": "platform",
+      "path": "team_settings.software.app_store_apps[]",
+      "type": "string"
+    },
+    {
+      "key": "self_service",
+      "path": "team_settings.software.app_store_apps[]",
+      "type": "bool"
+    },
+    {
+      "key": "setup_experience",
+      "path": "team_settings.software.app_store_apps[]",
+      "type": "Bool"
+    },
+    {
+      "key": "path",
+      "path": "team_settings.software.app_store_apps[].configuration",
+      "type": "string"
+    },
+    {
+      "key": "path",
+      "path": "team_settings.software.app_store_apps[].icon",
+      "type": "string"
+    },
+    {
+      "key": "categories",
+      "path": "team_settings.software.fleet_maintained_apps[]",
+      "type": "Slice[string]"
+    },
+    {
+      "key": "display_name",
+      "path": "team_settings.software.fleet_maintained_apps[]",
+      "type": "string"
+    },
+    {
+      "key": "icon",
+      "path": "team_settings.software.fleet_maintained_apps[]",
+      "type": "TeamSpecSoftwareAsset"
+    },
+    {
+      "key": "install_script",
+      "path": "team_settings.software.fleet_maintained_apps[]",
+      "type": "TeamSpecSoftwareAsset"
+    },
+    {
+      "key": "labels_exclude_any",
+      "path": "team_settings.software.fleet_maintained_apps[]",
+      "type": "[]string"
+    },
+    {
+      "key": "labels_include_all",
+      "path": "team_settings.software.fleet_maintained_apps[]",
+      "type": "[]string"
+    },
+    {
+      "key": "labels_include_any",
+      "path": "team_settings.software.fleet_maintained_apps[]",
+      "type": "[]string"
+    },
+    {
+      "key": "post_install_script",
+      "path": "team_settings.software.fleet_maintained_apps[]",
+      "type": "TeamSpecSoftwareAsset"
+    },
+    {
+      "key": "pre_install_query",
+      "path": "team_settings.software.fleet_maintained_apps[]",
+      "type": "TeamSpecSoftwareAsset"
+    },
+    {
+      "key": "self_service",
+      "path": "team_settings.software.fleet_maintained_apps[]",
+      "type": "bool"
+    },
+    {
+      "key": "setup_experience",
+      "path": "team_settings.software.fleet_maintained_apps[]",
+      "type": "Bool"
+    },
+    {
+      "key": "setup_experience_platform",
+      "path": "team_settings.software.fleet_maintained_apps[]",
+      "type": "String"
+    },
+    {
+      "key": "slug",
+      "path": "team_settings.software.fleet_maintained_apps[]",
+      "type": "string"
+    },
+    {
+      "key": "uninstall_script",
+      "path": "team_settings.software.fleet_maintained_apps[]",
+      "type": "TeamSpecSoftwareAsset"
+    },
+    {
+      "key": "version",
+      "path": "team_settings.software.fleet_maintained_apps[]",
+      "type": "string"
+    },
+    {
+      "key": "path",
+      "path": "team_settings.software.fleet_maintained_apps[].icon",
+      "type": "string"
+    },
+    {
+      "key": "path",
+      "path": "team_settings.software.fleet_maintained_apps[].install_script",
+      "type": "string"
+    },
+    {
+      "key": "path",
+      "path": "team_settings.software.fleet_maintained_apps[].post_install_script",
+      "type": "string"
+    },
+    {
+      "key": "path",
+      "path": "team_settings.software.fleet_maintained_apps[].pre_install_query",
+      "type": "string"
+    },
+    {
+      "key": "path",
+      "path": "team_settings.software.fleet_maintained_apps[].uninstall_script",
+      "type": "string"
+    },
+    {
+      "key": "always_download",
+      "path": "team_settings.software.packages[]",
+      "type": "bool"
+    },
+    {
+      "key": "categories",
+      "path": "team_settings.software.packages[]",
+      "type": "Slice[string]"
+    },
+    {
+      "key": "configuration",
+      "path": "team_settings.software.packages[]",
+      "type": "TeamSpecSoftwareAsset"
+    },
+    {
+      "key": "display_name",
+      "path": "team_settings.software.packages[]",
+      "type": "string"
+    },
+    {
+      "key": "hash_sha256",
+      "path": "team_settings.software.packages[]",
+      "type": "string"
+    },
+    {
+      "key": "icon",
+      "path": "team_settings.software.packages[]",
+      "type": "TeamSpecSoftwareAsset"
+    },
+    {
+      "key": "install_script",
+      "path": "team_settings.software.packages[]",
+      "type": "TeamSpecSoftwareAsset"
+    },
+    {
+      "key": "labels_exclude_any",
+      "path": "team_settings.software.packages[]",
+      "type": "[]string"
+    },
+    {
+      "key": "labels_include_all",
+      "path": "team_settings.software.packages[]",
+      "type": "[]string"
+    },
+    {
+      "key": "labels_include_any",
+      "path": "team_settings.software.packages[]",
+      "type": "[]string"
+    },
+    {
+      "key": "post_install_script",
+      "path": "team_settings.software.packages[]",
+      "type": "TeamSpecSoftwareAsset"
+    },
+    {
+      "key": "pre_install_query",
+      "path": "team_settings.software.packages[]",
+      "type": "TeamSpecSoftwareAsset"
+    },
+    {
+      "key": "referenced_yaml_path",
+      "path": "team_settings.software.packages[]",
+      "type": "string"
+    },
+    {
+      "key": "self_service",
+      "path": "team_settings.software.packages[]",
+      "type": "bool"
+    },
+    {
+      "key": "setup_experience",
+      "path": "team_settings.software.packages[]",
+      "type": "Bool"
+    },
+    {
+      "key": "setup_experience_platform",
+      "path": "team_settings.software.packages[]",
+      "type": "String"
+    },
+    {
+      "key": "slug",
+      "path": "team_settings.software.packages[]",
+      "type": "*string"
+    },
+    {
+      "key": "uninstall_script",
+      "path": "team_settings.software.packages[]",
+      "type": "TeamSpecSoftwareAsset"
+    },
+    {
+      "key": "url",
+      "path": "team_settings.software.packages[]",
+      "type": "string"
+    },
+    {
+      "key": "version",
+      "path": "team_settings.software.packages[]",
+      "type": "string"
+    },
+    {
+      "key": "path",
+      "path": "team_settings.software.packages[].configuration",
+      "type": "string"
+    },
+    {
+      "key": "path",
+      "path": "team_settings.software.packages[].icon",
+      "type": "string"
+    },
+    {
+      "key": "path",
+      "path": "team_settings.software.packages[].install_script",
+      "type": "string"
+    },
+    {
+      "key": "path",
+      "path": "team_settings.software.packages[].post_install_script",
+      "type": "string"
+    },
+    {
+      "key": "path",
+      "path": "team_settings.software.packages[].pre_install_query",
+      "type": "string"
+    },
+    {
+      "key": "path",
+      "path": "team_settings.software.packages[].uninstall_script",
+      "type": "string"
+    },
+    {
+      "key": "failing_policies_webhook",
+      "path": "team_settings.webhook_settings",
+      "type": "FailingPoliciesWebhookSettings"
+    },
+    {
+      "key": "host_activities_webhook",
+      "path": "team_settings.webhook_settings",
+      "type": "*HostActivitiesWebhookSettings"
+    },
+    {
+      "key": "host_status_webhook",
+      "path": "team_settings.webhook_settings",
+      "type": "*HostStatusWebhookSettings"
+    },
+    {
+      "key": "destination_url",
+      "path": "team_settings.webhook_settings.failing_policies_webhook",
+      "type": "string"
+    },
+    {
+      "key": "enable_failing_policies_webhook",
+      "path": "team_settings.webhook_settings.failing_policies_webhook",
+      "type": "bool"
+    },
+    {
+      "key": "host_batch_size",
+      "path": "team_settings.webhook_settings.failing_policies_webhook",
+      "type": "int"
+    },
+    {
+      "key": "policy_ids",
+      "path": "team_settings.webhook_settings.failing_policies_webhook",
+      "type": "[]uint"
+    },
+    {
+      "key": "destination_url",
+      "path": "team_settings.webhook_settings.host_activities_webhook",
+      "type": "string"
+    },
+    {
+      "key": "enable_host_activities_webhook",
+      "path": "team_settings.webhook_settings.host_activities_webhook",
+      "type": "bool"
+    },
+    {
+      "key": "days_count",
+      "path": "team_settings.webhook_settings.host_status_webhook",
+      "type": "int"
+    },
+    {
+      "key": "destination_url",
+      "path": "team_settings.webhook_settings.host_status_webhook",
+      "type": "string"
+    },
+    {
+      "key": "enable_host_status_webhook",
+      "path": "team_settings.webhook_settings.host_status_webhook",
+      "type": "bool"
+    },
+    {
+      "key": "host_percentage",
+      "path": "team_settings.webhook_settings.host_status_webhook",
+      "type": "float64"
+    }
+  ]
+}

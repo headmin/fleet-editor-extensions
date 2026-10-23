@@ -678,8 +678,8 @@ fn complete_policy_fields(line: &str, col_idx: usize) -> Vec<CompletionItem> {
             false,
         ),
         (
-            "conditional_access_bypass_enabled",
-            "Allow conditional-access bypass (Fleet Premium)",
+            "continuous_automations_enabled",
+            "Re-run install/script on every failing result",
             false,
         ),
         // All four scopes are policy-valid (policies.go:646-649).

@@ -416,6 +416,9 @@ pub static DEPRECATION_REGISTRY: Lazy<DeprecationRegistry> = Lazy::new(|| {
                         "controls.windows_settings.custom_settings[]",
                         "controls.android_settings.configuration_profiles[]",
                         "controls.android_settings.custom_settings[]",
+                        // Apple DDM assets share MDMProfileSpec.
+                        "controls.apple_settings.assets[]",
+                        "controls.macos_settings.assets[]",
                     ],
                 },
                 deprecated_in: deprecated_version(),

@@ -93,9 +93,9 @@
       "description": "Enable conditional access for this policy",
       "default": false
     },
-    "conditional_access_bypass_enabled": {
+    "continuous_automations_enabled": {
       "type": "boolean",
-      "description": "Allow conditional-access bypass for this policy (Fleet Premium). Critical policies never bypass.",
+      "description": "Re-run install_software and run_script on every failing result, not only on the first failure. Must stay true when patch_when_closed or notify_before_patching is set.",
       "default": false
     },
     "webhooks_and_tickets_enabled": {
