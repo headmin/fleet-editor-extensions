@@ -21,6 +21,7 @@ pub mod deprecations;
 pub mod error;
 pub mod fix;
 pub mod fleet_config;
+pub mod fleet_vars;
 pub mod fma;
 pub mod installers;
 pub mod osquery;

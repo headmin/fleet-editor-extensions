@@ -138,6 +138,7 @@ pub fn workspace_rules(config: &super::config::FleetLintConfig) -> Vec<Box<dyn W
         }),
         Box::new(DuplicateIdentifierRule),
         Box::new(ProfileWellFormedRule),
+        Box::new(FleetVariableRule),
         Box::new(DuplicateFleetNameRule),
         Box::new(SharedBootstrapPackageRule),
         Box::new(CrossFleetDivergenceRule {
@@ -382,6 +383,66 @@ impl WorkspaceRule for ProfileWellFormedRule {
             }
             for err in super::profile::scan_bytes_and_report(f, &bytes) {
                 findings.push((f.clone(), err));
+            }
+        }
+        findings
+    }
+}
+
+// ---------------------------------------------------------------------------
+// fleet-variable: $FLEET_VAR_* Fleet would reject on upload
+// ---------------------------------------------------------------------------
+
+/// A `$FLEET_VAR_*` that Fleet does not define, or does not allow in that kind
+/// of file. Fleet resolves variables at delivery but validates them on upload,
+/// so either fails the apply ("Fleet variable $FLEET_VAR_X is not supported in
+/// configuration profiles."). Checked per artifact, against Fleet's own
+/// allow-list for the file's type (see `fleet_vars`).
+pub struct FleetVariableRule;
+
+impl WorkspaceRule for FleetVariableRule {
+    fn code(&self) -> &'static str {
+        codes::FLEET_VARIABLE
+    }
+
+    fn check(&self, ws: &Workspace) -> Vec<(PathBuf, LintError)> {
+        use super::fleet_vars::{is_defined, references, suggest, VarContext};
+        let mut findings = Vec::new();
+        for f in &ws.files {
+            let ext = f.extension().and_then(|e| e.to_str()).unwrap_or_default();
+            let Some(bytes) = ws.read(f) else { continue };
+            let ctx = match ext {
+                "mobileconfig" => Some(VarContext::AppleProfile),
+                "json" if super::profile::looks_like_declaration(&bytes) => Some(VarContext::AppleDeclaration),
+                "xml" => Some(VarContext::WindowsProfile),
+                "sh" | "zsh" | "bash" | "ps1" | "py" => Some(VarContext::Script),
+                // GitOps YAML: name templates, app configs, … each have their
+                // own list; only names Fleet does not define at all are judged.
+                "yml" | "yaml" => None,
+                _ => continue,
+            };
+            let text = String::from_utf8_lossy(&bytes);
+            for (line, name) in references(&text) {
+                let (message, help) = if !is_defined(&name) {
+                    let hint = suggest(&name)
+                        .map(|s| format!("Did you mean $FLEET_VAR_{s}?"))
+                        .unwrap_or_else(|| "See https://fleetdm.com/docs/configuration/yaml-files for the variables Fleet supports.".into());
+                    (format!("Unknown Fleet variable $FLEET_VAR_{name}"), hint)
+                } else if let Some(ctx) = ctx.filter(|c| !c.accepts(&name)) {
+                    (
+                        format!("Fleet variable $FLEET_VAR_{name} is not supported in {}", ctx.label()),
+                        "Fleet rejects the file on upload; remove the variable or move it to a file type that supports it.".into(),
+                    )
+                } else {
+                    continue;
+                };
+                findings.push((
+                    f.clone(),
+                    LintError::error(message, f)
+                        .with_rule_code(codes::FLEET_VARIABLE)
+                        .with_location(line, 1)
+                        .with_help(help),
+                ));
             }
         }
         findings
@@ -1424,6 +1485,33 @@ policies:
         let binding = [fleet];
         let ws = Workspace::from_files(vec![PathBuf::from("scripts/anything.sh")], &binding);
         assert!(UnregisteredScriptRule.check(&ws).is_empty());
+    }
+
+    #[test]
+    fn fleet_variable_checks_each_file_against_its_context() {
+        let dir = tempfile::tempdir().unwrap();
+        let write = |name: &str, body: &str| {
+            let p = dir.path().join(name);
+            std::fs::write(&p, body).unwrap();
+            p
+        };
+        let files = vec![
+            write("ok.mobileconfig", "<string>$FLEET_VAR_HOST_UUID ${FLEET_VAR_DIGICERT_DATA_ca}</string>"),
+            write("typo.mobileconfig", "<string>$FLEET_VAR_HOST_UUD</string>"),
+            write("s.sh", "#!/bin/sh\necho $FLEET_VAR_NDES_SCEP_CHALLENGE\n"),
+            write("w.xml", "<Data>$FLEET_VAR_SCEP_WINDOWS_CERTIFICATE_ID</Data>"),
+            write("readme.md", "$FLEET_VAR_NOPE is ignored outside Fleet's file types"),
+        ];
+        let ws = Workspace::from_files(files, &[]);
+        let mut msgs: Vec<String> = FleetVariableRule.check(&ws).into_iter().map(|(_, e)| e.message).collect();
+        msgs.sort();
+        assert_eq!(
+            msgs,
+            [
+                "Fleet variable $FLEET_VAR_NDES_SCEP_CHALLENGE is not supported in scripts",
+                "Unknown Fleet variable $FLEET_VAR_HOST_UUD",
+            ]
+        );
     }
 
     #[test]

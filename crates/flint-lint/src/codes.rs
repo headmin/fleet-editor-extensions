@@ -63,6 +63,7 @@ pub const DUPLICATE_PAYLOAD_UUID: &str = "duplicate-payload-uuid";
 /// A `.mobileconfig` does not parse as XML — fleetctl refuses the apply, and
 /// every other profile-level rule goes dark for that file.
 pub const PROFILE_WELL_FORMED: &str = "profile-well-formed";
+pub const FLEET_VARIABLE: &str = "fleet-variable";
 
 // --- Extra code emitted by ProfileWellFormedRule beyond its own name --------
 /// A `PayloadUUID` is not syntactically a UUID. Advisory and never fixable:
@@ -153,6 +154,7 @@ pub const CROSS_FILE: &[&str] = &[
     ORPHANED_FILE,
     DUPLICATE_IDENTIFIER,
     PROFILE_WELL_FORMED,
+    FLEET_VARIABLE,
     PAYLOAD_UUID_FORMAT,
     DUPLICATE_FLEET_NAME,
     BOOTSTRAP_PACKAGE_SHARED,
@@ -243,6 +245,7 @@ pub static REGISTRY: &[RuleMeta] = &[
     // Not fixable: a malformed profile needs an author's judgement about the
     // intended text, not a mechanical substitution.
     meta!(PROFILE_WELL_FORMED, "cross-file", None, false, false),
+    meta!(FLEET_VARIABLE, "cross-file", None, false, false),
     // Deliberately NOT fixable — see the constant's docs. Rewriting a
     // PayloadUUID makes Fleet re-deliver the profile to every enrolled host.
     meta!(PAYLOAD_UUID_FORMAT, "cross-file", None, false, false),
@@ -317,6 +320,7 @@ mod tests {
         }
         let extra = [
             PROFILE_WELL_FORMED,
+            FLEET_VARIABLE,
             PAYLOAD_UUID_FORMAT,
             PATH_CASE,
             PATH_EMPTY,

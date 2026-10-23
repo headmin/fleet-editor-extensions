@@ -42,6 +42,9 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -49,6 +52,7 @@ import (
 	"regexp"
 	"runtime/debug"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/fleetdm/fleet/v4/pkg/spec"
@@ -136,6 +140,102 @@ func checkAnyFieldTypes() error {
 		return fmt.Errorf("anyFieldTypes drifted from Fleet:\n  fleet: %v\n  here:  %v", want, got)
 	}
 	return nil
+}
+
+// fleetVars reads Fleet's variables from the pinned source (constants are
+// not reflectable): every const typed FleetVarName in package fleet, and
+// every package-level []FleetVarName allow-list in fleet and service, which
+// is how Fleet decides where a variable may appear (scripts, Apple profiles,
+// DDM, …). A value ending in `_` is a prefix that takes a CA name suffix.
+func fleetVars() ([]string, map[string][]string, error) {
+	dir, err := fleetModuleDir()
+	if err != nil {
+		return nil, nil, err
+	}
+	notTest := func(fi os.FileInfo) bool { return !strings.HasSuffix(fi.Name(), "_test.go") }
+	var files []*ast.File
+	for _, sub := range []string{"server/fleet", "server/service"} {
+		pkgs, err := parser.ParseDir(token.NewFileSet(), filepath.Join(dir, sub), notTest, 0)
+		if err != nil {
+			return nil, nil, err
+		}
+		for _, pkg := range pkgs {
+			for _, f := range pkg.Files {
+				files = append(files, f)
+			}
+		}
+	}
+	isVarName := func(e ast.Expr) bool {
+		switch x := e.(type) {
+		case *ast.Ident:
+			return x.Name == "FleetVarName"
+		case *ast.SelectorExpr:
+			return x.Sel.Name == "FleetVarName"
+		}
+		return false
+	}
+	specs := func(tok token.Token, fn func(*ast.ValueSpec)) {
+		for _, f := range files {
+			for _, decl := range f.Decls {
+				if gen, ok := decl.(*ast.GenDecl); ok && gen.Tok == tok {
+					for _, s := range gen.Specs {
+						fn(s.(*ast.ValueSpec))
+					}
+				}
+			}
+		}
+	}
+
+	byIdent := map[string]string{}
+	specs(token.CONST, func(vs *ast.ValueSpec) {
+		if vs.Type == nil || !isVarName(vs.Type) {
+			return
+		}
+		for i, v := range vs.Values {
+			if lit, ok := v.(*ast.BasicLit); ok && lit.Kind == token.STRING {
+				if s, err := strconv.Unquote(lit.Value); err == nil {
+					byIdent[vs.Names[i].Name] = s
+				}
+			}
+		}
+	})
+	contexts := map[string][]string{}
+	specs(token.VAR, func(vs *ast.ValueSpec) {
+		for i, v := range vs.Values {
+			lit, ok := v.(*ast.CompositeLit)
+			if !ok {
+				continue
+			}
+			arr, ok := lit.Type.(*ast.ArrayType)
+			if !ok || !isVarName(arr.Elt) {
+				continue
+			}
+			var names []string
+			for _, el := range lit.Elts {
+				id := ""
+				switch x := el.(type) {
+				case *ast.Ident:
+					id = x.Name
+				case *ast.SelectorExpr:
+					id = x.Sel.Name
+				}
+				if s, ok := byIdent[id]; ok {
+					names = append(names, s)
+				}
+			}
+			sort.Strings(names)
+			contexts[vs.Names[i].Name] = names
+		}
+	})
+	if len(byIdent) == 0 || len(contexts) == 0 {
+		return nil, nil, fmt.Errorf("no FleetVarName constants or allow-lists found")
+	}
+	var all []string
+	for _, s := range byIdent {
+		all = append(all, s)
+	}
+	sort.Strings(all)
+	return all, contexts, nil
 }
 
 // fleetModuleDir is where the linked Fleet module's source lives: the module
@@ -304,14 +404,24 @@ func main() {
 		fmt.Fprintf(os.Stderr, "warning: %d branch(es) hit maxDepth=%d\n", truncated, maxDepth)
 	}
 
+	vars, varContexts, err := fleetVars()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "schema-extract:", err)
+		os.Exit(1)
+	}
+
 	doc := struct {
-		FleetVersion string `json:"fleet_version"`
-		Count        int    `json:"count"`
-		Keys         []Key  `json:"keys"`
+		FleetVersion string              `json:"fleet_version"`
+		Count        int                 `json:"count"`
+		Keys         []Key               `json:"keys"`
+		FleetVars    []string            `json:"fleet_vars"`
+		VarContexts  map[string][]string `json:"fleet_var_contexts"`
 	}{
 		FleetVersion: readBuildModule("github.com/fleetdm/fleet/v4"),
 		Count:        len(keys),
 		Keys:         keys,
+		FleetVars:    vars,
+		VarContexts:  varContexts,
 	}
 
 	enc := json.NewEncoder(os.Stdout)
