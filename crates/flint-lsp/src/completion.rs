@@ -133,6 +133,11 @@ pub fn complete_at_with_context(
     // Get the line content (empty string if no line at that position)
     let line = source.lines().nth(line_idx).unwrap_or("");
 
+    // `$FLEET_VAR_…` anywhere in a value: Fleet's variables, not YAML keys.
+    if let Some(items) = complete_fleet_var(line, col_idx) {
+        return items;
+    }
+
     // Determine the context
     let context = determine_completion_context(source, line_idx, line, col_idx);
 
@@ -840,6 +845,38 @@ fn complete_platform_values() -> Vec<CompletionItem> {
         .iter()
         .map(|(platform, desc)| create_value_completion(platform, desc))
         .collect()
+}
+
+/// Fleet variables after `$FLEET_VAR_` / `${FLEET_VAR_` (or a partial `$FLE…`).
+/// The text inserted replaces the word after `$`, so it carries no `$`.
+/// Fleet-internal variables are left out: Fleet rejects them in admin files.
+fn complete_fleet_var(line: &str, col_idx: usize) -> Option<Vec<CompletionItem>> {
+    let before = line.get(..col_idx.min(line.len()))?;
+    let dollar = before.rfind('$')?;
+    let typed = before[dollar + 1..].trim_start_matches('{');
+    if typed.is_empty() || !"FLEET_VAR_".starts_with(typed) && !typed.starts_with("FLEET_VAR_") {
+        return None;
+    }
+    if !typed.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
+        return None;
+    }
+    Some(
+        flint_lint::fleet_vars::FLEET_VARS
+            .iter()
+            .filter(|v| !v.description.starts_with("Fleet-internal"))
+            .map(|v| {
+                let full = format!("FLEET_VAR_{}", v.name);
+                CompletionItem {
+                    label: format!("${full}"),
+                    kind: Some(CompletionItemKind::VARIABLE),
+                    detail: Some(v.description.to_string()),
+                    filter_text: Some(full.clone()),
+                    insert_text: Some(full),
+                    ..Default::default()
+                }
+            })
+            .collect(),
+    )
 }
 
 /// Complete logging type values.
@@ -2007,6 +2044,19 @@ fn create_path_completion(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn fleet_var_completion() {
+        use super::complete_fleet_var;
+        let line = "    name_template: $FLEET_VAR_HO";
+        let items = complete_fleet_var(line, line.len()).expect("completes after $FLEET_VAR_");
+        assert!(items.iter().any(|i| i.insert_text.as_deref() == Some("FLEET_VAR_HOST_UUID")));
+        assert!(!items.iter().any(|i| i.label.contains("HOST_TARGET_OS")), "internal vars hidden");
+        let braced = "x: ${FLEET";
+        assert!(complete_fleet_var(braced, braced.len()).is_some());
+        let other = "x: $HOME";
+        assert!(complete_fleet_var(other, other.len()).is_none());
+    }
+
     use super::*;
 
     #[test]
