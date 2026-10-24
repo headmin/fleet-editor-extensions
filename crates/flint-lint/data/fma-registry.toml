@@ -1,7 +1,7 @@
 # ============================================================================
 # Fleet Maintained Apps — slug registry for completion and validation
 # Auto-generated from fleet/ee/maintained-apps/outputs/apps.json
-# (1164 apps, 2026-10-10, fleet 2b77376bcb)
+# (1174 apps, 2026-10-24, fleet 350a9342cb)
 # Slug format: {name}/{platform} (e.g., slack/darwin)
 #
 # DO NOT EDIT BY HAND. Regenerate with:
@@ -1117,10 +1117,6 @@ name = "dcv-viewer"
 platforms = ["darwin"]
 
 [[fma]]
-name = "debookee"
-platforms = ["darwin"]
-
-[[fma]]
 name = "deckset"
 platforms = ["darwin"]
 
@@ -1533,6 +1529,10 @@ name = "fastscripts"
 platforms = ["darwin"]
 
 [[fma]]
+name = "fathom"
+platforms = ["darwin"]
+
+[[fma]]
 name = "fellow"
 platforms = ["darwin","windows"]
 
@@ -1769,6 +1769,10 @@ name = "gitfinder"
 platforms = ["darwin"]
 
 [[fma]]
+name = "github-copilot-app"
+platforms = ["darwin"]
+
+[[fma]]
 name = "github-copilot-for-xcode"
 platforms = ["darwin"]
 
@@ -1905,6 +1909,10 @@ name = "grids"
 platforms = ["darwin"]
 
 [[fma]]
+name = "grok-bot"
+platforms = ["darwin","windows"]
+
+[[fma]]
 name = "groove-omnidialer"
 platforms = ["darwin","windows"]
 
@@ -1923,6 +1931,10 @@ platforms = ["darwin"]
 [[fma]]
 name = "handbrake"
 platforms = ["windows"]
+
+[[fma]]
+name = "handy"
+platforms = ["darwin"]
 
 [[fma]]
 name = "harmony-sase"
@@ -1974,6 +1986,10 @@ platforms = ["darwin"]
 
 [[fma]]
 name = "home-assistant"
+platforms = ["darwin"]
+
+[[fma]]
+name = "homebrew-app"
 platforms = ["darwin"]
 
 [[fma]]
@@ -2369,6 +2385,10 @@ name = "little-snitch"
 platforms = ["darwin"]
 
 [[fma]]
+name = "lm-studio"
+platforms = ["darwin"]
+
+[[fma]]
 name = "local"
 platforms = ["darwin"]
 
@@ -2383,6 +2403,10 @@ platforms = ["darwin"]
 [[fma]]
 name = "logi-options+"
 platforms = ["darwin","windows"]
+
+[[fma]]
+name = "logitech-g-hub"
+platforms = ["darwin"]
 
 [[fma]]
 name = "logitech-unifying-software"
@@ -2945,6 +2969,10 @@ name = "nvidia-sync"
 platforms = ["darwin"]
 
 [[fma]]
+name = "nvm-windows"
+platforms = ["windows"]
+
+[[fma]]
 name = "obs"
 platforms = ["darwin","windows"]
 
@@ -3397,6 +3425,14 @@ name = "qemu"
 platforms = ["windows"]
 
 [[fma]]
+name = "qgis"
+platforms = ["darwin","windows"]
+
+[[fma]]
+name = "qgis@ltr"
+platforms = ["darwin","windows"]
+
+[[fma]]
 name = "qlab"
 platforms = ["darwin"]
 
@@ -3531,10 +3567,6 @@ platforms = ["darwin","windows"]
 [[fma]]
 name = "rightfont"
 platforms = ["darwin"]
-
-[[fma]]
-name = "ringcentral"
-platforms = ["windows"]
 
 [[fma]]
 name = "rive"
@@ -3858,7 +3890,7 @@ platforms = ["darwin"]
 
 [[fma]]
 name = "splashtop-streamer"
-platforms = ["darwin"]
+platforms = ["darwin","windows"]
 
 [[fma]]
 name = "splice"
@@ -3959,6 +3991,10 @@ platforms = ["darwin"]
 [[fma]]
 name = "supercollider"
 platforms = ["darwin","windows"]
+
+[[fma]]
+name = "superhuman-docs"
+platforms = ["darwin"]
 
 [[fma]]
 name = "superhuman"
@@ -4262,6 +4298,10 @@ platforms = ["darwin"]
 
 [[fma]]
 name = "unity-hub"
+platforms = ["darwin"]
+
+[[fma]]
+name = "unnaturalscrollwheels"
 platforms = ["darwin"]
 
 [[fma]]

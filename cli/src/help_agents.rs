@@ -879,6 +879,8 @@ PROCEDURE blank_template(kind):
   software.fleet_maintained_apps: - slug: <app>/<platform>   (e.g. santa/darwin)
   Optional: self_service, setup_experience, labels_*, categories, scripts, version.
   `flint fleet fma` checks the slug against what your Fleet server offers.
+  IF fma-slug flags an app Fleet just added: `flint fma refresh` regenerates the
+  list from Fleet (repo copy: `[fma] registry = "fma-registry.toml"` in fleetlint.toml).
 "#;
 
 const SOP_HISTORY: &str = r#"# SOP: Rule history — replay, mine, diff, gate

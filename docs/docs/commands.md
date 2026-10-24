@@ -505,11 +505,32 @@ same registry that powers editor completions and the `fma-slug` lint rule.
 flint fma search slack            # ready-to-paste slugs (slack/darwin, slack/windows)
 flint fma show raycast            # platforms, latest version, installer URL
 flint fma latest --days 7         # recent version bumps from fmalibrary.com
-flint fma refresh                 # update the local registry cache from the feed
+flint fma refresh                 # regenerate the app list from Fleet, update versions
 ```
 
-`refresh` writes `~/.cache/flint/fma-cache.toml`; lint, completions, and
-search all pick it up immediately. Everything accepts `--json`.
+flint ships with a list of Fleet-maintained apps, which ages between flint
+releases. `refresh` regenerates the full list from Fleet's own
+`ee/maintained-apps/outputs/apps.json` and writes it to
+`~/.cache/flint/fma-registry.toml`. That file then overrides the bundled list,
+so apps Fleet added are accepted and apps it removed are flagged. It also
+fetches recent versions from fmalibrary.com into `~/.cache/flint/fma-cache.toml`.
+Lint, completions and search pick both up immediately. Everything accepts
+`--json`.
+
+To give CI, editors and teammates the same list, generate it into the repo and
+point `fleetlint.toml` at it:
+
+```bash
+flint fma refresh --output fma-registry.toml
+```
+
+```toml
+[fma]
+registry = "fma-registry.toml"
+```
+
+Then `flint fma refresh` in that repo updates the committed file, and the
+change shows up as a diff to review.
 
 ## Fleet instance views (`flint fleet`)
 

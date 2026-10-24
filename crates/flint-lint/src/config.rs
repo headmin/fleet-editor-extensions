@@ -99,6 +99,9 @@ pub struct FleetLintConfig {
     /// Per-path rule levels, applied over `[rules]` in order (later wins).
     pub overrides: Vec<OverrideConfig>,
 
+    /// Fleet-maintained app registry settings.
+    pub fma: FmaConfig,
+
     /// Compiled include/exclude glob sets (built on first use; skipped by
     /// serde and reset on clone — see the manual `Clone` impl).
     #[serde(skip)]
@@ -137,6 +140,7 @@ impl Clone for FleetLintConfig {
             orphans: self.orphans.clone(),
             extend: self.extend.clone(),
             overrides: self.overrides.clone(),
+            fma: self.fma.clone(),
             compiled: once_cell::sync::OnceCell::new(),
             // Carried, unlike `compiled`: the base directory describes where
             // the globs are anchored, and a clone that forgot it would stop
@@ -399,6 +403,16 @@ impl RulesConfig {
     fn codes(&self) -> impl Iterator<Item = &String> {
         self.disabled.iter().chain(&self.ignore).chain(&self.warn).chain(&self.error)
     }
+}
+
+/// `[fma]`: where this repo keeps its generated FMA registry.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct FmaConfig {
+    /// Registry file written by `flint fma refresh` (relative to this config),
+    /// used instead of the bundled list and the user cache. Committing it
+    /// gives CI, editors and teammates the same app list.
+    pub registry: Option<String>,
 }
 
 /// `[[overrides]]`: rule levels for the files matching `files` (globs
@@ -673,6 +687,9 @@ impl FleetLintConfig {
         // The `[files]` globs are written relative to this directory; remember
         // it so an absolute path can be matched against them.
         config.base_dir = path.parent().map(|p| p.to_path_buf());
+        if let (Some(reg), Some(dir)) = (&config.fma.registry, &config.base_dir) {
+            crate::fma::use_registry_file(dir.join(reg));
+        }
         Ok(config)
     }
 
@@ -1019,6 +1036,7 @@ flint is linting with defaults. Fix the file or move it aside."
         rule_lists(&mut schema["properties"]["overrides"]["items"]["properties"]["rules"]);
         schema["properties"]["extend"] = json!({ "type": "string", "description": "Base config this file overlays, relative to this file" });
         schema["properties"]["fleet"]["properties"]["env"]["additionalProperties"] = json!({ "type": "string" });
+        schema["properties"]["fma"]["properties"]["registry"] = json!({ "type": "string", "description": "FMA registry written by `flint fma refresh`, relative to this file" });
         schema["$schema"] = json!("http://json-schema.org/draft-07/schema#");
         schema["$id"] = json!("https://flint.macadmin.me/schemas/fleetlint.json");
         schema["title"] = json!("flint configuration (fleetlint.toml)");

@@ -966,9 +966,17 @@ pub(crate) enum FmaKind {
         json: bool,
     },
 
-    /// Fetch the fmalibrary.com feed and refresh the local registry cache
-    /// (~/.cache/flint/fma-cache.toml) used by lint, the LSP, and search.
-    Refresh,
+    /// Regenerate the app list from Fleet's apps.json (overrides the bundled
+    /// one) and refresh versions from the fmalibrary.com feed.
+    ///
+    /// The list goes to `[fma] registry` in fleetlint.toml when set, else
+    /// ~/.cache/flint/fma-registry.toml.
+    Refresh {
+        /// Write the app list here instead (e.g. into the GitOps repo, then
+        /// point `[fma] registry` at it)
+        #[arg(long, value_name = "FILE")]
+        output: Option<std::path::PathBuf>,
+    },
 }
 
 /// The `flint fleet` read-only subcommands.
