@@ -114,23 +114,37 @@ impl DeprecationRule {
                     } = &dep.kind
                     {
                         let (line, col) = find_key_position(source, key_str, path);
+                        // The new name already sits next to the old one: a
+                        // rename would create a duplicate key, and YAML keeps
+                        // only one — silently dropping the other block's
+                        // entries. Merging is a human edit, so no fix.
+                        let conflict = map.contains_key(serde_yaml::Value::String(new_key.to_string()));
+                        let attach = |err: LintError| -> LintError {
+                            if conflict {
+                                err.with_help(format!(
+                                    "'{new_key}' already exists here: move the entries of '{old_key}' into it, then delete '{old_key}' (renaming would create a duplicate key)"
+                                ))
+                            } else {
+                                err.with_help(format!("Replace '{}' with '{}'", old_key, new_key))
+                                    .with_fix(super::error::Fix::Replace {
+                                        old: Some(old_key.to_string()),
+                                        new: new_key.to_string(),
+                                        safety: super::error::FixSafety::Safe,
+                                    })
+                            }
+                        };
 
                         match phase {
                             DeprecationPhase::Warning => {
-                                let mut err = LintError::warning(
+                                let err = LintError::warning(
                                     format!(
                                         "Key '{}' is deprecated since Fleet v{}. Use '{}' instead.",
                                         old_key, dep.deprecated_in, new_key
                                     ),
                                     file,
                                 )
-                                .with_help(format!("Replace '{}' with '{}'", old_key, new_key))
-                                .with_context(old_key.to_string())
-                                .with_fix(super::error::Fix::Replace {
-                                    old: Some(old_key.to_string()),
-                                    new: new_key.to_string(),
-                                    safety: super::error::FixSafety::Safe,
-                                });
+                                .with_context(old_key.to_string());
+                                let mut err = attach(err);
 
                                 if let Some(l) = line {
                                     err = err.with_location(l, col.unwrap_or(1));
@@ -138,7 +152,7 @@ impl DeprecationRule {
                                 errors.push(err);
                             }
                             DeprecationPhase::Error => {
-                                let mut err = LintError::error(
+                                let err = LintError::error(
                                     format!(
                                         "Key '{}' was removed in Fleet v{}. Use '{}' instead.",
                                         old_key,
@@ -147,13 +161,8 @@ impl DeprecationRule {
                                     ),
                                     file,
                                 )
-                                .with_help(format!("Replace '{}' with '{}'", old_key, new_key))
-                                .with_context(old_key.to_string())
-                                .with_fix(super::error::Fix::Replace {
-                                    old: Some(old_key.to_string()),
-                                    new: new_key.to_string(),
-                                    safety: super::error::FixSafety::Safe,
-                                });
+                                .with_context(old_key.to_string());
+                                let mut err = attach(err);
 
                                 if let Some(l) = line {
                                     err = err.with_location(l, col.unwrap_or(1));
@@ -355,6 +364,22 @@ controls:
         let yaml3 = "controls:\n  windows_settings:\n    enable_managed_local_account: true\n";
         let errors3 = check_with_version(yaml3, "fleets/ccs.yml", VersionContext::latest().version);
         assert!(errors3.is_empty(), "{errors3:?}");
+    }
+
+    #[test]
+    fn no_rename_fix_when_new_key_already_exists() {
+        // A rename next to the new key would create a duplicate key, and YAML
+        // keeps only one block — the other's profiles vanish.
+        let both = "controls:\n  macos_settings:\n    custom_settings: []\n  apple_settings:\n    configuration_profiles: []\n";
+        let errs = check_with_version(both, "fleets/a.yml", VersionContext::latest().version);
+        let w = errs.iter().find(|e| e.message.contains("'macos_settings'")).expect("still warned");
+        assert!(w.fix_safety().is_none(), "no auto-fix on conflict");
+        assert!(w.help.as_deref().unwrap_or_default().contains("already exists here"), "{:?}", w.help);
+
+        let alone = "controls:\n  macos_settings:\n    custom_settings: []\n";
+        let errs = check_with_version(alone, "fleets/a.yml", VersionContext::latest().version);
+        let w = errs.iter().find(|e| e.message.contains("'macos_settings'")).unwrap();
+        assert!(w.fix_safety().is_some(), "plain rename keeps its fix");
     }
 
     #[test]

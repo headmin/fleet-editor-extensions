@@ -61,10 +61,11 @@ pub(crate) fn run(args: PkgArgs) -> anyhow::Result<()> {
         } else {
             println!("{stanza}");
         }
+        // A hint, not YAML: stderr, so `> policy.yml` stays valid.
         if enforce {
-            println!(
+            eprintln!(
                 "  {}",
-                "enforcement: add this package to the team's software list (same hash) so Fleet can install it on failing hosts.".dimmed()
+                "note: add this package to the fleet's software list (same hash) so Fleet can install it on failing hosts.".dimmed()
             );
         }
         return Ok(());
@@ -205,6 +206,24 @@ pub(crate) fn run(args: PkgArgs) -> anyhow::Result<()> {
                 println!("{} updated {} in {}", "✓".green(), identifier, target.display());
                 println!("  version: {} → {}", old_v.dimmed(), version.green());
                 println!("  hash:    {} → {}", old_h.dimmed(), sha256.green());
+                // Policies install this package by the old hash
+                // (`install_software.hash_sha256`); carry the new one over so
+                // they keep installing it. A sha256 is unique, so exact
+                // replacement cannot touch anything else.
+                if old_h.len() == 64 && old_h != sha256 {
+                    let target_abs = target.canonicalize()?;
+                    let root = discover_gitops_root(&target_abs);
+                    for file in yaml_files(&root) {
+                        if file.canonicalize().ok().as_ref() == Some(&target_abs) {
+                            continue;
+                        }
+                        let Ok(text) = std::fs::read_to_string(&file) else { continue };
+                        if text.contains(old_h.as_str()) {
+                            std::fs::write(&file, text.replace(old_h.as_str(), &sha256))?;
+                            println!("  {} hash in {}", "✓ updated".green(), file.display());
+                        }
+                    }
+                }
             }
             None => anyhow::bail!(
                 "no stanza for '{}' found in {} (expects a '# {} (...)' header)",
@@ -299,4 +318,23 @@ fn build_pkg_block(path: &std::path::Path, full: bool) -> anyhow::Result<String>
     } else {
         metadata_block(&info, &filename, &sha256)
     })
+}
+
+/// YAML files under `dir`, skipping hidden directories and build output.
+fn yaml_files(dir: &std::path::Path) -> Vec<std::path::PathBuf> {
+    let mut out = Vec::new();
+    let Ok(entries) = std::fs::read_dir(dir) else { return out };
+    for entry in entries.flatten() {
+        let p = entry.path();
+        let name = entry.file_name();
+        let name = name.to_string_lossy();
+        if p.is_dir() {
+            if !name.starts_with('.') && name != "target" && name != "node_modules" {
+                out.extend(yaml_files(&p));
+            }
+        } else if name.ends_with(".yml") || name.ends_with(".yaml") {
+            out.push(p);
+        }
+    }
+    out
 }

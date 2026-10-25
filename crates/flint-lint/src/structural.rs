@@ -242,8 +242,30 @@ fn validate_node(
                 errors.push(err);
             }
         }
-        SchemaNode::Leaf | SchemaNode::OpenMapping => {
-            // No structural validation needed
+        SchemaNode::Leaf => {
+            // A value-only key that got a list or a mapping: almost always the
+            // next lines were indented one level too far and became its value
+            // (`- paths:` followed by indented `- path:` items).
+            if value.is_sequence() || value.is_mapping() {
+                let key_name = path.rsplit('.').next().unwrap_or(path);
+                let key_name = key_name.split('[').next().unwrap_or(key_name);
+                let parent = path.rsplit_once('.').map_or("", |(p, _)| p);
+                let (line, col) = find_key_position(source, key_name, parent);
+                let what = if value.is_sequence() { "a list" } else { "nested keys" };
+                let mut err = LintError::error(
+                    format!("'{key_name}' takes a single value, but the lines under it make it {what}"),
+                    file,
+                )
+                .with_rule_code(crate::codes::STRUCTURAL_VALIDATION)
+                .with_help(format!("Give '{key_name}' its value on the same line, and indent the lines below as its siblings, not its children"));
+                if let Some(l) = line {
+                    err = err.with_span(span_for(l, col, key_name));
+                }
+                errors.push(err);
+            }
+        }
+        SchemaNode::OpenMapping => {
+            // Free-form content: nothing to check
         }
     }
 }
@@ -456,7 +478,9 @@ fn find_key_position(source: &str, key: &str, _path: &str) -> (Option<usize>, Op
     let pattern = format!("{}:", key);
 
     for (line_idx, line) in source.lines().enumerate() {
+        // A list item's first key (`- paths:`) counts too.
         let trimmed = line.trim_start();
+        let trimmed = trimmed.strip_prefix("- ").unwrap_or(trimmed);
         if trimmed.starts_with(&pattern)
             || trimmed.starts_with(&format!("\"{}\":", key))
             || trimmed.starts_with(&format!("'{}':", key))
@@ -469,7 +493,42 @@ fn find_key_position(source: &str, key: &str, _path: &str) -> (Option<usize>, Op
     (None, None)
 }
 
-/// Find the source position of a value (after the colon) for a given key.
+/// When a file does not parse, the structural pass cannot run, and the parse
+/// error often points far below the real mistake: a section dedented to the
+/// left margin breaks the YAML only where its old children follow. A line
+/// scan still marks margin keys that belong under a section, where they are.
+pub(crate) fn misplaced_margin_keys(source: &str, file: &Path) -> Vec<LintError> {
+    let SchemaNode::Mapping(root) = super::structure::schema_for_path(file) else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    for (i, line) in source.lines().enumerate() {
+        if line.starts_with([' ', '\t', '#', '-']) {
+            continue;
+        }
+        let Some((key, _)) = line.split_once(':') else { continue };
+        let key = key.trim();
+        if key.is_empty() || root.contains_key(key) {
+            continue;
+        }
+        // The shortest non-list home, e.g. `controls` for setup_experience.
+        let Some(parent) = KEY_REGISTRY
+            .lookup(key)
+            .and_then(|paths| paths.iter().filter(|p| !p.is_empty() && !p.contains('[')).min_by_key(|p| p.len()))
+        else {
+            continue;
+        };
+        let top = parent.split('.').next().unwrap_or(parent);
+        out.push(
+            LintError::error(format!("Top-level key '{key}' must be nested under '{top}'"), file)
+                .with_rule_code(crate::codes::STRUCTURAL_VALIDATION)
+                .with_help(format!("Place '{key}' inside '{parent}' instead"))
+                .with_span(span_for(i + 1, Some(1), key)),
+        );
+    }
+    out
+}
+
 /// Build a span for a key diagnostic from what these rules already know.
 ///
 /// A missing column means the key was not located textually; fall back to
@@ -479,6 +538,7 @@ fn span_for(line: usize, col: Option<usize>, key: &str) -> Span {
     Span::token(line, col.unwrap_or(1), key.chars().count())
 }
 
+/// Find the source position of a value (after the colon) for a given key.
 fn find_value_position(source: &str, key: &str, _path: &str) -> (Option<usize>, Option<usize>) {
     let pattern = format!("{}:", key);
 

@@ -381,6 +381,10 @@ pub struct LintReport {
     pub errors: Vec<LintError>,
     pub warnings: Vec<LintError>,
     pub infos: Vec<LintError>,
+    /// `(comment line, code)` of each `# flint: ignore` that suppressed a
+    /// finding (code `""` for a blanket comment). Read by the
+    /// unused-ignore-comment check once every pass has run.
+    pub suppression_hits: Vec<(usize, String)>,
 }
 
 impl LintReport {

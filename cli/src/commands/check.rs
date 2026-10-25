@@ -102,10 +102,13 @@ fn print_next_steps(results: &[(PathBuf, linter::error::LintReport)], errors: us
 }
 
 pub(crate) fn run(args: CheckArgs) -> anyhow::Result<()> {
+    // After --fix edits files, the report is rebuilt from disk with this.
+    let relint = CheckArgs { fix: false, unsafe_fixes: false, add_ignore: false, ..args.clone() };
     let CheckArgs {
         paths,
         fix,
         unsafe_fixes,
+        add_ignore,
         mut format,
         hook_mode,
         staged,
@@ -116,6 +119,9 @@ pub(crate) fn run(args: CheckArgs) -> anyhow::Result<()> {
         base,
         env,
         exclude,
+        error_rules,
+        warn_rules,
+        ignore_rules,
     } = args;
 
     use colored::Colorize;
@@ -173,6 +179,14 @@ pub(crate) fn run(args: CheckArgs) -> anyhow::Result<()> {
     // root relative too, and `[files] include` globs anchored there reject
     // every absolute path a repo-rooted lint produces — a scoped run then
     // saw zero files and reported a clean fleet.
+    // A config that exists but does not parse: stop with exit 3 instead of
+    // linting with defaults (hooks keep exiting 0 and just get the warning).
+    if !hook_mode {
+        if let Some((cfg, err)) = linter::FleetLintConfig::find_unparseable(&lexical_normalize(&lint_paths[0])) {
+            eprintln!("error: {} could not be parsed — fix it before linting.\n  {err}", cfg.display());
+            std::process::exit(3);
+        }
+    }
     let mut linter = Linter::from_path(&lexical_normalize(&lint_paths[0]));
 
     // Merge any `--exclude` globs into the loaded config (creating a
@@ -181,6 +195,19 @@ pub(crate) fn run(args: CheckArgs) -> anyhow::Result<()> {
     if !exclude.is_empty() {
         let mut cfg = linter.config().clone();
         cfg.files.exclude.extend(exclude.iter().cloned());
+        linter.set_config(cfg);
+    }
+    // --error/--warn/--ignore: the last override, matching every file.
+    if !(error_rules.is_empty() && warn_rules.is_empty() && ignore_rules.is_empty()) {
+        let known = |c: &String| linter::codes::meta(c).is_some();
+        if let Some(bad) = error_rules.iter().chain(&warn_rules).chain(&ignore_rules).find(|c| !known(c)) {
+            anyhow::bail!("`{bad}` is not a rule code (see `flint list-rules`)");
+        }
+        let mut cfg = linter.config().clone();
+        cfg.overrides.push(linter::OverrideConfig {
+            files: vec!["**".into()],
+            rules: linter::RulesConfig { error: error_rules, warn: warn_rules, ignore: ignore_rules, ..Default::default() },
+        });
         linter.set_config(cfg);
     }
     let json_mode = format == "json";
@@ -297,6 +324,47 @@ pub(crate) fn run(args: CheckArgs) -> anyhow::Result<()> {
         scope_context = Some((sc.label(), dropped));
     }
 
+    if add_ignore {
+        use linter::codes::{IGNORE_COMMENT_UNKNOWN_RULE, UNUSED_IGNORE_COMMENT, YAML_TRAILING_WHITESPACE};
+        let mut by_file: std::collections::BTreeMap<PathBuf, Vec<(usize, &str)>> = Default::default();
+        let mut no_line = 0;
+        for (_, report) in &results {
+            for e in report.errors.iter().chain(&report.warnings).chain(&report.infos) {
+                let Some(code) = e.rule_code else { continue };
+                // An appended comment would itself end the trailing whitespace;
+                // `--fix` removes it anyway.
+                if [UNUSED_IGNORE_COMMENT, IGNORE_COMMENT_UNKNOWN_RULE, YAML_TRAILING_WHITESPACE].contains(&code) {
+                    continue;
+                }
+                match e.line() {
+                    Some(line) => by_file.entry(e.file.clone()).or_default().push((line, code)),
+                    None => no_line += 1,
+                }
+            }
+        }
+        let (mut files, mut skipped) = (0, 0);
+        for (file, found) in &by_file {
+            let source = std::fs::read_to_string(file)?;
+            let (out, s) = linter::fix::add_ignore_comments(&source, found);
+            skipped += s;
+            if out != source {
+                std::fs::write(file, out)?;
+                files += 1;
+            }
+        }
+        if !structured_mode {
+            println!("{} Added ignore comments in {files} file(s)", "✓".green());
+            if skipped > 0 {
+                println!("  {skipped} line(s) left as is: a comment there would change the YAML, or the line has another comment");
+            }
+            if no_line > 0 {
+                println!("  {no_line} finding(s) have no line, so no comment can suppress them: use [[overrides]] in fleetlint.toml");
+            }
+            println!();
+        }
+        return run(relint);
+    }
+
     // Apply fixes if requested.
     if fix {
         let mut total_fixed = 0;
@@ -305,8 +373,12 @@ pub(crate) fn run(args: CheckArgs) -> anyhow::Result<()> {
                 total_fixed += n;
             }
         }
-        if total_fixed > 0 && !structured_mode {
-            println!("{} Fixed {} issue(s)\n", "✓".green(), total_fixed);
+        if total_fixed > 0 {
+            if !structured_mode {
+                println!("{} Fixed {} issue(s)\n", "✓".green(), total_fixed);
+            }
+            // The findings above are pre-fix; report what is left instead.
+            return run(relint);
         }
     }
 

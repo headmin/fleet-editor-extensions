@@ -144,7 +144,7 @@ pub(crate) fn find_path_value_line(source: &str, path_value: &str) -> Option<Spa
             if !is_path_key(key.trim()) {
                 continue;
             }
-            let rest = rest.trim();
+            let rest = rest.split(" #").next().unwrap_or(rest).trim(); // drop a trailing comment
             // Strip optional quotes
             let unquoted = rest
                 .trim_start_matches('"')
@@ -270,24 +270,25 @@ pub(crate) fn find_key_span(source: &str, key: &str, after_line: usize) -> Optio
 /// `platform: darwin` both resolve, and a different value on another line
 /// does not.
 pub(crate) fn find_value_span(source: &str, key: &str, value: &str) -> Option<Span> {
-    for (idx, line) in source.lines().enumerate() {
+    value_spans(source, key, value).next()
+}
+
+/// Every `key: value` line in order, as [`find_value_span`] matches them.
+pub(crate) fn value_spans<'a>(source: &'a str, key: &'a str, value: &'a str) -> impl Iterator<Item = Span> + 'a {
+    source.lines().enumerate().filter_map(move |(idx, line)| {
         let trimmed = line.trim().trim_start_matches('-').trim_start();
-        let Some(rest) = trimmed.strip_prefix(key).and_then(|r| r.trim_start().strip_prefix(':'))
-        else {
-            continue;
-        };
-        let raw = rest.trim();
+        let rest = trimmed.strip_prefix(key).and_then(|r| r.trim_start().strip_prefix(':'))?;
+        let raw = rest.split(" #").next().unwrap_or(rest).trim(); // drop a trailing comment
         if raw.trim_matches('"').trim_matches('\'') != value {
-            continue;
+            return None;
         }
         // Point at the value as written, skipping any quote so the caret
         // covers the text the user would edit.
-        return match line.rfind(value) {
-            Some(col) => Some(Span::token(idx + 1, col + 1, value.chars().count())),
-            None => Some(Span::line(idx + 1)),
-        };
-    }
-    None
+        Some(match line.rfind(value) {
+            Some(col) => Span::token(idx + 1, col + 1, value.chars().count()),
+            None => Span::line(idx + 1),
+        })
+    })
 }
 
 /// True if `content` carries no usable data: only blank lines, and — when

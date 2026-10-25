@@ -53,8 +53,9 @@ mod version_gate;
 mod yaml_lint;
 mod yaml_utils;
 
-pub use config::{ConfigError, FleetConnectionConfig, FleetLintConfig};
-pub use deprecations::{Deprecation, DeprecationKind, DeprecationPhase, DEPRECATION_REGISTRY};
+pub use structure::{describe_key, key_fit, key_home, keys_under, KeyFit, KeyShape};
+pub use config::{ConfigError, FleetConnectionConfig, FleetLintConfig, OverrideConfig, RuleLevel, RulesConfig};
+pub use deprecations::{Deprecation, DeprecationKind, DeprecationPhase, KeyNames, DEPRECATION_REGISTRY};
 pub use engine::Linter;
 pub use error::{Fix, FixSafety, LintError, LintReport, LintResult, Severity, Span};
 pub use fix::ApplyMode;

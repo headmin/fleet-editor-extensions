@@ -346,7 +346,7 @@ dependencies = [
 
 [[package]]
 name = "flint"
-version = "0.3.3"
+version = "0.3.4"
 dependencies = [
  "anyhow",
  "chrono",
@@ -366,7 +366,7 @@ dependencies = [
 
 [[package]]
 name = "flint-lint"
-version = "0.3.3"
+version = "0.3.4"
 dependencies = [
  "anyhow",
  "chrono",
@@ -385,7 +385,7 @@ dependencies = [
 
 [[package]]
 name = "flint-lsp"
-version = "0.3.3"
+version = "0.3.4"
 dependencies = [
  "anyhow",
  "dashmap",

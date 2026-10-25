@@ -10,6 +10,10 @@ use tower_lsp::lsp_types::{
     CompletionParams, CompletionResponse, Diagnostic, DiagnosticSeverity,
     DidChangeTextDocumentParams, DidChangeWatchedFilesParams,
     DidChangeWatchedFilesRegistrationOptions, DidCloseTextDocumentParams,
+    DiagnosticOptions, DiagnosticServerCapabilities, DocumentDiagnosticParams,
+    DocumentDiagnosticReport, DocumentDiagnosticReportResult, FullDocumentDiagnosticReport,
+    RelatedFullDocumentDiagnosticReport, RelatedUnchangedDocumentDiagnosticReport,
+    UnchangedDocumentDiagnosticReport,
     DidOpenTextDocumentParams, DidSaveTextDocumentParams, DocumentLink, DocumentLinkParams,
     DocumentSymbolParams, DocumentSymbolResponse, ExecuteCommandOptions, ExecuteCommandParams,
     FileSystemWatcher, FoldingRange, FoldingRangeParams, GlobPattern, GotoDefinitionParams,
@@ -28,7 +32,6 @@ use super::diagnostics::{gitops_error_to_diagnostic, lint_error_to_diagnostic};
 use super::fleet::{
     find_gitops_root, FleetConnection, ResourceCache, SharedFleetConnection, SharedResourceCache,
 };
-use super::hover::hover_at_with_context;
 use super::semantic_tokens::{compute_semantic_tokens, create_legend};
 use super::symbols::document_symbols;
 use super::workspace::{
@@ -64,6 +67,49 @@ pub struct FleetLspBackend {
     /// handler's lint is stale — it returns without linting. The
     /// debouncer is thus stateless beyond this single timestamp per URI.
     last_change_request: DashMap<String, std::time::Instant>,
+    /// Each open document's diagnostics, by source; always sent together.
+    diagnostics: Arc<Diagnostics>,
+}
+
+/// Diagnostics per document in three layers, so no source overwrites
+/// another: the per-file lint, the save-time cross-file pass and the
+/// `fleetctl gitops` dry-run. An edit clears the last two (stale until the
+/// next save).
+#[derive(Default)]
+pub(crate) struct Diagnostics {
+    layers: DashMap<String, [Vec<Diagnostic>; 3]>,
+    /// The client pulls (`textDocument/diagnostic`, LSP 3.17): it asks for a
+    /// document's diagnostics when it wants them, and is told to re-ask
+    /// (`workspace/diagnostic/refresh`) when an async layer changes.
+    pull: std::sync::atomic::AtomicBool,
+}
+
+pub(crate) const LINT: usize = 0;
+pub(crate) const CROSS_FILE: usize = 1;
+pub(crate) const GITOPS: usize = 2;
+
+impl Diagnostics {
+    fn pull(&self) -> bool {
+        self.pull.load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    fn set(&self, uri: &str, layer: usize, diags: Vec<Diagnostic>) {
+        self.layers.entry(uri.to_string()).or_default()[layer] = diags;
+    }
+
+    fn all(&self, uri: &str) -> Vec<Diagnostic> {
+        self.layers.get(uri).map(|l| l.concat()).unwrap_or_default()
+    }
+
+    /// Hand the current set to the client: published (push) or announced
+    /// for re-pull (pull).
+    async fn send(&self, client: &Client, uri: &str) {
+        if self.pull() {
+            let _ = client.workspace_diagnostic_refresh().await;
+        } else if let Ok(url) = Url::parse(uri) {
+            client.publish_diagnostics(url, self.all(uri), None).await;
+        }
+    }
 }
 
 impl FleetLspBackend {
@@ -79,6 +125,7 @@ impl FleetLspBackend {
             gitops_enabled: RwLock::new(false),
             live_completions_enabled: RwLock::new(false),
             last_change_request: DashMap::new(),
+            diagnostics: Arc::default(),
         }
     }
 
@@ -121,10 +168,16 @@ impl FleetLspBackend {
             method: "workspace/didChangeWatchedFiles".to_string(),
             register_options: Some(
                 serde_json::to_value(DidChangeWatchedFilesRegistrationOptions {
-                    watchers: vec![FileSystemWatcher {
-                        glob_pattern: GlobPattern::String("**/.fleetlint.toml".to_string()),
-                        kind: None,
-                    }],
+                    // One watcher per accepted config name: `flint init` writes
+                    // the visible `fleetlint.toml`, so watching only the hidden
+                    // one left the default config needing a server restart.
+                    watchers: ["**/fleetlint.toml", "**/.fleetlint.toml"]
+                        .into_iter()
+                        .map(|glob| FileSystemWatcher {
+                            glob_pattern: GlobPattern::String(glob.to_string()),
+                            kind: None,
+                        })
+                        .collect(),
                 })
                 .expect("DidChangeWatchedFilesRegistrationOptions must serialize"),
             ),
@@ -314,6 +367,11 @@ impl FleetLspBackend {
     /// Insert the latest content for `uri` into the document cache.
     /// Synchronous, idempotent, safe to call on every keystroke.
     fn cache_document(&self, uri: String, content: String) {
+        // The save-time layers describe the text as it was saved.
+        if let Some(mut layers) = self.diagnostics.layers.get_mut(&uri) {
+            layers[CROSS_FILE].clear();
+            layers[GITOPS].clear();
+        }
         self.documents.insert(uri, content);
     }
 
@@ -327,11 +385,8 @@ impl FleetLspBackend {
             None => return,
         };
         let diagnostics = self.lint_document(uri, &content);
-        if let Ok(url) = Url::parse(uri) {
-            self.client
-                .publish_diagnostics(url, diagnostics, None)
-                .await;
-        }
+        self.diagnostics.set(uri, LINT, diagnostics);
+        self.diagnostics.send(&self.client, uri).await;
     }
 
     /// Save-time workspace pass (ADR-010): run the repo-wide cross-file
@@ -368,7 +423,8 @@ impl FleetLspBackend {
         };
 
         let canon = file_path.canonicalize().unwrap_or_else(|_| file_path.clone());
-        let mut diags = self.lint_document(uri, &content);
+        self.diagnostics.set(uri, LINT, self.lint_document(uri, &content));
+        let mut diags = Vec::new();
         for (p, report) in &results {
             if p.canonicalize().unwrap_or_else(|_| p.clone()) != canon {
                 continue;
@@ -382,9 +438,8 @@ impl FleetLspBackend {
                 diags.push(lint_error_to_diagnostic(e, &content));
             }
         }
-        if let Ok(url) = Url::parse(uri) {
-            self.client.publish_diagnostics(url, diags, None).await;
-        }
+        self.diagnostics.set(uri, CROSS_FILE, diags);
+        self.diagnostics.send(&self.client, uri).await;
     }
 
     /// Lint a document and return LSP diagnostics.
@@ -505,6 +560,7 @@ impl FleetLspBackend {
 
         let conn = Arc::clone(&self.fleet_connection);
         let client = self.client.clone();
+        let layers = Arc::clone(&self.diagnostics);
         let uri = uri.to_string();
         let gitops_display = gitops_file.display().to_string();
 
@@ -601,10 +657,9 @@ impl FleetLspBackend {
                 client.show_message(MessageType::WARNING, msg).await;
             }
 
-            // Publish gitops diagnostics on the saved file
-            if let Ok(url) = Url::parse(&uri) {
-                client.publish_diagnostics(url, diagnostics, None).await;
-            }
+            // Alongside, not instead of, the lint findings.
+            layers.set(&uri, GITOPS, diagnostics);
+            layers.send(&client, &uri).await;
         });
     }
 
@@ -739,6 +794,9 @@ impl LanguageServer for FleetLspBackend {
             }
         }
 
+        let pull = params.capabilities.text_document.as_ref().is_some_and(|t| t.diagnostic.is_some());
+        self.diagnostics.pull.store(pull, std::sync::atomic::Ordering::Relaxed);
+
         // Override fleet_version from editor setting if provided (takes priority over .fleetlint.toml)
         if let Some(version) = &editor_fleet_version {
             if let Ok(mut linter) = self.linter.write() {
@@ -762,6 +820,18 @@ impl LanguageServer for FleetLspBackend {
                         ..Default::default()
                     },
                 )),
+                // Pull diagnostics when the client supports them; otherwise
+                // they are pushed (publishDiagnostics).
+                diagnostic_provider: pull.then(|| {
+                    DiagnosticServerCapabilities::Options(DiagnosticOptions {
+                        identifier: Some("flint".to_string()),
+                        // A save re-runs the cross-file pass, which can change
+                        // other open files' findings.
+                        inter_file_dependencies: true,
+                        workspace_diagnostics: false,
+                        work_done_progress_options: Default::default(),
+                    })
+                }),
                 // Enable hover for documentation tooltips
                 hover_provider: Some(HoverProviderCapability::Simple(true)),
                 // Enable code actions for quick-fixes
@@ -905,9 +975,42 @@ impl LanguageServer for FleetLspBackend {
         }
     }
 
+    /// Pull diagnostics: lint the current text now (the client debounces its
+    /// own requests), add the save-time layers, and answer "unchanged" when
+    /// the result matches what the client already has.
+    async fn diagnostic(&self, params: DocumentDiagnosticParams) -> Result<DocumentDiagnosticReportResult> {
+        let uri = params.text_document.uri.to_string();
+        if let Some(content) = self.documents.get(&uri).map(|c| c.value().clone()) {
+            self.diagnostics.set(&uri, LINT, self.lint_document(&uri, &content));
+        }
+        let items = self.diagnostics.all(&uri);
+        let result_id = {
+            use std::hash::{Hash, Hasher};
+            let mut h = std::collections::hash_map::DefaultHasher::new();
+            serde_json::to_string(&items).unwrap_or_default().hash(&mut h);
+            format!("{:x}", h.finish())
+        };
+        let report = if params.previous_result_id.as_deref() == Some(result_id.as_str()) {
+            DocumentDiagnosticReport::Unchanged(RelatedUnchangedDocumentDiagnosticReport {
+                related_documents: None,
+                unchanged_document_diagnostic_report: UnchangedDocumentDiagnosticReport { result_id },
+            })
+        } else {
+            DocumentDiagnosticReport::Full(RelatedFullDocumentDiagnosticReport {
+                related_documents: None,
+                full_document_diagnostic_report: FullDocumentDiagnosticReport { result_id: Some(result_id), items },
+            })
+        };
+        Ok(DocumentDiagnosticReportResult::Report(report))
+    }
+
     async fn did_open(&self, params: DidOpenTextDocumentParams) {
         let uri = params.text_document.uri.to_string();
         let content = params.text_document.text;
+        if self.diagnostics.pull() {
+            self.cache_document(uri, content);
+            return;
+        }
         self.on_change(uri, content).await;
     }
 
@@ -921,6 +1024,9 @@ impl LanguageServer for FleetLspBackend {
         // Cache the content synchronously so subsequent edits (and any
         // in-flight lint task) see the latest text. This is cheap.
         self.cache_document(uri.clone(), change.text);
+        if self.diagnostics.pull() {
+            return; // the client pulls when it wants diagnostics
+        }
 
         let debounce_ms = self.lint_debounce_ms();
         if debounce_ms == 0 {
@@ -969,7 +1075,7 @@ impl LanguageServer for FleetLspBackend {
     }
 
     async fn did_change_watched_files(&self, params: DidChangeWatchedFilesParams) {
-        // Our watcher only matches `**/.fleetlint.toml`, so every event
+        // Our watchers only match the config file names, so every event
         // here is a config change. Multiple events in one batch (rare —
         // would mean two config files changed simultaneously) collapse
         // to a single reload: find_and_load walks up from the workspace
@@ -981,7 +1087,7 @@ impl LanguageServer for FleetLspBackend {
         self.client
             .log_message(
                 MessageType::INFO,
-                ".fleetlint.toml changed; reloading config",
+                "fleetlint.toml changed; reloading config",
             )
             .await;
 
@@ -1007,6 +1113,10 @@ impl LanguageServer for FleetLspBackend {
             .iter()
             .map(|entry| entry.key().clone())
             .collect();
+        if self.diagnostics.pull() {
+            let _ = self.client.workspace_diagnostic_refresh().await;
+            return;
+        }
         for uri in open_uris {
             self.lint_and_publish(&uri).await;
         }
@@ -1023,10 +1133,13 @@ impl LanguageServer for FleetLspBackend {
 
         // Remove from cache
         self.documents.remove(&uri);
+        self.diagnostics.layers.remove(&uri);
 
-        // Clear diagnostics
-        if let Ok(url) = Url::parse(&uri) {
-            self.client.publish_diagnostics(url, vec![], None).await;
+        // Clear diagnostics (a pulling client drops them itself)
+        if !self.diagnostics.pull() {
+            if let Ok(url) = Url::parse(&uri) {
+                self.client.publish_diagnostics(url, vec![], None).await;
+            }
         }
     }
 
@@ -1067,7 +1180,8 @@ impl LanguageServer for FleetLspBackend {
                 .ok()
                 .map(|l| l.config().deprecations.future_names)
                 .unwrap_or(false);
-            Ok(hover_at_with_context(&content, position, future_names))
+            let file = Url::parse(&uri).ok().and_then(|u| u.to_file_path().ok());
+            Ok(super::hover::hover_with_place(&content, position, future_names, file.as_deref()))
         } else {
             Ok(None)
         }
@@ -1088,20 +1202,20 @@ impl LanguageServer for FleetLspBackend {
             // Get live resource cache for Fleet completions
             let cache = self.get_resource_cache();
 
-            // Read future_names flag from config
-            let future_names = self
+            // Key names for the repo's target Fleet version.
+            let names = self
                 .linter
                 .read()
                 .ok()
-                .map(|l| l.config().deprecations.future_names)
-                .unwrap_or(false);
+                .map(|l| flint_lint::KeyNames::of(l.config()))
+                .unwrap_or_else(flint_lint::KeyNames::latest);
 
             let mut items = complete_at_with_context(
                 &content,
                 position,
                 file_path.as_deref(),
                 workspace_root.as_deref(),
-                future_names,
+                &names,
             );
 
             // Inject live completions from Fleet server if available
@@ -1183,7 +1297,8 @@ impl LanguageServer for FleetLspBackend {
 
         // Get document content from cache
         if let Some(content) = self.documents.get(&uri) {
-            let tokens = compute_semantic_tokens(&content);
+            let file = Url::parse(&uri).ok().and_then(|u| u.to_file_path().ok());
+            let tokens = compute_semantic_tokens(&content, file.as_deref());
             Ok(Some(SemanticTokensResult::Tokens(tokens)))
         } else {
             Ok(None)
@@ -2204,17 +2319,16 @@ mod debounce_tests {
         let opts: DidChangeWatchedFilesRegistrationOptions =
             serde_json::from_value(reg.register_options.expect("register_options must be set"))
                 .expect("register_options must deserialize back to the expected type");
-        assert_eq!(opts.watchers.len(), 1);
-
-        match &opts.watchers[0].glob_pattern {
-            GlobPattern::String(s) => {
-                assert_eq!(
-                    s, "**/.fleetlint.toml",
-                    "glob must match config files at any depth from the workspace root"
-                );
-            }
-            other => panic!("expected String glob pattern, got {other:?}"),
-        }
+        let globs: Vec<&str> = opts
+            .watchers
+            .iter()
+            .map(|w| match &w.glob_pattern {
+                GlobPattern::String(s) => s.as_str(),
+                other => panic!("expected String glob pattern, got {other:?}"),
+            })
+            .collect();
+        // Both accepted names, at any depth from the workspace root.
+        assert_eq!(globs, ["**/fleetlint.toml", "**/.fleetlint.toml"]);
 
         // `kind = None` is the LSP convention for "all events" (create,
         // change, delete). If we ever narrow this, the test catches it.

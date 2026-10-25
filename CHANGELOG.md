@@ -3,6 +3,17 @@
 Milestones per release. Full notes are on each
 [GitHub release](https://github.com/headmin/fleet-editor-extensions/releases).
 
+## v0.3.4 (unreleased)
+
+- Rule levels per path: `[rules] error`, `[[overrides]]`, `extend` for a shared base config, and `check --error/--warn/--ignore`.
+- `unused-ignore-comment` reports `# flint: ignore` comments that suppress nothing; `check --add-ignore` accepts today's findings as a baseline.
+- `flint init` no longer turns off unknown-key detection; three settings that never did anything are flagged.
+- Editors pull diagnostics where supported, and gitops dry-run results no longer replace lint findings.
+- A JSON Schema for `fleetlint.toml` is published with the docs; `--fix` reports what is left; the docs' examples are tested.
+- Key completions insert `key: ` (or an indented section), fix `-key` to `- key`, and say where a key lives; keys are coloured by where they are, misplaced ones as invalid; a section moved to the margin, or lines indented under a value-only key, are flagged where they are.
+- Completion suggests the key names and paths your target Fleet version and repo layout expect (`reports`, `apple_settings`, `../platforms/`), every key the schema accepts at that spot and never one it rejects; the software snippets no longer lose their indentation.
+- `flint fma refresh` regenerates the full FMA list from Fleet as an override file; `[fma] registry` keeps it in the repo (#11).
+
 ## v0.3.3 (2026-10-23)
 
 - Release builds pin patched TLS crates (rustls-webpki 0.103.16, webpki-roots 1.0.11): emSign roots are no longer trusted.

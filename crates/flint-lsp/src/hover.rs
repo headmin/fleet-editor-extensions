@@ -62,6 +62,32 @@ pub fn hover_at_with_context(
     })
 }
 
+/// [`hover_at_with_context`] plus where a hovered key lives, per the schema:
+/// "Top-level key" or "Subkey of `controls`".
+pub fn hover_with_place(source: &str, position: Position, future_names: bool, file: Option<&std::path::Path>) -> Option<Hover> {
+    let mut hover = hover_at_with_context(source, position, future_names)?;
+    let line = source.lines().nth(position.line as usize)?;
+    let (word, _, end) = find_word_at(line, position.character as usize)?;
+    if !line[end..].trim_start().starts_with(':') {
+        return Some(hover); // not a key
+    }
+    let parent = super::completion::find_parent_context(source, position.line as usize).unwrap_or_default();
+    let parent: Vec<&str> = parent.split('.').filter(|s| !s.is_empty()).collect();
+    let place = match flint_lint::describe_key(file, &parent, &word) {
+        Some((_, place)) if place == "top level" => Some("Top-level key".to_string()),
+        Some((_, place)) => Some(format!("Subkey of `{place}`")),
+        // Known elsewhere but not here: say where it belongs.
+        None if flint_lint::key_fit(file, &parent, &word) == flint_lint::KeyFit::Invalid => {
+            flint_lint::key_home(&word).map(|home| format!("Subkey of `{home}` — **not valid here**"))
+        }
+        None => None,
+    };
+    if let (Some(place), HoverContents::Markup(m)) = (place, &mut hover.contents) {
+        m.value = format!("{place}\n\n{}", m.value);
+    }
+    Some(hover)
+}
+
 /// Find the word at a given column position in a line.
 /// Returns (word, start_col, end_col).
 fn find_word_at(line: &str, col: usize) -> Option<(String, usize, usize)> {
@@ -739,5 +765,16 @@ mod tests {
 
         // Should detect as "policies" context
         assert_eq!(determine_yaml_context(source, 1), "policies");
+    }
+
+    #[test]
+    fn hover_says_where_a_key_lives() {
+        let text = |src: &str, line: u32, col: u32| match super::hover_with_place(src, Position { line, character: col }, false, Some(std::path::Path::new("fleets/a.yml"))) {
+            Some(Hover { contents: HoverContents::Markup(m), .. }) => m.value,
+            other => panic!("no hover: {other:?}"),
+        };
+        assert!(text("name: A\ncontrols:\n  scripts:\n", 2, 4).starts_with("Subkey of `controls`"));
+        assert!(text("name: A\ncontrols:\n", 1, 3).starts_with("Top-level key"));
+        assert!(text("name: A\napple_settings:\n", 1, 3).starts_with("Subkey of `controls` — **not valid here**"));
     }
 }

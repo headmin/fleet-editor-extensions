@@ -192,12 +192,24 @@ impl Rule for RequiredFieldsRule {
     fn category(&self) -> &'static str {
         "structural"
     }
-    fn check(&self, config: &FleetConfig, file: &Path, _source: &str) -> Vec<LintError> {
+    fn check(&self, config: &FleetConfig, file: &Path, source: &str) -> Vec<LintError> {
+        // An entry with a `path:`/`paths:` key is a file reference even when
+        // that value has the wrong type (structural-validation reports it),
+        // not an inline item missing its fields.
+        let doc: serde_yaml::Value = serde_yaml::from_str(source).unwrap_or_default();
+        let is_ref = |sections: &[&str], idx: usize| {
+            sections.iter().any(|s| {
+                doc.get(*s).and_then(|v| v.get(idx)).is_some_and(|item| item.get("path").is_some() || item.get("paths").is_some())
+            })
+        };
         let mut errors = Vec::new();
 
         // Check policies
         if let Some(policies) = &config.policies {
             for (idx, policy_or_path) in policies.iter().enumerate() {
+                if is_ref(&["policies"], idx) {
+                    continue;
+                }
                 match policy_or_path {
                     super::fleet_config::PolicyOrPath::Path { .. }
                     | super::fleet_config::PolicyOrPath::Paths { .. } => {
@@ -241,6 +253,9 @@ impl Rule for RequiredFieldsRule {
         // Check queries
         if let Some(queries) = &config.queries {
             for (idx, query_or_path) in queries.iter().enumerate() {
+                if is_ref(&["queries", "reports"], idx) {
+                    continue;
+                }
                 match query_or_path {
                     super::fleet_config::QueryOrPath::Path { .. }
                     | super::fleet_config::QueryOrPath::Paths { .. } => {
@@ -277,6 +292,9 @@ impl Rule for RequiredFieldsRule {
         // Check labels
         if let Some(labels) = &config.labels {
             for (idx, label_or_path) in labels.iter().enumerate() {
+                if is_ref(&["labels"], idx) {
+                    continue;
+                }
                 match label_or_path {
                     super::fleet_config::LabelOrPath::Path { .. }
                     | super::fleet_config::LabelOrPath::Paths { .. } => {
@@ -742,7 +760,7 @@ impl Rule for IntervalValidationRule {
     fn category(&self) -> &'static str {
         "style"
     }
-    fn check(&self, config: &FleetConfig, file: &Path, _source: &str) -> Vec<LintError> {
+    fn check(&self, config: &FleetConfig, file: &Path, source: &str) -> Vec<LintError> {
         let mut errors = Vec::new();
 
         if let Some(queries) = &config.queries {
@@ -750,6 +768,8 @@ impl Rule for IntervalValidationRule {
                 if let super::fleet_config::QueryOrPath::Query(query) = query_or_path {
                     if let Some(interval) = query.interval {
                         let name = query.name.as_deref().unwrap_or("unnamed");
+                        // The item's `name:` line: unambiguous, and where an ignore comment goes.
+                        let at = query.name.as_deref().and_then(|n| crate::yaml_utils::find_value_span(source, "name", n));
 
                         if interval < self.min {
                             errors.push(
@@ -762,6 +782,7 @@ impl Rule for IntervalValidationRule {
                                 )
                                 .with_help(format!("Consider using an interval of at least {} seconds", self.min))
                                 .with_suggestion(format!("interval: {}", self.min))
+                                .with_span_opt(at)
                             );
                         } else if interval > self.max {
                             // Whole hours read as hours ("> 24 hours" for the
@@ -780,6 +801,7 @@ impl Rule for IntervalValidationRule {
                                     file,
                                 )
                                 .with_help("Consider using a shorter interval for time-sensitive data")
+                                .with_span_opt(at)
                             );
                         }
                     }
@@ -806,23 +828,28 @@ impl Rule for DuplicateNamesRule {
         "structural"
     }
 
-    fn check(&self, config: &FleetConfig, file: &Path, _source: &str) -> Vec<LintError> {
-        use std::collections::HashSet;
+    fn check(&self, config: &FleetConfig, file: &Path, source: &str) -> Vec<LintError> {
+        use std::collections::HashMap;
+        // The repeat's own `name:` line: the nth occurrence of that value.
+        let at = |name: &str, nth: usize| crate::yaml_utils::value_spans(source, "name", name).nth(nth);
         let mut errors = Vec::new();
 
         // Check policies
         if let Some(policies) = &config.policies {
-            let mut seen = HashSet::new();
+            let mut seen: HashMap<&str, usize> = HashMap::new();
             for policy_or_path in policies {
                 if let super::fleet_config::PolicyOrPath::Policy(policy) = policy_or_path {
                     if let Some(name) = &policy.name {
-                        if !seen.insert(name.clone()) {
+                        let n = seen.entry(name.as_str()).or_default();
+                        *n += 1;
+                        if *n > 1 {
                             errors.push(
                                 LintError::error(
                                     format!("Duplicate policy name: '{}'", name),
                                     file,
                                 )
-                                .with_help("Policy names must be unique within the organization"),
+                                .with_help("Policy names must be unique within the organization")
+                                .with_span_opt(at(name, *n - 1)),
                             );
                         }
                     }
@@ -832,16 +859,19 @@ impl Rule for DuplicateNamesRule {
 
         // Check queries
         if let Some(queries) = &config.queries {
-            let mut seen = HashSet::new();
+            let mut seen: HashMap<&str, usize> = HashMap::new();
             for query_or_path in queries {
                 if let super::fleet_config::QueryOrPath::Query(query) = query_or_path {
                     if let Some(name) = &query.name {
-                        if !seen.insert(name.clone()) {
+                        let n = seen.entry(name.as_str()).or_default();
+                        *n += 1;
+                        if *n > 1 {
                             errors.push(
                                 LintError::error(format!("Duplicate query name: '{}'", name), file)
                                     .with_help(
                                         "Query names must be unique within the organization",
-                                    ),
+                                    )
+                                    .with_span_opt(at(name, *n - 1)),
                             );
                         }
                     }
@@ -851,16 +881,19 @@ impl Rule for DuplicateNamesRule {
 
         // Check labels
         if let Some(labels) = &config.labels {
-            let mut seen = HashSet::new();
+            let mut seen: HashMap<&str, usize> = HashMap::new();
             for label_or_path in labels {
                 if let super::fleet_config::LabelOrPath::Label(label) = label_or_path {
                     if let Some(name) = &label.name {
-                        if !seen.insert(name.clone()) {
+                        let n = seen.entry(name.as_str()).or_default();
+                        *n += 1;
+                        if *n > 1 {
                             errors.push(
                                 LintError::error(format!("Duplicate label name: '{}'", name), file)
                                     .with_help(
                                         "Label names must be unique within the organization",
-                                    ),
+                                    )
+                                    .with_span_opt(at(name, *n - 1)),
                             );
                         }
                     }
@@ -894,7 +927,7 @@ impl Rule for QuerySyntaxRule {
         "semantic"
     }
 
-    fn check(&self, config: &FleetConfig, file: &Path, _source: &str) -> Vec<LintError> {
+    fn check(&self, config: &FleetConfig, file: &Path, source: &str) -> Vec<LintError> {
         let mut errors = Vec::new();
 
         // Check policies
@@ -903,11 +936,12 @@ impl Rule for QuerySyntaxRule {
                 if let super::fleet_config::PolicyOrPath::Policy(policy) = policy_or_path {
                     if let Some(query) = &policy.query {
                         let name = policy.name.as_deref().unwrap_or("unnamed");
-                        errors.extend(self.check_query_syntax(
-                            query,
-                            &format!("Policy '{}'", name),
-                            file,
-                        ));
+                        let at = policy.name.as_deref().and_then(|n| crate::yaml_utils::find_value_span(source, "name", n));
+                        errors.extend(
+                            self.check_query_syntax(query, &format!("Policy '{}'", name), file)
+                                .into_iter()
+                                .map(|e| e.with_span_opt(at)),
+                        );
                     }
                 }
             }
@@ -919,11 +953,12 @@ impl Rule for QuerySyntaxRule {
                 if let super::fleet_config::QueryOrPath::Query(query) = query_or_path {
                     if let Some(query_sql) = &query.query {
                         let name = query.name.as_deref().unwrap_or("unnamed");
-                        errors.extend(self.check_query_syntax(
-                            query_sql,
-                            &format!("Query '{}'", name),
-                            file,
-                        ));
+                        let at = query.name.as_deref().and_then(|n| crate::yaml_utils::find_value_span(source, "name", n));
+                        errors.extend(
+                            self.check_query_syntax(query_sql, &format!("Query '{}'", name), file)
+                                .into_iter()
+                                .map(|e| e.with_span_opt(at)),
+                        );
                     }
                 }
             }
@@ -935,11 +970,12 @@ impl Rule for QuerySyntaxRule {
                 if let super::fleet_config::LabelOrPath::Label(label) = label_or_path {
                     if let Some(query) = &label.query {
                         let name = label.name.as_deref().unwrap_or("unnamed");
-                        errors.extend(self.check_query_syntax(
-                            query,
-                            &format!("Label '{}'", name),
-                            file,
-                        ));
+                        let at = label.name.as_deref().and_then(|n| crate::yaml_utils::find_value_span(source, "name", n));
+                        errors.extend(
+                            self.check_query_syntax(query, &format!("Label '{}'", name), file)
+                                .into_iter()
+                                .map(|e| e.with_span_opt(at)),
+                        );
                     }
                 }
             }

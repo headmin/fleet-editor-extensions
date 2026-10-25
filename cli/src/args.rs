@@ -44,7 +44,7 @@ pub(crate) enum Commands {
     #[command(visible_alias = "dryrun")]
     DryRun(DryRunArgs),
 
-    /// Manage git hooks for non-blocking flint validation in a Fleet GitOps repo.
+    /// Install/remove git hooks: pre-commit (advisory or --strict) or a blocking pre-push dry-run.
     Hooks {
         #[command(subcommand)]
         action: HooksAction,
@@ -89,16 +89,20 @@ pub(crate) enum Commands {
     Migrate(MigrateArgs),
 
     /// Output CLI reference for AI agents (default: command index)
-    #[command(name = "help-agents", alias = "help-ai")]
+    #[command(name = "help-agents", visible_alias = "help-ai")]
     HelpAgents(HelpAgentsArgs),
 
-    /// Install AI agent skill files (.claude/skills/)
+    /// Install AI agent skills (.claude/skills/<name>/SKILL.md)
     #[command(name = "setup-agent")]
     SetupAgent,
 
     /// Output CLI schema as JSON for tooling integration
     #[command(name = "help-json", hide = true)]
     HelpJson(HelpJsonArgs),
+
+    /// Print the JSON Schema for fleetlint.toml (published with the docs)
+    #[command(name = "config-schema", hide = true)]
+    ConfigSchema,
 
     /// Generate copy-pasteable Fleet GitOps YAML — from real artifacts
     /// (installers, profiles, .sql queries) or as blank templates.
@@ -121,7 +125,7 @@ pub(crate) enum Commands {
     },
 
     /// Read-only views of a Fleet instance (never writes). Connection from
-    /// `.fleetlint.toml [fleet]`, `~/.config/flint/config.toml`, `FLEET_URL`/
+    /// `fleetlint.toml [fleet]`, `~/.config/flint/config.toml`, `FLEET_URL`/
     /// `FLEET_API_TOKEN` (also via ./.env), with `op://` secret references.
     Fleet {
         #[command(subcommand)]
@@ -160,7 +164,7 @@ pub(crate) enum Commands {
     Version,
 }
 
-#[derive(Args)]
+#[derive(Args, Clone)]
 pub(crate) struct CheckArgs {
     /// File(s) or directory to lint. Accepts multiple paths — e.g. the
     /// staged files a pre-commit hook passes (`pass_filenames: true`).
@@ -175,6 +179,12 @@ pub(crate) struct CheckArgs {
     /// Also apply fixes that may change semantics (requires --fix)
     #[arg(long)]
     pub(crate) unsafe_fixes: bool,
+
+    /// Add `# flint: ignore [rule]` to every line with a finding, so the
+    /// current findings become a baseline and only new ones are reported.
+    /// Skips lines inside block scalars and lines with another comment.
+    #[arg(long, conflicts_with_all = ["fix", "unsafe_fixes", "base"])]
+    pub(crate) add_ignore: bool,
 
     /// Output format
     #[arg(short, long, default_value = "text", value_parser = ["text", "json", "markdown", "github"])]
@@ -242,6 +252,19 @@ pub(crate) struct CheckArgs {
     /// `--exclude '**/tools-scripts/fleet-templates/**'`.
     #[arg(long, value_name = "GLOB")]
     pub(crate) exclude: Vec<String>,
+
+    /// Report RULE as an error (repeatable, or comma-separated). Wins over
+    /// `[rules]` and `[[overrides]]` in fleetlint.toml.
+    #[arg(long = "error", value_name = "RULE", value_delimiter = ',')]
+    pub(crate) error_rules: Vec<String>,
+
+    /// Report RULE as a warning (repeatable, or comma-separated).
+    #[arg(long = "warn", value_name = "RULE", value_delimiter = ',')]
+    pub(crate) warn_rules: Vec<String>,
+
+    /// Don't report RULE (repeatable, or comma-separated).
+    #[arg(long = "ignore", value_name = "RULE", value_delimiter = ',')]
+    pub(crate) ignore_rules: Vec<String>,
 }
 
 #[derive(Args)]
@@ -440,7 +463,7 @@ pub(crate) struct HelpAgentsArgs {
     pub(crate) command: Option<String>,
 
     /// Show standard operating procedures for a tool (lint, migrate, lsp,
-    /// hooks, author, paths, software, add-field)
+    /// hooks, author, paths, history, software, add-field)
     #[arg(long)]
     pub(crate) sop: Option<String>,
 
@@ -943,9 +966,17 @@ pub(crate) enum FmaKind {
         json: bool,
     },
 
-    /// Fetch the fmalibrary.com feed and refresh the local registry cache
-    /// (~/.cache/flint/fma-cache.toml) used by lint, the LSP, and search.
-    Refresh,
+    /// Regenerate the app list from Fleet's apps.json (overrides the bundled
+    /// one) and refresh versions from the fmalibrary.com feed.
+    ///
+    /// The list goes to `[fma] registry` in fleetlint.toml when set, else
+    /// ~/.cache/flint/fma-registry.toml.
+    Refresh {
+        /// Write the app list here instead (e.g. into the GitOps repo, then
+        /// point `[fma] registry` at it)
+        #[arg(long, value_name = "FILE")]
+        output: Option<std::path::PathBuf>,
+    },
 }
 
 /// The `flint fleet` read-only subcommands.

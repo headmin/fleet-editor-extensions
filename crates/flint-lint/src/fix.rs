@@ -141,7 +141,12 @@ where
                 if s > e || e >= lines.len() {
                     continue;
                 }
-                let replacement: Vec<String> = text.split('\n').map(|l| l.to_string()).collect();
+                // Empty text deletes the lines.
+                let replacement: Vec<String> = if text.is_empty() {
+                    Vec::new()
+                } else {
+                    text.split('\n').map(|l| l.to_string()).collect()
+                };
                 lines.splice(s..=e, replacement);
                 applied += 1;
             }
@@ -173,6 +178,61 @@ pub fn apply_fixes_to_file(
         std::fs::write(path, fixed)?;
     }
     Ok(applied)
+}
+
+/// `flint check --add-ignore`: append `# flint: ignore [codes]` to each
+/// `(line, code)` so today's findings stop being reported. Returns the new
+/// source and how many lines it could NOT annotate.
+///
+/// A line already carrying a flint ignore comment gets the codes added to
+/// it. A line with some other `#` is skipped (suppressions read the first
+/// one, so an appended comment would be dead). Every edit is kept only if
+/// the YAML parses to the same data afterwards: a `#` inside a block or
+/// multi-line plain scalar is content, or ends the scalar.
+pub fn add_ignore_comments(source: &str, findings: &[(usize, &str)]) -> (String, usize) {
+    let mut by_line: std::collections::BTreeMap<usize, Vec<&str>> = Default::default();
+    for (line, code) in findings {
+        let codes = by_line.entry(*line).or_default();
+        if !codes.contains(code) {
+            codes.push(code);
+        }
+    }
+    let Ok(data) = serde_yaml::from_str::<serde_yaml::Value>(source) else {
+        return (source.to_string(), by_line.len()); // nothing to compare against
+    };
+    let mut lines: Vec<String> = source.lines().map(str::to_string).collect();
+    let mut skipped = 0;
+    for (line, codes) in by_line {
+        let Some(text) = lines.get(line.wrapping_sub(1)).cloned() else { continue };
+        let new = match text.find('#') {
+            None => format!("{}  # flint: ignore [{}]", text.trim_end(), codes.join(", ")),
+            Some(h) => {
+                let comment = text[h + 1..].trim();
+                let Some(list) = comment.strip_prefix("flint:").or_else(|| comment.strip_prefix("fleet-lint:")).and_then(|r| r.trim().strip_prefix("ignore")) else {
+                    skipped += 1;
+                    continue;
+                };
+                let list = list.trim().trim_start_matches('[').trim_end_matches(']').trim();
+                if list.is_empty() {
+                    continue; // a blanket ignore already covers everything
+                }
+                let mut all: Vec<&str> = list.split(',').map(str::trim).filter(|c| !c.is_empty()).collect();
+                all.extend(codes.iter().filter(|c| !list.split(',').any(|x| x.trim() == **c)));
+                format!("{}# flint: ignore [{}]", &text[..h], all.join(", "))
+            }
+        };
+        lines[line - 1] = new;
+        // ponytail: one re-parse per annotated line; fine for GitOps-sized files.
+        if serde_yaml::from_str::<serde_yaml::Value>(&lines.join("\n")).ok().as_ref() != Some(&data) {
+            lines[line - 1] = text;
+            skipped += 1;
+        }
+    }
+    let mut out = lines.join("\n");
+    if source.ends_with('\n') {
+        out.push('\n');
+    }
+    (out, skipped)
 }
 
 #[cfg(test)]
@@ -296,5 +356,19 @@ mod tests {
             .with_fix(replace("a", "b", FixSafety::Safe));
         let (out, n) = apply_fixes("a\n", [&e], ApplyMode::SafeOnly);
         assert_eq!((out.as_str(), n), ("a\n", 0));
+    }
+
+    #[test]
+    fn add_ignore_comments_annotates_merges_and_skips() {
+        let src = "name: A\nbogus: 1\nqueries:\n  - query: |\n      SELECT 1\n      FROM t\n  - query:\n      SELECT 2\n      FROM t\nx: 2  # flint: ignore [a]\ny: 3  # note\nz: 4  # flint: ignore\n";
+        let (out, skipped) = add_ignore_comments(
+            src,
+            &[(2, "structural-validation"), (2, "structural-validation"), (2, "b"), (5, "query-syntax"), (8, "yaml-colons"), (10, "c"), (10, "a"), (11, "d"), (12, "e")],
+        );
+        assert_eq!(
+            out,
+            "name: A\nbogus: 1  # flint: ignore [structural-validation, b]\nqueries:\n  - query: |\n      SELECT 1\n      FROM t\n  - query:\n      SELECT 2\n      FROM t\nx: 2  # flint: ignore [a, c]\ny: 3  # note\nz: 4  # flint: ignore\n"
+        );
+        assert_eq!(skipped, 3, "block-scalar line, plain multi-line scalar line, line with another comment");
     }
 }

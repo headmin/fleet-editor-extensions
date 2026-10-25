@@ -1,5 +1,5 @@
 """
-LSP-fleet: Sublime Text LSP client for Fleet GitOps YAML validation.
+LSP-flint: Sublime Text LSP client for Fleet GitOps YAML validation.
 
 This plugin provides Language Server Protocol support for Fleet GitOps
 configuration files, with automatic binary download from GitHub releases.
@@ -83,12 +83,12 @@ def get_latest_release_info() -> Optional[Dict[str, Any]]:
     try:
         req = urllib.request.Request(url)
         req.add_header("Accept", "application/vnd.github.v3+json")
-        req.add_header("User-Agent", f"LSP-fleet/{PACKAGE_NAME}")
+        req.add_header("User-Agent", f"{PACKAGE_NAME}")
 
         with urllib.request.urlopen(req, timeout=30) as response:
             releases = json.loads(response.read().decode("utf-8"))
 
-            # Find first release with fleet-schema-gen assets
+            # Find first release with flint assets
             for release in releases:
                 for asset in release.get("assets", []):
                     if asset["name"].startswith(BINARY_NAME):
@@ -147,7 +147,7 @@ def download_binary() -> Optional[str]:
 
         # Download archive
         req = urllib.request.Request(asset_url)
-        req.add_header("User-Agent", f"LSP-fleet/{PACKAGE_NAME}")
+        req.add_header("User-Agent", f"{PACKAGE_NAME}")
 
         with urllib.request.urlopen(req, timeout=120) as response:
             with open(archive_path, "wb") as f:
@@ -184,7 +184,7 @@ def download_binary() -> Optional[str]:
 def get_binary_path() -> Optional[str]:
     """Get the binary path, trying multiple methods."""
     # 1. Check user-configured path
-    settings = sublime.load_settings("LSP-fleet.sublime-settings")
+    settings = sublime.load_settings(f"{PACKAGE_NAME}.sublime-settings")
     custom_path = settings.get("binary_path")
     if custom_path and os.path.isfile(custom_path):
         return custom_path
@@ -251,7 +251,7 @@ class FleetLsp(AbstractPlugin):
     @classmethod
     def configuration(cls) -> sublime.Settings:
         """Return plugin configuration."""
-        return sublime.load_settings("LSP-fleet.sublime-settings")
+        return sublime.load_settings(f"{PACKAGE_NAME}.sublime-settings")
 
     @classmethod
     def additional_variables(cls) -> Dict[str, str]:

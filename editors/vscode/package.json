@@ -2,7 +2,7 @@
   "name": "flint",
   "displayName": "Flint — Fleet GitOps",
   "description": "Linter and language server for Fleet GitOps YAML configuration files",
-  "version": "0.3.3",
+  "version": "0.3.4",
   "publisher": "fleetdm",
   "license": "Apache-2.0",
   "repository": {
@@ -139,7 +139,31 @@
         ]
       }
     ],
-    "yamlValidation": []
+    "yamlValidation": [],
+    "semanticTokenTypes": [
+      {
+        "id": "invalidKey",
+        "superType": "property",
+        "description": "A key Fleet does not accept where it is (typo or misplaced)"
+      }
+    ],
+    "semanticTokenScopes": [
+      {
+        "language": "yaml",
+        "scopes": {
+          "invalidKey": [
+            "invalid.illegal"
+          ],
+          "property": [
+            "entity.name.tag.yaml"
+          ],
+          "namespace": [
+            "entity.name.namespace",
+            "entity.name.tag.yaml"
+          ]
+        }
+      }
+    ]
   },
   "scripts": {
     "vscode:prepublish": "node esbuild.js --production",

@@ -5,9 +5,12 @@
 //! every flint face: the lint rule validates `slug:` /
 //! `fleet_maintained_app_slug:` values offline, the LSP builds completions
 //! from it, and `flint fma` searches it. A bundled snapshot
-//! (`data/fma-registry.toml`) ships with the binary; a cache file written by
-//! `flint fma refresh` (from the fmalibrary.com feed) overlays newer entries
-//! — this module only ever READS that file, keeping the engine network-free.
+//! (`data/fma-registry.toml`) ships with the binary. `flint fma refresh`
+//! generates a full registry from Fleet's own `apps.json` that OVERRIDES the
+//! snapshot (so removed apps go too) — in the user cache, or in the repo when
+//! `fleetlint.toml` sets `[fma] registry` — plus a cache from the
+//! fmalibrary.com feed that overlays versions. This module only ever READS
+//! those files, keeping the engine network-free.
 
 use super::error::{Fix, FixSafety, LintError, Span};
 use super::fleet_config::FleetConfig;
@@ -56,12 +59,46 @@ pub fn cache_path() -> Option<PathBuf> {
     Some(base.join("flint").join("fma-cache.toml"))
 }
 
-/// The effective registry: bundled snapshot with the cache overlay merged in
+/// A repo's `[fma] registry` file, set when its `fleetlint.toml` loads.
+// ponytail: process-wide and set once — the first repo config wins; one
+// process lints one repo (CLI) or one workspace (LSP).
+static REPO_REGISTRY: once_cell::sync::OnceCell<PathBuf> = once_cell::sync::OnceCell::new();
+/// The override file [`APPS`] was actually built from, if any.
+static OVERRIDE_IN_USE: once_cell::sync::OnceCell<PathBuf> = once_cell::sync::OnceCell::new();
+
+/// Use `path` (a repo's generated registry) instead of the user cache's.
+/// Called by the config loader; must run before [`APPS`] is first read.
+pub fn use_registry_file(path: PathBuf) {
+    let _ = REPO_REGISTRY.set(path);
+}
+
+/// Where the override registry is read from (and `flint fma refresh` writes):
+/// the repo's `[fma] registry`, else `<cache dir>/flint/fma-registry.toml`.
+pub fn registry_path() -> Option<PathBuf> {
+    REPO_REGISTRY.get().cloned().or_else(|| Some(cache_path()?.with_file_name("fma-registry.toml")))
+}
+
+/// The override file in use, or `None` when the bundled snapshot is.
+pub fn override_in_use() -> Option<&'static Path> {
+    Lazy::force(&APPS);
+    OVERRIDE_IN_USE.get().map(PathBuf::as_path)
+}
+
+/// The effective registry: the generated override when present (it is a
+/// complete list), else the bundled snapshot; then the feed cache merged in
 /// (cache entries win by app name — they are fresher). Sorted by name.
 pub static APPS: Lazy<Vec<FmaApp>> = Lazy::new(|| {
-    let bundled: RegistryFile =
-        toml::from_str(REGISTRY_TOML).expect("bundled fma-registry.toml is valid");
-    let mut apps = bundled.fma;
+    let generated = registry_path().and_then(|p| {
+        let file: RegistryFile = toml::from_str(&std::fs::read_to_string(&p).ok()?).ok()?;
+        (!file.fma.is_empty()).then(|| {
+            let _ = OVERRIDE_IN_USE.set(p);
+            file.fma
+        })
+    });
+    let mut apps = generated.unwrap_or_else(|| {
+        let bundled: RegistryFile = toml::from_str(REGISTRY_TOML).expect("bundled fma-registry.toml is valid");
+        bundled.fma
+    });
 
     if let Some(overlay) = cache_path()
         .and_then(|p| std::fs::read_to_string(p).ok())
@@ -90,6 +127,33 @@ pub static APPS: Lazy<Vec<FmaApp>> = Lazy::new(|| {
     apps.sort_by(|a, b| a.name.cmp(&b.name));
     apps
 });
+
+/// Render Fleet's `ee/maintained-apps/outputs/apps.json` as a registry file
+/// (the bundled snapshot's format). Apps keep Fleet's first-seen order so a
+/// regeneration diff shows only real changes. Returns the text and the app
+/// count; never renders an empty registry.
+pub fn render_registry(apps_json: &str, header: &str) -> Result<(String, usize), String> {
+    let data: serde_json::Value = serde_json::from_str(apps_json).map_err(|e| format!("apps.json: {e}"))?;
+    let entries = data.get("apps").unwrap_or(&data).as_array().ok_or("apps.json: no apps array")?;
+    let mut apps: Vec<(String, Vec<String>)> = Vec::new();
+    for slug in entries.iter().filter_map(|e| e["slug"].as_str()) {
+        let Some((name, platform)) = slug.split_once('/').filter(|(n, p)| !n.is_empty() && !p.is_empty()) else { continue };
+        match apps.iter_mut().find(|(n, _)| n == name) {
+            Some((_, platforms)) if platforms.iter().any(|p| p == platform) => {}
+            Some((_, platforms)) => platforms.push(platform.to_string()),
+            None => apps.push((name.to_string(), vec![platform.to_string()])),
+        }
+    }
+    if apps.is_empty() {
+        return Err("apps.json lists no apps — not writing an empty registry".into());
+    }
+    let mut out = header.replace("{count}", &apps.len().to_string());
+    for (name, platforms) in &apps {
+        let plats: Vec<String> = platforms.iter().map(|p| format!("\"{p}\"")).collect();
+        out.push_str(&format!("\n[[fma]]\nname = \"{name}\"\nplatforms = [{}]\n", plats.join(",")));
+    }
+    Ok((out, apps.len()))
+}
 
 /// All valid slugs (`name/platform`) in the effective registry.
 pub fn all_slugs() -> Vec<String> {
@@ -441,6 +505,18 @@ mod tests {
 
     fn check(yaml: &str) -> Vec<LintError> {
         FmaSlugRule.check(&FleetConfig::default(), &PathBuf::from("fleets/t.yml"), yaml)
+    }
+
+    #[test]
+    fn render_registry_groups_slugs_in_fleets_order() {
+        let json = r#"{"version":2,"apps":[
+            {"slug":"zoom/darwin"},{"slug":"1password/darwin"},{"slug":"zoom/windows"},
+            {"slug":"zoom/darwin"},{"slug":"broken"},{"slug":"/windows"}]}"#;
+        let (text, n) = render_registry(json, "# {count} apps\n").unwrap();
+        assert_eq!(n, 2);
+        assert_eq!(text, "# 2 apps\n\n[[fma]]\nname = \"zoom\"\nplatforms = [\"darwin\",\"windows\"]\n\n[[fma]]\nname = \"1password\"\nplatforms = [\"darwin\"]\n");
+        assert_eq!(toml::from_str::<RegistryFile>(&text).unwrap().fma.len(), 2, "loads as a registry");
+        assert!(render_registry(r#"{"apps":[]}"#, "").is_err(), "never an empty registry");
     }
 
     #[test]

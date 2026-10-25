@@ -441,7 +441,6 @@ pub fn preview(scan: &ScopeScan, sel: &ScopeSelection) -> ScopePreview {
     cfg.files = FilesConfig {
         include: include.clone(),
         exclude: exclude.clone(),
-        root: None,
     };
 
     let in_scope = scan
@@ -755,7 +754,6 @@ mod tests {
         cfg.files = FilesConfig {
             include: p.include.clone(),
             exclude: p.exclude.clone(),
-            root: None,
         };
         assert!(
             !cfg.is_out_of_scope_file(Path::new("platforms/macos/scripts/a.sh")),
@@ -770,7 +768,6 @@ mod tests {
         broken.files = FilesConfig {
             include: vec!["**/*.yml".to_string(), "**/*.yaml".to_string()],
             exclude: p.exclude.clone(),
-            root: None,
         };
         assert!(
             broken.is_out_of_scope_file(Path::new("platforms/macos/scripts/a.sh")),

@@ -1,23 +1,23 @@
 {
-  "name": "Fleet GitOps (Flint)",
+  "name": "Fleet GitOps (flint)",
   "image": "mcr.microsoft.com/devcontainers/base:ubuntu",
   "features": {
     "ghcr.io/devcontainers/features/rust:1": {},
     "ghcr.io/devcontainers/features/github-cli:1": {}
   },
   "postCreateCommand": "bash .devcontainer/setup.sh",
+  "postAttachCommand": "bash .devcontainer/vscode-extension.sh || echo \"flint extension not installed: get the .vsix from the releases page\"",
   "customizations": {
     "vscode": {
-      "extensions": [
-        "fleetdm.flint",
-        "redhat.vscode-yaml"
-      ],
+      "extensions": ["redhat.vscode-yaml"],
       "settings": {
-        "flint.enable": true
+        "flint.enable": true,
+        "flint.serverPath": "/usr/local/bin/flint"
       }
     }
   },
   "remoteEnv": {
+    "FLINT_VERSION": "${localEnv:FLINT_VERSION}",
     "FLEET_URL": "${localEnv:FLEET_URL}",
     "FLEET_API_TOKEN": "${localEnv:FLEET_API_TOKEN}"
   }

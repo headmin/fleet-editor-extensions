@@ -83,4 +83,4 @@ Exit code `1` when errors are found, `0` otherwise. Warnings and infos do not ca
 
 ## Dev containers
 
-A [`.devcontainer`](https://github.com/headmin/fleet-editor-extensions/tree/main/.devcontainer) config is included for GitHub Codespaces. It auto-installs flint, initializes `.fleetlint.toml`, and configures the VS Code extension.
+A [`.devcontainer`](https://github.com/headmin/fleet-editor-extensions/tree/main/.devcontainer) config is included for GitHub Codespaces; copy it into a GitOps repo to use it there. It installs the latest flint release (pin one with `FLINT_VERSION` on the host), runs `flint init` when the repo has a `default.yml` but no `fleetlint.toml`, and installs the VS Code extension from the release VSIX. In flint's own repo it builds flint from source instead.

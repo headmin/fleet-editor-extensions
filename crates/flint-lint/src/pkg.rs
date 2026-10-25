@@ -15,6 +15,11 @@
 pub struct PkgInfo {
     pub identifier: Option<String>,
     pub version: Option<String>,
+    /// The `.app` the package installs (`<bundle id path=…/X.app>` in its
+    /// PackageInfo), shallowest first — what the `apps` table reports. A
+    /// package id is often NOT the app's bundle id.
+    pub app_bundle_id: Option<String>,
+    pub app_version: Option<String>,
 }
 
 /// Parse `identifier` and `version` from a `.pkg`'s `Distribution` or
@@ -49,6 +54,9 @@ pub fn parse_pkg_metadata(xml: &str) -> PkgInfo {
         }
     }
 
+    // Installed apps: <bundle id="…" CFBundleShortVersionString="…" path="./Applications/X.app"/>.
+    info.merge_app_bundle(xml);
+
     // Component package: <pkg-info identifier="…" version="…">.
     for tag in tags(xml, "pkg-info") {
         if info.identifier.is_none() {
@@ -64,6 +72,28 @@ pub fn parse_pkg_metadata(xml: &str) -> PkgInfo {
     }
 
     info
+}
+
+impl PkgInfo {
+    /// Record the shallowest `.app` bundle listed in `xml` (a PackageInfo),
+    /// unless one is already known.
+    pub fn merge_app_bundle(&mut self, xml: &str) {
+        if self.app_bundle_id.is_some() {
+            return;
+        }
+        let best = tags(xml, "bundle")
+            .into_iter()
+            .filter_map(|tag| {
+                let path = attr(&tag, "path")?;
+                let id = attr(&tag, "id")?;
+                path.ends_with(".app").then(|| (path.matches('/').count(), id, attr(&tag, "CFBundleShortVersionString")))
+            })
+            .min_by_key(|(depth, _, _)| *depth);
+        if let Some((_, id, version)) = best {
+            self.app_bundle_id = Some(id);
+            self.app_version = version;
+        }
+    }
 }
 
 /// A friendly default display name from a package identifier: the last
@@ -188,8 +218,14 @@ pub fn install_policy_apps(
     install_hash: Option<&str>,
     outdated_only: bool,
 ) -> String {
+    // The apps table knows the app's bundle id, not the package id.
+    let app = PkgInfo {
+        identifier: info.app_bundle_id.clone().or_else(|| info.identifier.clone()),
+        version: info.app_version.clone().or_else(|| info.version.clone()),
+        ..info.clone()
+    };
     build_policy(
-        info,
+        &app,
         filename,
         "apps",
         "bundle_identifier",
@@ -381,13 +417,19 @@ pub fn update_stanza(
         if trimmed.starts_with("# ") && trimmed.contains(" version ") {
             break; // next package's header
         }
-        if !updated_hash && trimmed.starts_with("hash_sha256:") {
-            old_sha256 = trimmed
+        // `- hash_sha256:` is the form `gen software` itself emits (a list
+        // item); matching only the bare key left the hash stale.
+        let (dash, key_part) = match trimmed.strip_prefix("- ") {
+            Some(rest) => ("- ", rest),
+            None => ("", trimmed),
+        };
+        if !updated_hash && key_part.starts_with("hash_sha256:") {
+            old_sha256 = key_part
                 .trim_start_matches("hash_sha256:")
                 .trim()
                 .to_string();
             let ind: String = lines[i].chars().take_while(|c| *c == ' ').collect();
-            lines[i] = format!("{ind}hash_sha256: {new_sha256}");
+            lines[i] = format!("{ind}{dash}hash_sha256: {new_sha256}");
             updated_hash = true;
         }
         if !updated_url {
@@ -473,6 +515,20 @@ fn attr(tag: &str, name: &str) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn apps_policy_uses_the_app_bundle_id() {
+        let xml = r#"<pkg-info identifier="com.example.demo.pkg" version="1.2.3">
+<bundle id="com.example.demo.helper" path="./Applications/Demo.app/Contents/Helpers/H.app"/>
+<bundle id="com.example.demo.app" CFBundleShortVersionString="4.5" path="./Applications/Demo.app"/>
+<bundle-version><bundle id="com.example.demo.app"/></bundle-version></pkg-info>"#;
+        let info = parse_pkg_metadata(xml);
+        assert_eq!(info.app_bundle_id.as_deref(), Some("com.example.demo.app"));
+        let q = install_policy_apps(&info, "demo.pkg", None, false);
+        assert!(q.contains("bundle_identifier = 'com.example.demo.app'"), "{q}");
+        assert!(q.contains("'4.5'"), "{q}");
+        assert!(!q.contains("com.example.demo.pkg'"), "{q}");
+    }
+
     use super::*;
 
     #[test]
@@ -516,6 +572,7 @@ mod tests {
         let info = PkgInfo {
             identifier: Some("nl.root3.support".to_string()),
             version: Some("3.0.3".to_string()),
+            ..Default::default()
         };
         let block = metadata_block_full(&info, "Support.3.0.3.pkg", "8c30a711");
         let v: serde_yaml::Value = serde_yaml::from_str(&block).expect("full stanza must parse");
@@ -548,6 +605,7 @@ mod tests {
         let info = PkgInfo {
             identifier: Some("io.declarative.flint.pkg".to_string()),
             version: Some("0.1.4".to_string()),
+            ..Default::default()
         };
         assert!(metadata_file(&info, "flint-0.1.4.pkg", "abc", true)
             .contains("# display_name: \"flint\""));
@@ -558,6 +616,7 @@ mod tests {
         let info = PkgInfo {
             identifier: Some("nl.root3.support".to_string()),
             version: Some("3.0.3".to_string()),
+            ..Default::default()
         };
         let file = metadata_file(&info, "Support.3.0.3.pkg", "8c30a711", true);
         // A standalone file is a top-level mapping, NOT a list item.
@@ -584,6 +643,7 @@ mod tests {
         let info = PkgInfo {
             identifier: Some("nl.root3.support".to_string()),
             version: Some("3.0.3".to_string()),
+            ..Default::default()
         };
         let p = install_policy(&info, "Support.3.0.3.pkg", None, false);
         let v: serde_yaml::Value = serde_yaml::from_str(&p).expect("policy must parse as YAML");
@@ -606,6 +666,7 @@ mod tests {
         let info = PkgInfo {
             identifier: Some("nl.root3.support".to_string()),
             version: Some("3.0.3".to_string()),
+            ..Default::default()
         };
         let p = install_policy(&info, "Support.3.0.3.pkg", None, true);
         let v: serde_yaml::Value = serde_yaml::from_str(&p).expect("policy must parse as YAML");
@@ -623,6 +684,7 @@ mod tests {
         let info = PkgInfo {
             identifier: Some("nl.root3.support".to_string()),
             version: Some("3.0.3".to_string()),
+            ..Default::default()
         };
         let p = install_policy(&info, "Support.3.0.3.pkg", Some("8c30a71170088c"), false);
         let v: serde_yaml::Value = serde_yaml::from_str(&p).expect("policy must parse as YAML");
@@ -644,6 +706,7 @@ mod tests {
         let info = PkgInfo {
             identifier: Some("com.fleetdm.fonts.corp".to_string()),
             version: Some("1.0".to_string()),
+            ..Default::default()
         };
         let p = install_policy_file(
             &info,
@@ -676,6 +739,7 @@ mod tests {
         let info = PkgInfo {
             identifier: Some("com.1password.1password".to_string()),
             version: Some("8.12.24".to_string()),
+            ..Default::default()
         };
         let p = install_policy_apps(&info, "1Password.pkg", None, false);
         let v: serde_yaml::Value = serde_yaml::from_str(&p).unwrap();
@@ -690,6 +754,7 @@ mod tests {
         let info = PkgInfo {
             identifier: Some("com.x.tool".to_string()),
             version: None,
+            ..Default::default()
         };
         let p = install_policy(&info, "tool.pkg", None, false);
         let v: serde_yaml::Value = serde_yaml::from_str(&p).unwrap();
@@ -706,6 +771,16 @@ mod tests {
         assert!(u.contains("pkg_ids=$PACKAGE_ID"));
         assert!(u.contains("pkgutil --forget"));
         assert!(u.starts_with("#!/bin/sh"));
+    }
+
+    #[test]
+    fn update_stanza_refreshes_list_item_hash() {
+        // Exactly what `flint gen software --from x.pkg` writes.
+        let src = "# com.example.demo.pkg (demo-1.0.pkg) version 1.0\n- hash_sha256: OLDHASH\n";
+        let (out, old_v, old_h) = update_stanza(src, "com.example.demo.pkg", "demo-2.0.pkg", "2.0", "NEWHASH").unwrap();
+        assert_eq!((old_v.as_str(), old_h.as_str()), ("1.0", "OLDHASH"));
+        assert!(out.contains("- hash_sha256: NEWHASH"), "{out}");
+        assert!(!out.contains("OLDHASH"), "{out}");
     }
 
     #[test]

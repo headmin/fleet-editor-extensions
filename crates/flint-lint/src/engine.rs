@@ -5,7 +5,7 @@
 //! a `LintReport` per file.
 
 use super::config::FleetLintConfig;
-use super::error::{LintError, LintReport, Severity};
+use super::error::{Fix, FixSafety, LintError, LintReport, Severity};
 use super::fleet_config::{
     FleetConfig, Label, LabelOrPath, Policy, PolicyOrPath, Query, QueryOrPath,
 };
@@ -284,7 +284,13 @@ impl Linter {
         // file with a stray `: ` in a value linted clean, dry-run passed, and
         // the apply failed.
         if let Some(err) = yaml_syntax_error(content, file_path) {
-            report.add(err);
+            let mut errs = vec![err];
+            errs.extend(super::structural::misplaced_margin_keys(content, file_path));
+            apply_error_controls(&mut errs, &parse_suppressions(content), &self.config);
+            for mut e in errs {
+                stamp_doc_url(&mut e);
+                report.add(e);
+            }
             return Ok(report);
         }
 
@@ -337,14 +343,8 @@ impl Linter {
         // Run all rules
         // (report was initialized earlier with YAML hygiene checks)
 
-        // Get disabled and warning rules from config
-        let mut disabled_rules = self.config.disabled_rules();
-        let warning_rules = self.config.warning_rules();
-
-        // If allow_unknown_fields is enabled, disable structural validation
-        if self.config.schema.allow_unknown_fields {
-            disabled_rules.insert("structural-validation");
-        }
+        // Rules ignored everywhere don't run; per-path levels apply after.
+        let disabled_rules = self.config.disabled_rules();
 
         // Collect all errors first (for suppression filtering)
         let mut all_errors = Vec::new();
@@ -368,13 +368,7 @@ impl Linter {
 
             let errors = rule.check(&fleet_config, file_path, content);
 
-            // Downgrade to warnings if configured
-            let should_warn = warning_rules.contains(rule.name());
-
             for mut error in errors {
-                if should_warn && error.severity == Severity::Error {
-                    error.severity = Severity::Warning;
-                }
                 // Tag each error with its originating rule code
                 if error.rule_code.is_none() {
                     error.rule_code = Some(rule.name());
@@ -386,7 +380,8 @@ impl Linter {
         // Apply inline suppressions (# fleet-lint: ignore [rule-code]) and
         // configured downgrades through the shared control pass.
         let suppressions = parse_suppressions(content);
-        apply_error_controls(&mut all_errors, &suppressions, &warning_rules);
+        all_errors.extend(unknown_suppression_codes(&suppressions, file_path));
+        report.suppression_hits = apply_error_controls(&mut all_errors, &suppressions, &self.config);
 
         for mut error in all_errors {
             stamp_doc_url(&mut error);
@@ -503,8 +498,68 @@ impl Linter {
         // it runs here (directory lint) rather than per-file. Build the index
         // once, then check every file's references against it.
         self.run_cross_reference_pass(dir, &sources, &mut results);
+        // Only here are both passes done, so only here is "unused" knowable.
+        self.report_unused_suppressions(&sources, &mut results);
 
         Ok(results)
+    }
+
+    /// `unused-ignore-comment`: each `# flint: ignore` (or code in one) that
+    /// suppressed nothing in this whole-repo lint, with a fix that drops it.
+    fn report_unused_suppressions(&self, sources: &[(PathBuf, String)], results: &mut [(PathBuf, LintReport)]) {
+        use crate::codes::UNUSED_IGNORE_COMMENT;
+        if self.config.disabled_rules().contains(UNUSED_IGNORE_COMMENT) {
+            return;
+        }
+        let by_path: HashMap<&Path, &str> = sources.iter().map(|(p, s)| (p.as_path(), s.as_str())).collect();
+        for (path, report) in results.iter_mut() {
+            let Some(source) = by_path.get(path.as_path()) else { continue };
+            let mut sups: Vec<_> = parse_suppressions(source).into_iter().collect();
+            sups.sort();
+            let lines: Vec<&str> = source.lines().collect();
+            let used = |line: usize, code: &str| {
+                report.suppression_hits.iter().any(|(l, c)| *l == line && (code.is_empty() || c == code))
+            };
+            let mut found = Vec::new();
+            for (line, codes) in sups {
+                let (unused, keep): (Vec<&String>, Vec<&String>) =
+                    codes.iter().partition(|c| crate::codes::meta(c).is_some() && !used(line, c));
+                let message = if codes.is_empty() {
+                    if used(line, "") {
+                        continue;
+                    }
+                    "this `# flint: ignore` suppresses nothing".to_string()
+                } else if unused.is_empty() {
+                    continue;
+                } else {
+                    let list: Vec<String> = unused.iter().map(|c| format!("`{c}`")).collect();
+                    format!("{} in this ignore comment suppress{} nothing", list.join(", "), if unused.len() == 1 { "es" } else { "" })
+                };
+                let text = lines[line - 1];
+                let hash = text.find('#').unwrap_or(0); // parse_suppressions reads the first '#'
+                let before = text[..hash].trim_end();
+                let replacement = match (keep.is_empty(), before.is_empty()) {
+                    (true, true) => String::new(), // comment-only line: delete it
+                    (true, false) => before.to_string(),
+                    (false, _) => {
+                        let keep: Vec<&str> = keep.iter().map(|c| c.as_str()).collect();
+                        format!("{}# flint: ignore [{}]", &text[..hash], keep.join(", "))
+                    }
+                };
+                found.push(
+                    LintError::warning(message, path.as_path())
+                        .with_rule_code(UNUSED_IGNORE_COMMENT)
+                        .with_location(line, hash + 1)
+                        .with_help("No finding on this line or the next matches it; remove it so it cannot hide a future finding.")
+                        .with_fix(Fix::ReplaceLines { start_line: line, end_line: line, replacement, safety: FixSafety::Safe }),
+                );
+            }
+            apply_error_controls(&mut found, &HashMap::new(), &self.config);
+            for mut e in found {
+                stamp_doc_url(&mut e);
+                report.add(e);
+            }
+        }
     }
 
     /// The cross-file graph pass ONLY — no per-file rules. The LSP's
@@ -586,7 +641,6 @@ impl Linter {
         );
 
         let index = RepoIndex::build(&parsed);
-        let warning_rules = self.config.warning_rules();
 
         // Suppressions parsed once per file; findings attached via an index
         // map instead of a linear scan per finding (was O(files²)).
@@ -614,9 +668,10 @@ impl Linter {
             let suppressions = suppressions_by_path
                 .get(pf.path.as_path())
                 .unwrap_or(&empty_suppressions);
-            apply_error_controls(&mut findings, suppressions, &warning_rules);
+            let hits = apply_error_controls(&mut findings, suppressions, &self.config);
 
             if let Some(&i) = report_idx.get(&pf.path) {
+                results[i].1.suppression_hits.extend(hits);
                 for mut f in findings {
                     stamp_doc_url(&mut f);
                     results[i].1.add(f);
@@ -648,8 +703,13 @@ impl Linter {
                     .get(path.as_path())
                     .unwrap_or(&empty_suppressions);
                 let mut one = vec![err];
-                apply_error_controls(&mut one, suppressions, &warning_rules);
-                let Some(mut err) = one.pop() else { continue };
+                let hits = apply_error_controls(&mut one, suppressions, &self.config);
+                let Some(mut err) = one.pop() else {
+                    if let Some(&i) = report_idx.get(&path) {
+                        results[i].1.suppression_hits.extend(hits);
+                    }
+                    continue;
+                };
                 stamp_doc_url(&mut err);
                 let i = *report_idx.entry(path.clone()).or_insert_with(|| {
                     results.push((path.clone(), LintReport::new()));
@@ -1084,23 +1144,40 @@ fn stamp_doc_url(error: &mut LintError) {
 /// Returns a map of 1-indexed line numbers to suppressed rule codes.
 /// An empty Vec means "suppress all rules on this line".
 /// The one error-control pass shared by per-file linting and the cross-file
-/// pass: drop suppressed findings, then downgrade errors whose code is listed
-/// in `[rules] warn`. (Suppression and downgrade are independent — order
-/// doesn't matter.)
+/// pass: drop suppressed findings, then apply each finding's configured
+/// level for its file (`[rules]`, `[[overrides]]`, CLI flags).
+/// Returns the `(comment line, code)` of every suppression that matched.
 fn apply_error_controls(
     errors: &mut Vec<LintError>,
     suppressions: &HashMap<usize, Vec<String>>,
-    warning_rules: &std::collections::HashSet<&str>,
-) {
+    config: &FleetLintConfig,
+) -> Vec<(usize, String)> {
+    use crate::config::RuleLevel;
+    let mut hits = Vec::new();
     if !suppressions.is_empty() {
-        errors.retain(|e| !is_suppressed(e, suppressions));
+        errors.retain(|e| match suppression_hit(e, suppressions) {
+            Some(hit) => {
+                hits.push(hit);
+                false
+            }
+            None => true,
+        });
     }
-    for e in errors.iter_mut() {
-        if e.severity == Severity::Error && warning_rules.contains(e.rule_code.unwrap_or_default())
-        {
-            e.severity = Severity::Warning;
+    errors.retain_mut(|e| match config.rule_level(e.rule_code.unwrap_or_default(), &e.file) {
+        Some(RuleLevel::Ignore) => false,
+        Some(RuleLevel::Warn) => {
+            if e.severity == Severity::Error {
+                e.severity = Severity::Warning;
+            }
+            true
         }
-    }
+        Some(RuleLevel::Error) => {
+            e.severity = Severity::Error;
+            true
+        }
+        None => true,
+    });
+    hits
 }
 
 fn parse_suppressions(source: &str) -> HashMap<usize, Vec<String>> {
@@ -1112,10 +1189,15 @@ fn parse_suppressions(source: &str) -> HashMap<usize, Vec<String>> {
         if let Some(comment_start) = line.find('#') {
             let comment = line[comment_start + 1..].trim();
 
-            if let Some(rest) = comment.strip_prefix("fleet-lint:") {
+            // `# flint: ignore [a, b]` is the documented form; `fleet-lint:`
+            // and bare `a, b` (no brackets) keep working.
+            let rest = comment
+                .strip_prefix("flint:")
+                .or_else(|| comment.strip_prefix("fleet-lint:"));
+            if let Some(rest) = rest {
                 let rest = rest.trim();
                 if let Some(codes) = rest.strip_prefix("ignore") {
-                    let codes = codes.trim();
+                    let codes = codes.trim().trim_start_matches('[').trim_end_matches(']').trim();
                     if codes.is_empty() {
                         // Ignore all rules
                         suppressions.insert(line_num, Vec::new());
@@ -1136,34 +1218,50 @@ fn parse_suppressions(source: &str) -> HashMap<usize, Vec<String>> {
     suppressions
 }
 
+/// A code in `# flint: ignore [...]` that no rule emits suppresses nothing —
+/// usually a typo, so the finding it was meant to hide still shows and the
+/// comment looks like it works. Reported with a did-you-mean.
+fn unknown_suppression_codes(suppressions: &HashMap<usize, Vec<String>>, file: &Path) -> Vec<LintError> {
+    let mut out = Vec::new();
+    for (line, codes) in suppressions {
+        for code in codes {
+            if crate::codes::meta(code).is_some() {
+                continue;
+            }
+            let hint = crate::codes::REGISTRY
+                .iter()
+                .map(|m| (crate::util::levenshtein_distance(code, m.code), m.code))
+                .filter(|(d, c)| *d <= c.len().max(code.len()) / 3)
+                .min_by_key(|(d, _)| *d)
+                .map(|(_, c)| format!(" — did you mean `{c}`?"))
+                .unwrap_or_default();
+            out.push(
+                LintError::warning(format!("`{code}` in a flint: ignore comment is not a rule code{hint}"), file)
+                    .with_rule_code(crate::codes::IGNORE_COMMENT_UNKNOWN_RULE)
+                    .with_location(*line, 1)
+                    .with_help("Use a code from `flint list-rules`; this comment suppresses nothing for it."),
+            );
+        }
+    }
+    out.sort_by_key(|e| e.line());
+    out
+}
+
 /// Check if a lint error is suppressed by an inline comment.
 ///
 /// An error is suppressed if:
 /// - Its line has a same-line suppression comment matching the rule code
 /// - The line immediately before it has a standalone suppression comment matching the rule code
-fn is_suppressed(error: &LintError, suppressions: &HashMap<usize, Vec<String>>) -> bool {
-    let line = match error.line() {
-        Some(l) => l,
-        None => return false, // Can't suppress errors without line info
-    };
-
-    // Check same-line suppression
-    if let Some(codes) = suppressions.get(&line) {
-        if matches_suppression(error, codes) {
-            return true;
-        }
-    }
-
-    // Check previous-line suppression
-    if line > 1 {
-        if let Some(codes) = suppressions.get(&(line - 1)) {
-            if matches_suppression(error, codes) {
-                return true;
-            }
-        }
-    }
-
-    false
+fn suppression_hit(error: &LintError, suppressions: &HashMap<usize, Vec<String>>) -> Option<(usize, String)> {
+    let line = error.line()?; // Can't suppress errors without line info
+    // Same line first, then a standalone comment on the line above.
+    [line, line.saturating_sub(1)].into_iter().filter(|l| *l > 0).find_map(|l| {
+        let codes = suppressions.get(&l)?;
+        matches_suppression(error, codes).then(|| {
+            let code = if codes.is_empty() { String::new() } else { error.rule_code.unwrap_or_default().to_string() };
+            (l, code)
+        })
+    })
 }
 
 /// Check if an error matches a suppression rule list.
@@ -1182,6 +1280,10 @@ fn matches_suppression(error: &LintError, codes: &[String]) -> bool {
 #[cfg(test)]
 mod suppression_tests {
     use super::*;
+
+    fn is_suppressed(e: &LintError, s: &HashMap<usize, Vec<String>>) -> bool {
+        suppression_hit(e, s).is_some()
+    }
 
     #[test]
     fn test_parse_suppression_ignore_all() {
@@ -1206,6 +1308,23 @@ mod suppression_tests {
         assert_eq!(codes.len(), 2);
         assert!(codes.contains(&"query-syntax".to_string()));
         assert!(codes.contains(&"type-validation".to_string()));
+    }
+
+    #[test]
+    fn test_parse_suppression_documented_flint_form() {
+        // The form docs/rules.md and help-agents publish.
+        let s = parse_suppressions("queries:  # flint: ignore [deprecated-keys, yaml-tabs]\nx:  # flint: ignore\n");
+        assert_eq!(s.get(&1).unwrap(), &vec!["deprecated-keys".to_string(), "yaml-tabs".to_string()]);
+        assert!(s.get(&2).unwrap().is_empty());
+    }
+
+    #[test]
+    fn unknown_code_in_ignore_comment_is_reported() {
+        let s = parse_suppressions("a: 1  # flint: ignore [deprecated-keys, structual-validation]\n");
+        let errs = unknown_suppression_codes(&s, Path::new("x.yml"));
+        assert_eq!(errs.len(), 1, "{errs:?}");
+        assert!(errs[0].message.contains("did you mean `structural-validation`"), "{}", errs[0].message);
+        assert_eq!(errs[0].line(), Some(1));
     }
 
     #[test]
@@ -1847,7 +1966,6 @@ config:
         cfg.files = FilesConfig {
             include: vec![],
             exclude: vec!["tools-scripts/**".to_string()],
-            ..Default::default()
         };
         let linter = Linter::with_config(cfg);
         assert!(linter.is_out_of_scope(script), "exclude must scope a .sh");
@@ -1864,7 +1982,6 @@ config:
                 "platforms/**".to_string(),
             ],
             exclude: vec!["platforms/_retired/**".to_string()],
-            ..Default::default()
         };
         let linter = Linter::with_config(cfg);
         assert!(
