@@ -11,7 +11,7 @@ exclude = [
 ]
 
 [workspace.package]
-version = "0.3.3"
+version = "0.3.4"
 edition = "2021"
 # Matches rust-toolchain.toml: the only compiler builds and tests run on.
 rust-version = "1.99"
