@@ -34,10 +34,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout flint
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Checkout Fleet repo
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           repository: fleetdm/fleet
           path: fleet
@@ -51,7 +51,7 @@ jobs:
         run: rustup toolchain install   # from rust-toolchain.toml
 
       - name: Cache cargo
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             ~/.cargo/registry
