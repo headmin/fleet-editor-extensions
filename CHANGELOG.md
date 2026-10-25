@@ -3,7 +3,7 @@
 Milestones per release. Full notes are on each
 [GitHub release](https://github.com/headmin/fleet-editor-extensions/releases).
 
-## v0.3.4 (unreleased)
+## v0.3.4 (2026-10-25)
 
 - Rule levels per path: `[rules] error`, `[[overrides]]`, `extend` for a shared base config, and `check --error/--warn/--ignore`.
 - `unused-ignore-comment` reports `# flint: ignore` comments that suppress nothing; `check --add-ignore` accepts today's findings as a baseline.
