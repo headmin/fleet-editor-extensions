@@ -24,6 +24,38 @@ name: Workstations
 polices: []  # error: [structural-validation]
 ```
 
+### A section moved to the margin
+
+A section moved to the left margin by mistake is flagged where it is, even
+when the move also breaks the YAML further down:
+
+```yaml title="fleets/workstations.yml"
+name: Workstations
+controls:
+  enable_disk_encryption: true
+setup_experience:  # error: [structural-validation]
+    apple_setup_assistant: ../lib/enrollment.dep.json
+  scripts:  # error: [yaml-syntax]
+    - path: ../lib/scripts/hello.sh
+```
+
+### Lines indented under a value
+
+A key that takes one value cannot have lines under it. Here the two entries
+were indented one level too far, so they became the value of `paths`:
+
+```yaml title="fleets/workstations.yml"
+name: Workstations
+reports:
+- paths:  # error: [structural-validation]
+  - path: ../lib/reports/uptime.yml
+```
+
+```yaml title="lib/reports/uptime.yml"
+- name: Uptime
+  query: SELECT days FROM uptime;
+```
+
 ## yaml-duplicate-key
 
 Fleet keeps the last of two equal keys, so the first one silently does nothing:

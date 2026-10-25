@@ -192,12 +192,24 @@ impl Rule for RequiredFieldsRule {
     fn category(&self) -> &'static str {
         "structural"
     }
-    fn check(&self, config: &FleetConfig, file: &Path, _source: &str) -> Vec<LintError> {
+    fn check(&self, config: &FleetConfig, file: &Path, source: &str) -> Vec<LintError> {
+        // An entry with a `path:`/`paths:` key is a file reference even when
+        // that value has the wrong type (structural-validation reports it),
+        // not an inline item missing its fields.
+        let doc: serde_yaml::Value = serde_yaml::from_str(source).unwrap_or_default();
+        let is_ref = |sections: &[&str], idx: usize| {
+            sections.iter().any(|s| {
+                doc.get(*s).and_then(|v| v.get(idx)).is_some_and(|item| item.get("path").is_some() || item.get("paths").is_some())
+            })
+        };
         let mut errors = Vec::new();
 
         // Check policies
         if let Some(policies) = &config.policies {
             for (idx, policy_or_path) in policies.iter().enumerate() {
+                if is_ref(&["policies"], idx) {
+                    continue;
+                }
                 match policy_or_path {
                     super::fleet_config::PolicyOrPath::Path { .. }
                     | super::fleet_config::PolicyOrPath::Paths { .. } => {
@@ -241,6 +253,9 @@ impl Rule for RequiredFieldsRule {
         // Check queries
         if let Some(queries) = &config.queries {
             for (idx, query_or_path) in queries.iter().enumerate() {
+                if is_ref(&["queries", "reports"], idx) {
+                    continue;
+                }
                 match query_or_path {
                     super::fleet_config::QueryOrPath::Path { .. }
                     | super::fleet_config::QueryOrPath::Paths { .. } => {
@@ -277,6 +292,9 @@ impl Rule for RequiredFieldsRule {
         // Check labels
         if let Some(labels) = &config.labels {
             for (idx, label_or_path) in labels.iter().enumerate() {
+                if is_ref(&["labels"], idx) {
+                    continue;
+                }
                 match label_or_path {
                     super::fleet_config::LabelOrPath::Path { .. }
                     | super::fleet_config::LabelOrPath::Paths { .. } => {

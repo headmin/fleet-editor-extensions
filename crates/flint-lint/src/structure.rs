@@ -38,6 +38,84 @@ impl SchemaNode {
 
 /// Global registry mapping every known key name to the path(s) where it's valid.
 /// Used for misplaced-key detection.
+/// What a key holds, for editors: a plain value, a nested mapping, or a list.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum KeyShape {
+    Scalar,
+    Mapping,
+    List,
+}
+
+/// `key` under `parent` (YAML keys from the document root, list items
+/// stepped through) in a file of `file`'s kind: its shape, and where it lives
+/// as a short label (`top level`, `reports[]`, `controls › scripts[]`).
+/// `None` when the schema does not know the key there.
+pub fn describe_key(file: Option<&std::path::Path>, parent: &[&str], key: &str) -> Option<(KeyShape, String)> {
+    let mut node: &SchemaNode = file.map_or(&*FLEET_SCHEMA, schema_for_path);
+    let mut place: Vec<String> = Vec::new();
+    fn child<'a>(node: &'a SchemaNode, k: &str) -> Option<&'a SchemaNode> {
+        match node {
+            SchemaNode::Mapping(children) => children.get(k),
+            _ => None,
+        }
+    }
+    for seg in parent {
+        node = child(node, seg)?;
+        let mut label = seg.to_string();
+        if let SchemaNode::Array(item) = node {
+            node = item;
+            label.push_str("[]");
+        }
+        place.push(label);
+    }
+    let shape = match child(node, key)? {
+        SchemaNode::Leaf | SchemaNode::BooleanLeaf => KeyShape::Scalar,
+        SchemaNode::Mapping(_) | SchemaNode::OpenMapping => KeyShape::Mapping,
+        SchemaNode::Array(_) => KeyShape::List,
+    };
+    let place = if place.is_empty() { "top level".to_string() } else { place.join(" › ") };
+    Some((shape, place))
+}
+
+/// Where `key` belongs when it is not valid where it is: its shortest
+/// registered home outside a list (`controls` for `apple_settings`).
+pub fn key_home(key: &str) -> Option<&'static str> {
+    KEY_REGISTRY.lookup(key)?.iter().copied().filter(|p| !p.is_empty() && !p.contains('[')).min_by_key(|p| p.len())
+}
+
+/// Whether `key` belongs where it is, for editors.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum KeyFit {
+    /// The schema has this key here.
+    Known,
+    /// The schema has no such key here: a typo or a misplaced key.
+    Invalid,
+    /// Can't judge: free-form content, or the parent itself is not valid
+    /// (only the misplaced key is marked, not everything under it).
+    Unjudged,
+}
+
+/// [`KeyFit`] of `key` under `parent` (keys from the root; lists stepped
+/// through) in a file of `file`'s kind.
+pub fn key_fit(file: Option<&std::path::Path>, parent: &[&str], key: &str) -> KeyFit {
+    let mut node: &SchemaNode = file.map_or(&*FLEET_SCHEMA, schema_for_path);
+    for seg in parent {
+        let SchemaNode::Mapping(children) = node else { return KeyFit::Unjudged };
+        let Some(next) = children.get(seg) else { return KeyFit::Unjudged };
+        node = match next {
+            SchemaNode::Array(item) => item,
+            other => other,
+        };
+    }
+    match node {
+        SchemaNode::Mapping(children) if children.contains_key(key) => KeyFit::Known,
+        // Not a key here — or under a value-only key: lines indented one
+        // level too far (`- paths:` then indented `- path:`).
+        SchemaNode::Mapping(_) | SchemaNode::Leaf | SchemaNode::BooleanLeaf => KeyFit::Invalid,
+        _ => KeyFit::Unjudged,
+    }
+}
+
 #[derive(Debug)]
 pub(crate) struct KeyRegistry {
     /// key_name -> list of dot-separated paths where it's valid

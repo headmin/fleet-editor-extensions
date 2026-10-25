@@ -4,7 +4,7 @@
 
 use std::path::Path;
 use tower_lsp::lsp_types::{
-    CompletionItem, CompletionItemKind, CompletionTextEdit, Documentation, InsertTextFormat,
+    CompletionItem, CompletionItemKind, CompletionItemLabelDetails, CompletionTextEdit, Documentation, InsertTextFormat,
     InsertTextMode, MarkupContent, MarkupKind, Position, Range, TextEdit,
 };
 
@@ -141,7 +141,7 @@ pub fn complete_at_with_context(
     // Determine the context
     let context = determine_completion_context(source, line_idx, line, col_idx);
 
-    match context {
+    let mut items = match context {
         CompletionContext::TopLevel => complete_top_level_fields(future_names),
         CompletionContext::PolicyField => complete_policy_fields(line, col_idx),
         CompletionContext::QueryField => complete_query_fields(line, col_idx),
@@ -194,6 +194,61 @@ pub fn complete_at_with_context(
         CompletionContext::CategoryValue => complete_common_categories(),
         CompletionContext::SqlContext { platform } => complete_osquery_tables(platform.as_deref()),
         CompletionContext::Unknown => vec![],
+    };
+    let parent = find_parent_context(source, line_idx).unwrap_or_default();
+    let parent: Vec<&str> = parent.split('.').filter(|s| !s.is_empty()).collect();
+    complete_keys_as_keys(&mut items, line, position, current_file, &parent);
+    items
+}
+
+/// A key completion inserts the key as YAML: `key: ` for a value, `key:` and
+/// an indented new line for a section (`- ` too for a list), and a list item
+/// typed as `-pa` becomes `- path: ` (YAML needs the space). The edit spans
+/// the typed word (and that dash), so it is the same in every editor; just
+/// the name when a `:` already follows (renaming a key). Each item says where
+/// the key lives — `top-level key` or `subkey of reports[]` — per the schema.
+fn complete_keys_as_keys(
+    items: &mut [CompletionItem],
+    line: &str,
+    position: Position,
+    file: Option<&Path>,
+    parent: &[&str],
+) {
+    let col = (position.character as usize).min(line.len());
+    let is_word = |c: char| c.is_ascii_alphanumeric() || c == '_';
+    let word_start = line[..col].trim_end_matches(is_word).len();
+    let glued_dash = line[..word_start].ends_with('-') && line[..word_start].trim_start() == "-";
+    let start = if glued_dash { word_start - 1 } else { word_start };
+    let has_colon = line[col..].trim_start_matches(is_word).trim_start().starts_with(':');
+    let range = Range {
+        start: Position { line: position.line, character: start as u32 },
+        end: position,
+    };
+    for item in items.iter_mut() {
+        if item.kind != Some(CompletionItemKind::FIELD) || item.insert_text.is_some() || item.text_edit.is_some() {
+            continue;
+        }
+        let key = item.label.clone();
+        let described = flint_lint::describe_key(file, parent, &key);
+        if let Some((_, place)) = &described {
+            item.label_details = Some(CompletionItemLabelDetails {
+                detail: None,
+                description: Some(if place == "top level" { "top-level key".into() } else { format!("subkey of {place}") }),
+            });
+        }
+        // A section's children go two columns right of the key.
+        let child = " ".repeat(if glued_dash { start + 2 } else { word_start } + 2);
+        let body = match described.map(|(shape, _)| shape) {
+            _ if has_colon => key.clone(),
+            Some(flint_lint::KeyShape::Mapping) => format!("{key}:\n{child}"),
+            Some(flint_lint::KeyShape::List) => format!("{key}:\n{child}- "),
+            _ => format!("{key}: "),
+        };
+        let new_text = if glued_dash { format!("- {body}") } else { body };
+        item.insert_text_mode = Some(InsertTextMode::AS_IS); // indentation is already right
+        // Editors filter on the text in the edit's range, dash included.
+        item.filter_text = Some(if glued_dash { format!("-{key}") } else { key });
+        item.text_edit = Some(CompletionTextEdit::Edit(TextEdit { range, new_text }));
     }
 }
 
@@ -382,7 +437,7 @@ fn find_platform_in_context(source: &str, line_idx: usize) -> Option<String> {
 }
 
 /// Find the parent array context with full path support.
-fn find_parent_context(source: &str, line_idx: usize) -> Option<String> {
+pub(crate) fn find_parent_context(source: &str, line_idx: usize) -> Option<String> {
     let lines: Vec<&str> = source.lines().collect();
     let current_line = lines.get(line_idx).unwrap_or(&"");
     let current_indent = current_line.len() - current_line.trim_start().len();
@@ -2044,6 +2099,38 @@ fn create_path_completion(
 
 #[cfg(test)]
 mod tests {
+
+    /// Accepting `path` must give a YAML key: `- path: `, never `-path`.
+    #[test]
+    fn key_completion_inserts_colon_and_fixes_a_glued_dash() {
+        let edit = |src: &str, col: u32| {
+            let items = complete_at_with_context(src, Position { line: 1, character: col }, None, None, false);
+            let item = items.into_iter().find(|i| i.label == "path").expect("path offered");
+            match item.text_edit {
+                Some(CompletionTextEdit::Edit(e)) => (e.range.start.character, e.new_text, item.filter_text.unwrap()),
+                other => panic!("no edit: {other:?}"),
+            }
+        };
+        assert_eq!(edit("reports:\n  -pa", 5), (2, "- path: ".to_string(), "-path".to_string()));
+        assert_eq!(edit("reports:\n  - pa", 6), (4, "path: ".to_string(), "path".to_string()));
+        assert_eq!(edit("reports:\n  - pa: x", 6), (4, "path".to_string(), "path".to_string()), "existing colon kept");
+    }
+
+    /// Sections open an indented line (lists with `- `), and each key says
+    /// where it lives.
+    #[test]
+    fn key_completion_knows_shape_and_place() {
+        let fleet = Path::new("fleets/a.yml");
+        let get = |src: &str, line: u32, col: u32, label: &str| {
+            let items = complete_at_with_context(src, Position { line, character: col }, Some(fleet), None, false);
+            let item = items.into_iter().find(|i| i.label == label).unwrap_or_else(|| panic!("{label} offered"));
+            let Some(CompletionTextEdit::Edit(e)) = item.text_edit else { panic!("no edit") };
+            (e.new_text, item.label_details.and_then(|d| d.description))
+        };
+        assert_eq!(get("name: A\ncontr", 1, 5, "controls"), ("controls:\n  ".into(), Some("top-level key".into())));
+        assert_eq!(get("name: A\ncontrols:\n  scr", 2, 5, "scripts"), ("scripts:\n    - ".into(), Some("subkey of controls".into())));
+        assert_eq!(get("name: A\nreports:\n  -pa", 2, 5, "path"), ("- path: ".into(), Some("subkey of reports[]".into())));
+    }
     #[test]
     fn fleet_var_completion() {
         use super::complete_fleet_var;

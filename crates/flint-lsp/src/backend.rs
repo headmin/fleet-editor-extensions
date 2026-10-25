@@ -32,7 +32,6 @@ use super::diagnostics::{gitops_error_to_diagnostic, lint_error_to_diagnostic};
 use super::fleet::{
     find_gitops_root, FleetConnection, ResourceCache, SharedFleetConnection, SharedResourceCache,
 };
-use super::hover::hover_at_with_context;
 use super::semantic_tokens::{compute_semantic_tokens, create_legend};
 use super::symbols::document_symbols;
 use super::workspace::{
@@ -1181,7 +1180,8 @@ impl LanguageServer for FleetLspBackend {
                 .ok()
                 .map(|l| l.config().deprecations.future_names)
                 .unwrap_or(false);
-            Ok(hover_at_with_context(&content, position, future_names))
+            let file = Url::parse(&uri).ok().and_then(|u| u.to_file_path().ok());
+            Ok(super::hover::hover_with_place(&content, position, future_names, file.as_deref()))
         } else {
             Ok(None)
         }
@@ -1297,7 +1297,8 @@ impl LanguageServer for FleetLspBackend {
 
         // Get document content from cache
         if let Some(content) = self.documents.get(&uri) {
-            let tokens = compute_semantic_tokens(&content);
+            let file = Url::parse(&uri).ok().and_then(|u| u.to_file_path().ok());
+            let tokens = compute_semantic_tokens(&content, file.as_deref());
             Ok(Some(SemanticTokensResult::Tokens(tokens)))
         } else {
             Ok(None)

@@ -19,6 +19,9 @@ pub const TOKEN_TYPES: &[SemanticTokenType] = &[
     SemanticTokenType::FUNCTION,  // 6: osquery table names
     SemanticTokenType::VARIABLE,  // 7: Environment variable references ($VAR)
     SemanticTokenType::COMMENT,   // 8: YAML comments
+    // 9: A key the schema does not have where it is. Custom type; the VS
+    // Code extension maps it to `invalid.illegal` (package.json).
+    SemanticTokenType::new("invalidKey"),
 ];
 
 /// Token modifiers (optional enhancements).
@@ -48,115 +51,84 @@ mod token_type {
     pub(super) const FUNCTION: u32 = 6;
     pub(super) const VARIABLE: u32 = 7;
     pub(super) const COMMENT: u32 = 8;
+    pub(super) const INVALID_KEY: u32 = 9;
 }
 
 /// Generate semantic tokens for a Fleet YAML document.
-pub fn compute_semantic_tokens(source: &str) -> SemanticTokens {
+/// Keys are coloured by where they are, per the same schema the lint uses:
+/// a top-level key as a section (NAMESPACE), a nested one as a PROPERTY, and
+/// a key the schema does not have there as INVALID_KEY (typo or misplaced).
+/// Free-form content and the children of an invalid key are not judged.
+pub fn compute_semantic_tokens(source: &str, file: Option<&std::path::Path>) -> SemanticTokens {
     let mut tokens: Vec<RawToken> = Vec::new();
+    // (column, key) of the keys enclosing the current line.
+    let mut parents: Vec<(usize, String)> = Vec::new();
+    // Inside a `|`/`>` block scalar owned by the key at this column; `true`
+    // when it is SQL.
+    let mut block: Option<(usize, bool)> = None;
 
-    let lines: Vec<&str> = source.lines().collect();
-    let mut in_sql_block = false;
-    let mut sql_indent = 0;
-
-    for (line_idx, line) in lines.iter().enumerate() {
+    for (line_idx, line) in source.lines().enumerate() {
         let trimmed = line.trim();
-
-        // Skip empty lines
         if trimmed.is_empty() {
             continue;
         }
-
-        // Handle comments
-        if trimmed.starts_with('#') {
-            if let Some(start) = line.find('#') {
-                tokens.push(RawToken {
-                    line: line_idx as u32,
-                    start: start as u32,
-                    length: (line.len() - start) as u32,
-                    token_type: token_type::COMMENT,
-                    modifiers: 0,
-                });
-            }
-            continue;
-        }
-
         let indent = line.len() - line.trim_start().len();
 
-        // Check for SQL block end (less indented line after query:)
-        if in_sql_block && indent <= sql_indent && !trimmed.starts_with('|') {
-            in_sql_block = false;
+        if let Some((owner, sql)) = block {
+            if indent > owner {
+                if sql {
+                    tokenize_sql(line, line_idx as u32, 0, &mut tokens);
+                }
+                continue;
+            }
+            block = None;
         }
 
-        // Detect top-level sections
-        if indent == 0 && trimmed.ends_with(':') {
-            let section_name = trimmed.trim_end_matches(':');
-            if is_top_level_section(section_name) {
-                tokens.push(RawToken {
-                    line: line_idx as u32,
-                    start: 0,
-                    length: section_name.len() as u32,
-                    token_type: token_type::NAMESPACE,
-                    modifiers: 1, // DEFINITION
-                });
-            }
+        if trimmed.starts_with('#') {
+            tokens.push(RawToken {
+                line: line_idx as u32,
+                start: indent as u32,
+                length: (line.len() - indent) as u32,
+                token_type: token_type::COMMENT,
+                modifiers: 0,
+            });
             continue;
         }
 
-        // Handle key: value pairs
-        if let Some(colon_pos) = find_yaml_colon(line) {
-            let key_part = &line[..colon_pos];
-            let key = key_part.trim().trim_start_matches('-').trim();
-            let key_start = line.find(key).unwrap_or(0);
+        let Some(colon_pos) = find_yaml_colon(line) else { continue };
+        let key = line[..colon_pos].trim().trim_start_matches('-').trim();
+        if key.is_empty() {
+            continue;
+        }
+        let key_col = line[..colon_pos].find(key).unwrap_or(indent);
+        while parents.last().is_some_and(|(col, _)| *col >= key_col) {
+            parents.pop();
+        }
+        let path: Vec<&str> = parents.iter().map(|(_, k)| k.as_str()).collect();
+        let token_type = match flint_lint::key_fit(file, &path, key) {
+            flint_lint::KeyFit::Invalid => token_type::INVALID_KEY,
+            flint_lint::KeyFit::Known if path.is_empty() => token_type::NAMESPACE,
+            _ => token_type::PROPERTY,
+        };
+        tokens.push(RawToken {
+            line: line_idx as u32,
+            start: key_col as u32,
+            length: key.len() as u32,
+            token_type,
+            modifiers: 0,
+        });
+        parents.push((key_col, key.to_string()));
 
-            // Determine token type for the key
-            let key_token_type = if is_top_level_section(key) {
-                token_type::NAMESPACE
-            } else {
-                token_type::PROPERTY
-            };
-
-            tokens.push(RawToken {
-                line: line_idx as u32,
-                start: key_start as u32,
-                length: key.len() as u32,
-                token_type: key_token_type,
-                modifiers: 0,
-            });
-
-            // Check if this starts a SQL block
-            if key == "query" {
-                let value_part = &line[colon_pos + 1..];
-                if value_part.trim() == "|"
-                    || value_part.trim() == "|-"
-                    || value_part.trim() == "|+"
-                {
-                    in_sql_block = true;
-                    sql_indent = indent;
-                } else if !value_part.trim().is_empty() {
-                    // Inline SQL
-                    tokenize_sql(
-                        value_part,
-                        line_idx as u32,
-                        (colon_pos + 1) as u32,
-                        &mut tokens,
-                    );
-                }
-            } else {
-                // Handle value part
-                let value_part = &line[colon_pos + 1..];
-                let value = value_part.trim();
-
-                if !value.is_empty() && !value.starts_with('|') && !value.starts_with('>') {
-                    tokenize_value(value, key, line_idx as u32, line, colon_pos, &mut tokens);
-                }
-            }
-        } else if in_sql_block {
-            // This line is part of a multiline SQL query
-            tokenize_sql(line, line_idx as u32, 0, &mut tokens);
+        let value = line[colon_pos + 1..].trim();
+        if value.starts_with('|') || value.starts_with('>') {
+            block = Some((key_col, key == "query"));
+        } else if key == "query" && !value.is_empty() {
+            tokenize_sql(&line[colon_pos + 1..], line_idx as u32, (colon_pos + 1) as u32, &mut tokens);
+        } else if !value.is_empty() {
+            tokenize_value(value, key, line_idx as u32, line, colon_pos, &mut tokens);
         }
     }
 
-    // Convert raw tokens to delta-encoded semantic tokens
     encode_tokens(&tokens)
 }
 
@@ -168,22 +140,6 @@ struct RawToken {
     length: u32,
     token_type: u32,
     modifiers: u32,
-}
-
-/// Check if a name is a top-level section.
-fn is_top_level_section(name: &str) -> bool {
-    matches!(
-        name,
-        "policies"
-            | "queries"
-            | "labels"
-            | "controls"
-            | "agent_options"
-            | "software"
-            | "webhook_settings"
-            | "org_settings"
-            | "team_settings"
-    )
 }
 
 /// Find the colon that separates key from value in YAML (not inside quotes).
@@ -476,7 +432,7 @@ mod tests {
     query: SELECT * FROM processes
 "#;
 
-        let tokens = compute_semantic_tokens(source);
+        let tokens = compute_semantic_tokens(source, None);
         assert!(!tokens.data.is_empty());
     }
 
@@ -488,12 +444,28 @@ mod tests {
     }
 
     #[test]
-    fn test_is_top_level_section() {
-        assert!(is_top_level_section("policies"));
-        assert!(is_top_level_section("queries"));
-        assert!(is_top_level_section("labels"));
-        assert!(!is_top_level_section("name"));
-        assert!(!is_top_level_section("query"));
+    fn keys_are_coloured_by_where_they_are() {
+        let src = "name: A\ncontrols:\n  enable_disk_encryption: true\n  bogus: 1\napple_settings:\n    configuration_profiles:\npolicies:\n  - name: P\n    description: |\n      Note: not a key\n";
+        let types: Vec<(u32, u32)> = raw(src).into_iter().map(|t| (t.line, t.token_type)).filter(|(_, t)| ![token_type::STRING, token_type::KEYWORD, token_type::NUMBER].contains(t)).collect();
+        use token_type::*;
+        assert_eq!(types, vec![
+            (0, NAMESPACE), (1, NAMESPACE), (2, PROPERTY), (3, INVALID_KEY),
+            (4, INVALID_KEY), (5, PROPERTY), // a misplaced section's child is not judged
+            (6, NAMESPACE), (7, PROPERTY), (8, PROPERTY), // block scalar text is not a key
+        ]);
+        // `- paths:` followed by indented items: they are under a value-only key.
+        let shifted: Vec<(u32, u32)> = raw("name: A\nreports:\n- paths:\n  - path: x.yml\n").into_iter().map(|t| (t.line, t.token_type)).filter(|(_, t)| *t != token_type::STRING).collect();
+        assert_eq!(shifted, vec![(0, NAMESPACE), (1, NAMESPACE), (2, PROPERTY), (3, INVALID_KEY)]);
+    }
+
+    fn raw(src: &str) -> Vec<RawToken> {
+        let tokens = compute_semantic_tokens(src, Some(std::path::Path::new("fleets/a.yml")));
+        let (mut line, mut out) = (0, Vec::new());
+        for t in tokens.data {
+            line += t.delta_line;
+            out.push(RawToken { line, start: 0, length: t.length, token_type: t.token_type, modifiers: 0 });
+        }
+        out
     }
 
     #[test]
@@ -516,7 +488,7 @@ mod tests {
     #[test]
     fn test_comments() {
         let source = "# This is a comment\npolicies:";
-        let tokens = compute_semantic_tokens(source);
+        let tokens = compute_semantic_tokens(source, None);
 
         // First token should be a comment
         assert!(!tokens.data.is_empty());

@@ -284,7 +284,13 @@ impl Linter {
         // file with a stray `: ` in a value linted clean, dry-run passed, and
         // the apply failed.
         if let Some(err) = yaml_syntax_error(content, file_path) {
-            report.add(err);
+            let mut errs = vec![err];
+            errs.extend(super::structural::misplaced_margin_keys(content, file_path));
+            apply_error_controls(&mut errs, &parse_suppressions(content), &self.config);
+            for mut e in errs {
+                stamp_doc_url(&mut e);
+                report.add(e);
+            }
             return Ok(report);
         }
 

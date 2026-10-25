@@ -125,6 +125,10 @@ fn every_titled_docs_example_reports_exactly_what_it_says() {
     for case in pages.iter().flat_map(|p| cases(p)) {
         let dir = tempfile::tempdir().unwrap();
         let mut files: BTreeMap<&str, &str> = case.files.iter().map(|(p, b)| (p.as_str(), b.as_str())).collect();
+        if files.len() < case.files.len() {
+            failures.push(format!("{}\n  two code blocks with the same title (start a new heading)", case.at));
+            continue;
+        }
         files.entry("default.yml").or_insert(DEFAULT);
         for (path, body) in &files {
             let p = dir.path().join(path);
