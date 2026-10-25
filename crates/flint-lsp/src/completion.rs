@@ -113,19 +113,19 @@ enum PathContextType {
 /// Provide completion items at a position in a Fleet YAML document.
 /// For file path completions, use `complete_at_with_context` instead.
 pub fn complete_at(source: &str, position: Position) -> Vec<CompletionItem> {
-    complete_at_with_context(source, position, None, None, false)
+    complete_at_with_context(source, position, None, None, &flint_lint::KeyNames::latest())
 }
 
 /// Provide completion items with workspace context for file path completions.
 ///
-/// When `future_names` is `true`, top-level completions suggest the new naming
-/// convention (`reports` instead of `queries`, `settings` instead of `team_settings`).
+/// Key names follow `names` (the repo's target Fleet version): `reports` or
+/// `queries`, `apple_settings` or `macos_settings`, and so on.
 pub fn complete_at_with_context(
     source: &str,
     position: Position,
     current_file: Option<&Path>,
     workspace_root: Option<&Path>,
-    future_names: bool,
+    names: &flint_lint::KeyNames,
 ) -> Vec<CompletionItem> {
     let line_idx = position.line as usize;
     let col_idx = position.character as usize;
@@ -142,7 +142,7 @@ pub fn complete_at_with_context(
     let context = determine_completion_context(source, line_idx, line, col_idx);
 
     let mut items = match context {
-        CompletionContext::TopLevel => complete_top_level_fields(future_names),
+        CompletionContext::TopLevel => complete_top_level_fields(),
         CompletionContext::PolicyField => complete_policy_fields(line, col_idx),
         CompletionContext::QueryField => complete_query_fields(line, col_idx),
         CompletionContext::LabelField => complete_label_fields(line, col_idx),
@@ -195,10 +195,109 @@ pub fn complete_at_with_context(
         CompletionContext::SqlContext { platform } => complete_osquery_tables(platform.as_deref()),
         CompletionContext::Unknown => vec![],
     };
-    let parent = find_parent_context(source, line_idx).unwrap_or_default();
-    let parent: Vec<&str> = parent.split('.').filter(|s| !s.is_empty()).collect();
+    let parent_path = find_parent_context(source, line_idx).unwrap_or_default();
+    let base = match (current_file, workspace_root) {
+        (Some(file), Some(root)) => super::completion_data::resolve_base("{base}", file, root),
+        _ => "../platforms".to_string(),
+    };
+    current_names(&mut items, names, &parent_path, &base, current_file);
+    if at_key_position(&line[..col_idx.min(line.len())]) {
+        add_schema_keys(&mut items, current_file, &parent_path, names);
+    }
+    let parent: Vec<&str> = parent_path.split('.').filter(|s| !s.is_empty()).collect();
     complete_keys_as_keys(&mut items, line, position, current_file, &parent);
     items
+}
+
+/// Key lists and snippets are written once; this makes what they insert
+/// current for the repo: renamed keys get the name its target Fleet version
+/// expects (per the deprecation registry, the same as the lint), and snippet
+/// paths use the repo's layout (`../platforms/...` or `../lib/...`) instead
+/// of a hardcoded one. A rename that makes two items equal keeps one.
+fn current_names(items: &mut Vec<CompletionItem>, names: &flint_lint::KeyNames, parent: &str, base: &str, file: Option<&Path>) {
+    let join = |a: &str, b: &str| if a.is_empty() { b.to_string() } else { format!("{a}.{b}") };
+    let rebase = |l: &str| l.replace("../lib/", &format!("{base}/")).replace("../platforms/", &format!("{base}/"));
+    for item in items.iter_mut() {
+        if item.kind == Some(CompletionItemKind::FIELD) && item.insert_text.is_none() {
+            item.label = names.current(&item.label, parent).to_string();
+        } else if item.insert_text_format == Some(InsertTextFormat::SNIPPET) {
+            let Some(snippet) = item.insert_text.as_deref() else { continue };
+            // (column, key) of the snippet's own enclosing keys.
+            let mut stack: Vec<(usize, String)> = Vec::new();
+            let mut out = Vec::new();
+            for line in snippet.split('\n') {
+                let body = line.trim_start().trim_start_matches("- ");
+                let col = line.len() - body.len();
+                let key = body.split(':').next().unwrap_or("");
+                if !body.contains(':') || !is_key(key) {
+                    out.push(rebase(line));
+                    continue;
+                }
+                while stack.last().is_some_and(|(c, _)| *c >= col) {
+                    stack.pop();
+                }
+                let ctx = stack.iter().fold(parent.to_string(), |acc, (_, k)| join(&acc, k));
+                let new = names.current(key, &ctx).to_string();
+                stack.push((col, new.clone()));
+                let line = format!("{}{new}{}", &line[..col], &body[key.len()..]);
+                out.push(rebase(&line));
+            }
+            let renamed = out.join("\n");
+            // The label names the snippet's first key (`queries (block)`).
+            let first = |s: &str| s.split(':').next().unwrap_or("").to_string();
+            item.label = item.label.replacen(&first(snippet), &first(&renamed), 1);
+            item.insert_text = Some(renamed);
+        }
+    }
+    let mut seen = std::collections::HashSet::new();
+    items.retain(|i| seen.insert((i.label.clone(), i.insert_text_format == Some(InsertTextFormat::SNIPPET))));
+    // Don't suggest a key the schema rejects here (e.g. org_settings in a
+    // fleet file). Only with a known file: what is valid depends on its kind.
+    if file.is_some() {
+        let path: Vec<&str> = parent.split('.').filter(|s| !s.is_empty()).collect();
+        items.retain(|i| {
+            let key = match (&i.insert_text, i.kind) {
+                (Some(t), _) if i.insert_text_format == Some(InsertTextFormat::SNIPPET) => t.split(':').next().unwrap_or(""),
+                (None, Some(CompletionItemKind::FIELD)) => i.label.as_str(),
+                _ => return true,
+            };
+            !is_key(key) || flint_lint::key_fit(file, &path, key) != flint_lint::KeyFit::Invalid
+        });
+    }
+}
+
+/// The cursor is where a key goes: only indentation, an optional `- ` and a
+/// partial key before it.
+fn at_key_position(before: &str) -> bool {
+    let rest = before.trim_start();
+    let rest = rest.strip_prefix('-').map_or(rest, str::trim_start);
+    rest.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+}
+
+/// Every key the schema accepts here that the curated lists do not offer
+/// yet, so completion is complete by construction (sorted after the curated
+/// ones). Old names of renames in force are left out.
+fn add_schema_keys(items: &mut Vec<CompletionItem>, file: Option<&Path>, parent: &str, names: &flint_lint::KeyNames) {
+    let path: Vec<&str> = parent.split('.').filter(|s| !s.is_empty()).collect();
+    let offered: std::collections::HashSet<String> = items
+        .iter()
+        .filter(|i| i.kind == Some(CompletionItemKind::FIELD))
+        .map(|i| i.label.clone())
+        .collect();
+    for key in flint_lint::keys_under(file, &path) {
+        if offered.contains(key) || names.current(key, parent) != key || names.is_premature(key) {
+            continue;
+        }
+        let doc = get_field_doc(&format!("{parent}.{key}")).or_else(|| get_field_doc(key));
+        let mut item = create_field_completion(key, doc.map_or("Fleet GitOps key", |d| d.description), false);
+        item.sort_text = Some(format!("2_{key}"));
+        items.push(item);
+    }
+}
+
+/// A plain YAML key (not a snippet placeholder like `${4`).
+fn is_key(s: &str) -> bool {
+    !s.is_empty() && s.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
 }
 
 /// A key completion inserts the key as YAML: `key: ` for a value, `key:` and
@@ -564,22 +663,12 @@ fn context_path_to_completion_context(path: Option<&str>) -> CompletionContext {
     }
 }
 
-/// Complete top-level field names.
-///
-/// When `future_names` is `true`, suggests new naming conventions:
-/// - `reports` instead of `queries`
-/// - `settings` instead of `team_settings` (not in default list, but swapped if present)
-fn complete_top_level_fields(future_names: bool) -> Vec<CompletionItem> {
-    let queries_entry = if future_names {
-        (
-            "reports",
-            "List of osquery queries (future name for queries)",
-        )
-    } else {
-        ("queries", "List of osquery queries")
-    };
+/// Complete top-level field names (old spellings; `current_names` renames
+/// them for the repo's Fleet version).
+fn complete_top_level_fields() -> Vec<CompletionItem> {
+    let queries_entry = ("queries", "List of osquery queries");
 
-    let mut fields = vec![
+    let fields = vec![
         ("name", "Team or configuration name"),
         ("policies", "List of compliance policies"),
         queries_entry,
@@ -595,9 +684,6 @@ fn complete_top_level_fields(future_names: bool) -> Vec<CompletionItem> {
         ("webhook_settings", "Webhook notification configuration"),
     ];
 
-    if future_names {
-        fields.push(("settings", "Team settings (future name for team_settings)"));
-    }
 
     let mut items: Vec<CompletionItem> = fields
         .iter()
@@ -608,13 +694,9 @@ fn complete_top_level_fields(future_names: bool) -> Vec<CompletionItem> {
         })
         .collect();
 
-    let queries_block = if future_names {
-        ("reports", "Query/report list (block)", "reports:\n  - name: ${1:Query name}\n    query: ${2:SELECT 1}\n    interval: ${3:300}\n    platform: ${4:darwin}")
-    } else {
-        ("queries", "Query list (block)", "queries:\n  - name: ${1:Query name}\n    query: ${2:SELECT 1}\n    interval: ${3:300}\n    platform: ${4:darwin}")
-    };
+    let queries_block = ("queries", "Report list (block)", "queries:\n  - name: ${1:Report name}\n    query: ${2:SELECT 1}\n    interval: ${3:300}\n    platform: ${4:darwin}");
 
-    let mut blocks = vec![
+    let blocks = vec![
         (
             "policies",
             "Policy list (block)",
@@ -653,13 +735,6 @@ fn complete_top_level_fields(future_names: bool) -> Vec<CompletionItem> {
         ),
     ];
 
-    if future_names {
-        blocks.push((
-            "settings",
-            "Team settings (block)",
-            "settings:\n  features:\n    enable_host_users: ${1:true}\n    enable_software_inventory: ${2:true}",
-        ));
-    }
 
     for (name, desc, snippet) in blocks {
         items.push(create_block_completion(name, desc, snippet));
@@ -1067,10 +1142,9 @@ fn complete_software_section() -> Vec<CompletionItem> {
         (
             "packages",
             "Software packages (block)",
-            "packages:\n\
-  - path: ${1:../platforms/macos/software/app.yml}\n\
-    self_service: ${2:true}\n\
-    setup_experience: ${3:false}",
+            // Explicit \n + spaces: a `\` line continuation would strip the
+            // indentation and put self_service at the software level.
+            "packages:\n  - path: ${1:../platforms/macos/software/app.yml}\n    self_service: ${2:true}\n    setup_experience: ${3:false}",
         ),
         (
             "app_store_apps",
@@ -1080,12 +1154,7 @@ fn complete_software_section() -> Vec<CompletionItem> {
         (
             "fleet_maintained_apps",
             "Fleet-maintained apps (block)",
-            "fleet_maintained_apps:\n\
-  - slug: ${1:slack/darwin}\n\
-    self_service: ${2:true}\n\
-    setup_experience: ${3:false}\n\
-    categories:\n\
-      - ${4:Productivity}",
+            "fleet_maintained_apps:\n  - slug: ${1:slack/darwin}\n    self_service: ${2:true}\n    setup_experience: ${3:false}\n    categories:\n      - ${4:Productivity}",
         ),
     ];
 
@@ -2100,11 +2169,110 @@ fn create_path_completion(
 #[cfg(test)]
 mod tests {
 
+    /// GUARD: at the latest Fleet nothing completion inserts is a deprecated
+    /// name, a key the schema rejects there, or a hardcoded `lib/` path —
+    /// snippets are checked key by key at their nested path.
+    #[test]
+    fn completions_insert_current_valid_keys_only() {
+        let fleet = Path::new("fleets/a.yml");
+        let names = flint_lint::KeyNames::latest();
+        let contexts = [
+            ("name: A\n", 1, ""),
+            ("name: A\ncontrols:\n  ", 2, "controls"),
+            ("name: A\nsoftware:\n  ", 2, "software"),
+            ("name: A\npolicies:\n  - ", 2, "policies"),
+            ("name: A\nreports:\n  - ", 2, "reports"),
+            ("name: A\nlabels:\n  - ", 2, "labels"),
+        ];
+        let mut bad = Vec::new();
+        for (src, line, parent) in contexts {
+            let col = src.lines().nth(line).unwrap_or("").len() as u32;
+            for item in complete_at_with_context(src, Position { line: line as u32, character: col }, Some(fleet), None, &names) {
+                let text = match (&item.insert_text, &item.text_edit) {
+                    (Some(t), _) => t.clone(),
+                    (None, Some(CompletionTextEdit::Edit(e))) => e.new_text.trim_start_matches("- ").to_string(),
+                    _ => item.label.clone(),
+                };
+                if item.kind != Some(CompletionItemKind::FIELD) && item.insert_text_format != Some(InsertTextFormat::SNIPPET) {
+                    continue;
+                }
+                if text.contains("lib/") {
+                    bad.push(format!("{parent}: {} inserts a lib/ path", item.label));
+                }
+                let mut stack: Vec<(usize, String)> = Vec::new();
+                for l in text.split('\n') {
+                    let body = l.trim_start().trim_start_matches("- ");
+                    let col = l.len() - body.len();
+                    let Some((key, _)) = body.split_once(':') else { continue };
+                    if !is_key(key) {
+                        continue;
+                    }
+                    while stack.last().is_some_and(|(c, _)| *c >= col) {
+                        stack.pop();
+                    }
+                    let mut path: Vec<&str> = parent.split('.').filter(|s| !s.is_empty()).collect();
+                    path.extend(stack.iter().map(|(_, k)| k.as_str()));
+                    if names.current(key, &path.join(".")) != key {
+                        bad.push(format!("{parent}: {} inserts deprecated `{key}`", item.label));
+                    }
+                    if flint_lint::key_fit(Some(fleet), &path, key) == flint_lint::KeyFit::Invalid {
+                        bad.push(format!("{parent}: {} inserts `{key}`, invalid at {}", item.label, path.join(".")));
+                    }
+                    stack.push((col, key.to_string()));
+                }
+            }
+        }
+        assert!(bad.is_empty(), "\n{}", bad.join("\n"));
+        // Renamed, not dropped: the macOS profiles block at latest and legacy.
+        let block = |names: &flint_lint::KeyNames, label: &str| {
+            complete_at_with_context("name: A\ncontrols:\n  ", Position { line: 2, character: 2 }, Some(fleet), None, names)
+                .into_iter()
+                .find(|i| i.label == label)
+                .and_then(|i| i.insert_text)
+                .unwrap_or_else(|| panic!("{label} offered"))
+        };
+        let latest = block(&names, "apple_settings (block)");
+        assert!(latest.starts_with("apple_settings:\n  configuration_profiles:\n    - path: ${1:../platforms/"), "{latest}");
+        let legacy = block(&flint_lint::KeyNames::legacy(), "macos_settings (block)");
+        assert!(legacy.starts_with("macos_settings:\n  custom_settings:"), "{legacy}");
+    }
+
+    /// GUARD: every key the schema accepts in these places is offered.
+    #[test]
+    fn completion_offers_every_schema_key() {
+        let names = flint_lint::KeyNames::latest();
+        for (file, src, line, parent) in [
+            ("fleets/a.yml", "name: A\n", 1, ""),
+            ("default.yml", "org_settings:\n  x: 1\n", 2, ""),
+            ("fleets/a.yml", "name: A\ncontrols:\n  ", 2, "controls"),
+            ("fleets/a.yml", "name: A\nsoftware:\n  ", 2, "software"),
+            ("fleets/a.yml", "name: A\npolicies:\n  - ", 2, "policies"),
+            ("fleets/a.yml", "name: A\nreports:\n  - ", 2, "reports"),
+            ("fleets/a.yml", "name: A\nlabels:\n  - ", 2, "labels"),
+            ("fleets/a.yml", "name: A\ncontrols:\n  setup_experience:\n    ", 3, "controls.setup_experience"),
+            ("fleets/a.yml", "name: A\ncontrols:\n  apple_settings:\n    ", 3, "controls.apple_settings"),
+            ("fleets/a.yml", "name: A\nsoftware:\n  packages:\n    - ", 3, "software.packages"),
+            ("fleets/a.yml", "name: A\nsoftware:\n  fleet_maintained_apps:\n    - ", 3, "software.fleet_maintained_apps"),
+            ("fleets/a.yml", "name: A\nsoftware:\n  app_store_apps:\n    - ", 3, "software.app_store_apps"),
+            ("fleets/a.yml", "name: A\nsettings:\n  ", 2, "settings"),
+            ("default.yml", "org_settings:\n  ", 1, "org_settings"),
+        ] {
+            let f = Path::new(file);
+            let col = src.lines().nth(line).unwrap_or("").len() as u32;
+            let offered: std::collections::BTreeSet<String> = complete_at_with_context(src, Position { line: line as u32, character: col }, Some(f), None, &names)
+                .into_iter().filter(|i| i.kind == Some(CompletionItemKind::FIELD)).map(|i| i.label).collect();
+            let path: Vec<&str> = parent.split('.').filter(|s| !s.is_empty()).collect();
+            let missing: Vec<&str> = flint_lint::keys_under(Some(f), &path).into_iter()
+                .filter(|k| !offered.contains(*k) && names.current(k, parent) == *k).collect();
+            assert!(missing.is_empty(), "{file} [{parent}] does not offer {missing:?}");
+        }
+    }
+
     /// Accepting `path` must give a YAML key: `- path: `, never `-path`.
     #[test]
     fn key_completion_inserts_colon_and_fixes_a_glued_dash() {
         let edit = |src: &str, col: u32| {
-            let items = complete_at_with_context(src, Position { line: 1, character: col }, None, None, false);
+            let items = complete_at_with_context(src, Position { line: 1, character: col }, None, None, &flint_lint::KeyNames::latest());
             let item = items.into_iter().find(|i| i.label == "path").expect("path offered");
             match item.text_edit {
                 Some(CompletionTextEdit::Edit(e)) => (e.range.start.character, e.new_text, item.filter_text.unwrap()),
@@ -2122,7 +2290,7 @@ mod tests {
     fn key_completion_knows_shape_and_place() {
         let fleet = Path::new("fleets/a.yml");
         let get = |src: &str, line: u32, col: u32, label: &str| {
-            let items = complete_at_with_context(src, Position { line, character: col }, Some(fleet), None, false);
+            let items = complete_at_with_context(src, Position { line, character: col }, Some(fleet), None, &flint_lint::KeyNames::latest());
             let item = items.into_iter().find(|i| i.label == label).unwrap_or_else(|| panic!("{label} offered"));
             let Some(CompletionTextEdit::Edit(e)) = item.text_edit else { panic!("no edit") };
             (e.new_text, item.label_details.and_then(|d| d.description))
@@ -2160,15 +2328,14 @@ mod tests {
 
         let labels: Vec<_> = completions.iter().map(|c| c.label.as_str()).collect();
         assert!(labels.contains(&"policies"));
-        assert!(labels.contains(&"queries"));
         assert!(labels.contains(&"labels"));
-        // future_names=false should NOT suggest new names
-        assert!(!labels.contains(&"reports"));
-        assert!(!labels.contains(&"settings"));
+        // Latest Fleet: the current names only.
+        assert!(labels.contains(&"reports") && labels.contains(&"settings"));
+        assert!(!labels.contains(&"queries") && !labels.contains(&"team_settings"));
     }
 
     #[test]
-    fn test_complete_top_level_future_names() {
+    fn test_complete_top_level_legacy_names() {
         let source = "";
         let completions = complete_at_with_context(
             source,
@@ -2178,17 +2345,14 @@ mod tests {
             },
             None,
             None,
-            true,
+            &flint_lint::KeyNames::legacy(),
         );
         assert!(!completions.is_empty());
 
         let labels: Vec<_> = completions.iter().map(|c| c.label.as_str()).collect();
-        // future_names=true should suggest new names
-        assert!(labels.contains(&"reports"));
-        assert!(labels.contains(&"settings"));
-        // Should NOT suggest old names that have been replaced
-        assert!(!labels.contains(&"queries"));
-        // policies is unchanged
+        // A repo pinned to a Fleet before the renames keeps the old names.
+        assert!(labels.contains(&"queries") && labels.contains(&"team_settings"));
+        assert!(!labels.contains(&"reports") && !labels.contains(&"settings"));
         assert!(labels.contains(&"policies"));
     }
 
@@ -2585,7 +2749,7 @@ mod tests {
 
     #[test]
     fn test_top_level_block_snippets() {
-        let completions = complete_top_level_fields(false);
+        let completions = complete_top_level_fields();
         let block_labels: Vec<_> = completions
             .iter()
             .filter(|c| c.insert_text_format == Some(InsertTextFormat::SNIPPET))
@@ -2600,8 +2764,8 @@ mod tests {
         assert!(block_labels.contains(&"org_settings (block)"));
         assert!(block_labels.contains(&"team_settings (block)"));
 
-        // future_names=true should have reports instead of queries
-        let future = complete_top_level_fields(true);
+        // At the latest Fleet the renamed blocks are offered instead
+        let future = complete_at("", Position { line: 0, character: 0 });
         let future_blocks: Vec<_> = future
             .iter()
             .filter(|c| c.insert_text_format == Some(InsertTextFormat::SNIPPET))

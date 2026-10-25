@@ -452,6 +452,61 @@ pub static DEPRECATION_REGISTRY: Lazy<DeprecationRegistry> = Lazy::new(|| {
 // Tests
 // ---------------------------------------------------------------------------
 
+
+/// Which spelling of a renamed key is current for a repo's target Fleet
+/// version — what editors should suggest. A rename counts once the lint
+/// would warn about the old name (or `future_names` is on).
+#[derive(Debug, Clone)]
+pub struct KeyNames {
+    target: Version,
+    future_names: bool,
+}
+
+impl KeyNames {
+    pub fn of(config: &crate::FleetLintConfig) -> Self {
+        let ctx = crate::version_gate::VersionContext::resolve(
+            Some(&config.deprecations.fleet_version),
+            config.deprecations.future_names,
+        );
+        Self { target: ctx.version, future_names: config.deprecations.future_names }
+    }
+
+    /// The names for the latest Fleet flint knows.
+    pub fn latest() -> Self {
+        Self { target: crate::version_gate::VersionContext::latest().version, future_names: false }
+    }
+
+    /// The names for a Fleet older than every rename.
+    pub fn legacy() -> Self {
+        Self { target: Version::new(4, 0, 0), future_names: false }
+    }
+
+    /// `key` is the new name of a rename not in force for this target yet
+    /// (`reports` for a Fleet before 4.82): not to be suggested.
+    pub fn is_premature(&self, key: &str) -> bool {
+        let renames: Vec<&Deprecation> = DEPRECATION_REGISTRY
+            .entries()
+            .iter()
+            .filter(|d| matches!(&d.kind, DeprecationKind::KeyRename { new_key, .. } if *new_key == key))
+            .collect();
+        !self.future_names
+            && !renames.is_empty()
+            && renames.iter().all(|d| d.phase_for_version(&self.target) == DeprecationPhase::Dormant)
+    }
+
+    /// `key` at `context` (dotted path), or its new name when a rename of it
+    /// is in force for this target.
+    pub fn current<'a>(&self, key: &'a str, context: &str) -> &'a str {
+        match DEPRECATION_REGISTRY.find_deprecated_key(key, context) {
+            Some(d) if self.future_names || d.phase_for_version(&self.target) != DeprecationPhase::Dormant => match &d.kind {
+                DeprecationKind::KeyRename { new_key, .. } => new_key,
+                _ => key,
+            },
+            _ => key,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -77,6 +77,27 @@ pub fn describe_key(file: Option<&std::path::Path>, parent: &[&str], key: &str) 
     Some((shape, place))
 }
 
+/// The keys the schema accepts under `parent` (lists stepped through) in a
+/// file of `file`'s kind; empty for free-form or unknown places.
+pub fn keys_under(file: Option<&std::path::Path>, parent: &[&str]) -> Vec<&'static str> {
+    let mut node: &SchemaNode = file.map_or(&*FLEET_SCHEMA, schema_for_path);
+    if let SchemaNode::Array(item) = node {
+        node = item; // a lib file that is a list of items
+    }
+    for seg in parent {
+        let SchemaNode::Mapping(children) = node else { return Vec::new() };
+        let Some(next) = children.get(seg) else { return Vec::new() };
+        node = match next {
+            SchemaNode::Array(item) => item,
+            other => other,
+        };
+    }
+    let SchemaNode::Mapping(children) = node else { return Vec::new() };
+    let mut keys: Vec<&'static str> = children.keys().copied().collect();
+    keys.sort();
+    keys
+}
+
 /// Where `key` belongs when it is not valid where it is: its shortest
 /// registered home outside a list (`controls` for `apple_settings`).
 pub fn key_home(key: &str) -> Option<&'static str> {

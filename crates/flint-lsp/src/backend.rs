@@ -1202,20 +1202,20 @@ impl LanguageServer for FleetLspBackend {
             // Get live resource cache for Fleet completions
             let cache = self.get_resource_cache();
 
-            // Read future_names flag from config
-            let future_names = self
+            // Key names for the repo's target Fleet version.
+            let names = self
                 .linter
                 .read()
                 .ok()
-                .map(|l| l.config().deprecations.future_names)
-                .unwrap_or(false);
+                .map(|l| flint_lint::KeyNames::of(l.config()))
+                .unwrap_or_else(flint_lint::KeyNames::latest);
 
             let mut items = complete_at_with_context(
                 &content,
                 position,
                 file_path.as_deref(),
                 workspace_root.as_deref(),
-                future_names,
+                &names,
             );
 
             // Inject live completions from Fleet server if available
