@@ -25,12 +25,12 @@ jobs:
   ecosystem:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0   # the base ref is built from a worktree
 
       - name: Checkout corpus
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           repository: fleetdm/fleet
           ref: ${{ env.FLEET_CORPUS_SHA }}
@@ -39,7 +39,7 @@ jobs:
 
       - run: rustup toolchain install   # from rust-toolchain.toml
 
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6
         with:
           path: |
             ~/.cargo/registry

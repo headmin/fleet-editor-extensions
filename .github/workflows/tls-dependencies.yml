@@ -16,7 +16,7 @@ jobs:
   tls:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - run: rustup toolchain install   # from rust-toolchain.toml
       - name: Resolve the committed graph without changing it
         run: cargo tree --locked -p flint -i rustls-webpki

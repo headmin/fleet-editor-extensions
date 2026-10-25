@@ -62,10 +62,12 @@ fleet-editor-extensions/
 ├── docs/                      # Documentation
 │
 └── .github/workflows/         # CI/CD pipelines
-    ├── release.yml            # Unified multi-platform release
-    ├── release-vscode.yml     # VS Code extension release
-    ├── release-linux.yml      # Linux binary builds
-    └── update-schemas.yml     # Auto-update JSON schemas
+    ├── ci.yml                 # cargo test + clippy on every PR
+    ├── ecosystem.yml          # Lint Fleet's GitOps repo, base vs PR
+    ├── fleet-sync.yml         # Check against `fleetctl new` output
+    ├── tier2-harness.yml      # fleetctl gitops --dry-run harness
+    ├── tls-dependencies.yml   # Locked TLS dependency check
+    └── release-linux.yml      # Static Linux binaries on v* tags
 ```
 
 ### Data Flow
@@ -407,21 +409,10 @@ For local builds with signing and notarization:
 
 ### Building Release (CI/CD)
 
-The unified release workflow (`.github/workflows/release.yml`) handles:
-- Building binaries for all platforms (macOS arm64/x64, Linux x64/arm64)
-- Code signing and notarization for macOS
-- Creating standalone LSP archives (`.tar.gz`)
-- Building VSIX with bundled binaries
-- Uploading all artifacts to GitHub releases
-
-Trigger a release:
-```bash
-# Create and push a tag
-git tag v0.1.0
-git push origin v0.1.0
-```
-
-Or manually trigger via GitHub Actions.
+macOS binaries, the PKG and the VSIX are built and signed locally with
+`./scripts/build-release.sh --op` (CI has no signing certificate). Pushing a
+`v*` tag runs `.github/workflows/release-linux.yml`, which attaches static
+Linux binaries to that release.
 
 ### Release Artifacts
 
