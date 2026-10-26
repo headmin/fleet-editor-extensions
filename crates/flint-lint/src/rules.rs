@@ -97,6 +97,7 @@ impl RuleSet {
         set.add_rule(Box::new(super::semantic::FileExtensionRule));
         set.add_rule(Box::new(super::semantic::SecretHygieneRule));
         set.add_rule(Box::new(super::semantic::PathReferenceRule));
+        set.add_rule(Box::new(super::semantic::DdmActivationRule));
         set.add_rule(Box::new(super::semantic::ShebangSyntaxRule));
         set.add_rule(Box::new(super::semantic::WebhookEndpointRule));
         set.add_rule(Box::new(super::semantic::CalendarEventCoercionRule));

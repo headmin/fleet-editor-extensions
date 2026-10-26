@@ -1361,6 +1361,118 @@ fn check_path_fields(
 }
 
 // ============================================================================
+// DDM activation
+// ============================================================================
+
+/// `activation:` on a profile entry, checked the way Fleet checks it.
+///
+/// gitops rejects it next to `paths:` (an activation names exactly one
+/// declaration — `pkg/spec/gitops.go`); the server accepts it only on an Apple
+/// declaration and validates the activation JSON against that declaration's
+/// Identifier (`MDMAppleRawActivation.ValidateUserProvided` in
+/// `server/fleet/apple_mdm.go`). A missing file is `path-exists`' finding.
+pub(crate) struct DdmActivationRule;
+
+const ACTIVATION_TYPE_PREFIX: &str = "com.apple.activation.";
+/// `MDMAppleDeclarationIdentifierMaxLen`.
+const DECLARATION_IDENTIFIER_MAX_LEN: usize = 64;
+
+impl Rule for DdmActivationRule {
+    fn name(&self) -> &'static str {
+        "ddm-activation"
+    }
+    fn description(&self) -> &'static str {
+        "Checks a declaration's custom activation: only on an Apple declaration, not with 'paths', and naming that declaration's Identifier"
+    }
+    fn category(&self) -> &'static str {
+        "semantic"
+    }
+
+    fn check(&self, _config: &FleetConfig, file: &Path, source: &str) -> Vec<LintError> {
+        let Some(yaml) = parse_yaml(source) else { return Vec::new() };
+        let dir = file.parent().unwrap_or(Path::new("."));
+        let mut errors = Vec::new();
+        // The same activation can be attached twice; the nth use is the nth line.
+        let mut seen: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+        walk_mappings_with_path(&yaml, &mut |dotted, item| {
+            let Some(activation) = item.get("activation").and_then(|v| v.as_str()) else { return };
+            let nth = seen.entry(activation.to_string()).or_default();
+            let at = value_spans(source, "activation", activation).nth(*nth);
+            *nth += 1;
+            let mut report = |message: String, help: &str| {
+                errors.push(
+                    LintError::error(message, file)
+                        .with_rule_code(crate::codes::DDM_ACTIVATION)
+                        .with_span_opt(at)
+                        .with_help(help.to_string()),
+                );
+            };
+            if item.get("paths").is_some() {
+                return report(
+                    "'activation' cannot be used with 'paths' — an activation belongs to exactly one declaration".into(),
+                    "Use 'path' for the single declaration this activation turns on",
+                );
+            }
+            let Some(declaration) = item.get("path").and_then(|v| v.as_str()) else { return };
+            let apple = !dotted.contains("windows_settings") && !dotted.contains("android_settings");
+            if !apple || !declaration.ends_with(".json") {
+                let not = if apple { format!("'{declaration}'") } else { "a Windows or Android profile".to_string() };
+                return report(
+                    format!("'activation' only applies to an Apple DDM declaration (.json), not {not}"),
+                    "Remove 'activation', or attach it to the declaration it activates",
+                );
+            }
+            // fleetctl expands variables before the server parses either file.
+            if activation.contains('$') {
+                return;
+            }
+            let Ok(text) = std::fs::read_to_string(dir.join(activation)) else { return };
+            let json: serde_json::Value = match serde_json::from_str(&text) {
+                Ok(v) => v,
+                Err(e) => return report(format!("'{activation}' is not valid JSON: {e}"), "Fleet rejects an activation it cannot parse"),
+            };
+            let field = |k: &str| json.get(k).and_then(|v| v.as_str()).unwrap_or("").trim().to_string();
+            let kind = field("Type");
+            if !kind.starts_with(ACTIVATION_TYPE_PREFIX) {
+                let got = if kind.is_empty() { "no Type".to_string() } else { format!("Type '{kind}'") };
+                report(
+                    format!("'{activation}' has {got}; Fleet accepts only activation declarations ({ACTIVATION_TYPE_PREFIX}*)"),
+                    "Set \"Type\": \"com.apple.activation.simple\"",
+                );
+            }
+            let id = field("Identifier");
+            if id.is_empty() || id.len() > DECLARATION_IDENTIFIER_MAX_LEN {
+                report(
+                    format!("'{activation}' needs an Identifier of 1 to {DECLARATION_IDENTIFIER_MAX_LEN} bytes"),
+                    "Give the activation its own Identifier, distinct from the declaration's",
+                );
+            }
+            let configs: Vec<&str> = json
+                .pointer("/Payload/StandardConfigurations")
+                .and_then(|v| v.as_array())
+                .map(|a| a.iter().filter_map(|v| v.as_str()).collect())
+                .unwrap_or_default();
+            let expected = (!declaration.contains('$'))
+                .then(|| std::fs::read_to_string(dir.join(declaration)).ok())
+                .flatten()
+                .and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok())
+                .and_then(|d| d.get("Identifier").and_then(|v| v.as_str()).map(str::to_string))
+                .filter(|id| !id.contains('$'));
+            let help = "Payload.StandardConfigurations must list exactly the Identifier of the declaration in 'path'";
+            match (configs.as_slice(), expected) {
+                ([], _) => report(format!("'{activation}' references no configuration in Payload.StandardConfigurations"), help),
+                ([_, _, ..], _) => report(format!("'{activation}' references {} configurations; Fleet allows only the declaration it is attached to", configs.len()), help),
+                ([got], Some(want)) if *got != want => {
+                    report(format!("'{activation}' activates '{got}', but the declaration's Identifier is '{want}'"), help)
+                }
+                _ => {}
+            }
+        });
+        errors
+    }
+}
+
+// ============================================================================
 // Rule 11: Shebang Syntax
 // ============================================================================
 
