@@ -49,6 +49,8 @@ pub const SECRET_HYGIENE: &str = "secret-hygiene";
 /// YAML is parsed, so one unset name fails the whole file — comments included.
 pub const ENV_VAR_RESOLVABLE: &str = "env-var-resolvable";
 pub const PATH_REFERENCE: &str = "path-reference";
+/// A DDM declaration's `activation:` that Fleet would reject.
+pub const DDM_ACTIVATION: &str = "ddm-activation";
 pub const SHEBANG_SYNTAX: &str = "shebang-syntax";
 pub const WEBHOOK_ENDPOINT_VALID: &str = "webhook-endpoint-valid";
 pub const SOFTWARE_URL: &str = "software-url";
@@ -249,6 +251,7 @@ pub static REGISTRY: &[RuleMeta] = &[
     // and which one is meant is the author's call.
     meta!(ENV_VAR_RESOLVABLE, "semantic", None, true, false),
     meta!(PATH_REFERENCE, "semantic", None, false, false),
+    meta!(DDM_ACTIVATION, "semantic", Some(concat_url!("#referencing-and-targeting-configuration-profiles")), false, false),
     meta!(SHEBANG_SYNTAX, "semantic", None, false, false),
     meta!(WEBHOOK_ENDPOINT_VALID, "semantic", None, false, false),
     meta!(SOFTWARE_URL, "semantic", Some(concat_url!("#packages")), false, false),

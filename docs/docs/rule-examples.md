@@ -91,6 +91,73 @@ name: Workstations
 echo cleanup
 ```
 
+## ddm-activation
+
+A declaration's `activation:` names a file, so a wired activation is not
+orphaned. Its `StandardConfigurations` must list exactly the Identifier of the
+declaration in `path`:
+
+```yaml title="fleets/workstations.yml"
+name: Workstations
+controls:
+  apple_settings:
+    configuration_profiles:
+      - path: ../lib/macos/declaration-profiles/nudge.json
+        activation: ../lib/macos/declaration-profiles/nudge-activation.json
+```
+
+```json title="lib/macos/declaration-profiles/nudge.json"
+{"Type": "com.apple.configuration.management.properties", "Identifier": "com.example.nudge", "Payload": {}}
+```
+
+```json title="lib/macos/declaration-profiles/nudge-activation.json"
+{"Type": "com.apple.activation.simple", "Identifier": "com.example.nudge.activation", "Payload": {"StandardConfigurations": ["com.example.nudge"]}}
+```
+
+### An activation for another declaration
+
+Fleet rejects an activation that turns on a different declaration than the
+one it is attached to:
+
+```yaml title="fleets/workstations.yml"
+name: Workstations
+controls:
+  apple_settings:
+    configuration_profiles:
+      - path: ../lib/macos/declaration-profiles/nudge.json
+        activation: ../lib/macos/declaration-profiles/nudge-activation.json  # error: [ddm-activation]
+```
+
+```json title="lib/macos/declaration-profiles/nudge.json"
+{"Type": "com.apple.configuration.management.properties", "Identifier": "com.example.nudge", "Payload": {}}
+```
+
+```json title="lib/macos/declaration-profiles/nudge-activation.json"
+{"Type": "com.apple.activation.simple", "Identifier": "com.example.nudge.activation", "Payload": {"StandardConfigurations": ["com.example.other"]}}
+```
+
+### An activation on a glob
+
+An activation belongs to one declaration, so fleetctl rejects it next to
+`paths:`:
+
+```yaml title="fleets/workstations.yml"
+name: Workstations
+controls:
+  apple_settings:
+    configuration_profiles:
+      - paths: ../lib/macos/declaration-profiles/*.json
+        activation: ../lib/macos/activations/nudge.json  # error: [ddm-activation]
+```
+
+```json title="lib/macos/declaration-profiles/nudge.json"
+{"Type": "com.apple.configuration.management.properties", "Identifier": "com.example.nudge", "Payload": {}}
+```
+
+```json title="lib/macos/activations/nudge.json"
+{"Type": "com.apple.activation.simple", "Identifier": "com.example.nudge.activation", "Payload": {"StandardConfigurations": ["com.example.nudge"]}}
+```
+
 ## duplicate-names
 
 Two policies with the same name in one file collide in Fleet:

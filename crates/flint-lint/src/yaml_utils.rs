@@ -26,6 +26,8 @@ pub(crate) const PATH_BEARING_KEYS: &[&str] = &[
     // Section items and package references — the original two cases.
     "path",
     "package_path",
+    // A DDM declaration's custom activation (`resolveAndUpdateActivationPath`).
+    "activation",
     // controls.setup_experience (a.k.a. controls.macos_setup)
     "apple_setup_assistant",
     "macos_setup_assistant",
@@ -428,6 +430,8 @@ controls:
   apple_settings:
     configuration_profiles:
       - path: ./profiles/wifi.mobileconfig
+      - path: ./declarations/nudge.json
+        activation: ./declarations/nudge-activation.json
 software:
   packages:
     - package_path: ./software/app.yml
@@ -439,6 +443,7 @@ software:
             "./scripts/setup.sh",
             "./scripts/old-spelling.sh",
             "./profiles/wifi.mobileconfig",
+            "./declarations/nudge-activation.json",
             "./software/app.yml",
         ] {
             assert!(found.iter().any(|v| v == expected), "missed {expected}");
