@@ -107,7 +107,7 @@ controls:
 ```
 
 ```json title="lib/macos/declaration-profiles/nudge.json"
-{"Type": "com.apple.configuration.management.properties", "Identifier": "com.example.nudge", "Payload": {}}
+{"Type": "com.apple.configuration.passcode.settings", "Identifier": "com.example.nudge", "Payload": {}}
 ```
 
 ```json title="lib/macos/declaration-profiles/nudge-activation.json"
@@ -129,12 +129,37 @@ controls:
 ```
 
 ```json title="lib/macos/declaration-profiles/nudge.json"
-{"Type": "com.apple.configuration.management.properties", "Identifier": "com.example.nudge", "Payload": {}}
+{"Type": "com.apple.configuration.passcode.settings", "Identifier": "com.example.nudge", "Payload": {}}
 ```
 
 ```json title="lib/macos/declaration-profiles/nudge-activation.json"
 {"Type": "com.apple.activation.simple", "Identifier": "com.example.nudge.activation", "Payload": {"StandardConfigurations": ["com.example.other"]}}
 ```
+
+### An activation on a management declaration
+
+Management declarations (`com.apple.management.*`) are never activated:
+
+```yaml title="fleets/workstations.yml"
+name: Workstations
+controls:
+  apple_settings:
+    configuration_profiles:
+      - path: ../lib/macos/declaration-profiles/properties.json
+        activation: ../lib/macos/activations/properties.json  # error: [ddm-activation]
+```
+
+```json title="lib/macos/declaration-profiles/properties.json"
+{"Type": "com.apple.management.properties", "Identifier": "com.example.properties", "Payload": {}}
+```
+
+```json title="lib/macos/activations/properties.json"
+{"Type": "com.apple.activation.simple", "Identifier": "com.example.properties.activation", "Payload": {"StandardConfigurations": ["com.example.properties"]}}
+```
+
+The Fleet server also needs `mdm.allow_custom_activations` turned on, and a
+Premium license, before it accepts any activation. Neither is visible in the
+repo, so flint does not check them.
 
 ### An activation on a glob
 
@@ -151,7 +176,7 @@ controls:
 ```
 
 ```json title="lib/macos/declaration-profiles/nudge.json"
-{"Type": "com.apple.configuration.management.properties", "Identifier": "com.example.nudge", "Payload": {}}
+{"Type": "com.apple.configuration.passcode.settings", "Identifier": "com.example.nudge", "Payload": {}}
 ```
 
 ```json title="lib/macos/activations/nudge.json"
