@@ -1888,7 +1888,7 @@ pub static FIELD_DOCS: Lazy<HashMap<&'static str, FieldDoc>> = Lazy::new(|| {
         "controls.apple_settings.configuration_profiles.activation",
         FieldDoc {
             name: "activation",
-            description: "Path to a custom activation (`.json`, Type `com.apple.activation.*`) for the declaration in `path`. Its `Payload.StandardConfigurations` must list exactly that declaration's Identifier. Not allowed with `paths`.",
+            description: "Path to a custom activation (`.json`, Type `com.apple.activation.*`) for the configuration declaration in `path` (not a `com.apple.management.*` one). Its `Payload.StandardConfigurations` must list exactly that declaration's Identifier. Not allowed with `paths`. Fleet Premium; the Fleet server must enable `mdm.allow_custom_activations` (`FLEET_MDM_ALLOW_CUSTOM_ACTIVATIONS`), off by default because Fleet cannot check Apple's predicate syntax.",
             valid_values: None,
             example: Some("configuration_profiles:\n  - path: ../platforms/macos/declaration-profiles/nudge.json\n    activation: ../platforms/macos/declaration-profiles/nudge-activation.json"),
             required: false,
