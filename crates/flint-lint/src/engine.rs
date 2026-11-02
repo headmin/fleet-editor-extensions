@@ -250,6 +250,11 @@ impl Linter {
         let mut report = LintReport::new();
         check_yaml_hygiene(content, file_path, &mut report);
 
+        // Rules see the file as Fleet does: the last copy of a duplicated key.
+        // Hygiene above reports the duplicate itself on the original text.
+        let view = last_copy_view(content);
+        let content: &str = &view;
+
         // Use file path to determine the expected type, then parse accordingly.
         // This prevents labels from being misidentified as policies, software files
         // from triggering policy checks, etc.
@@ -352,8 +357,14 @@ impl Linter {
         // Rules that apply to standalone software lib files (which are not
         // fleet configs). These parse the file directly rather than relying on
         // the typed FleetConfig, so they work with the empty config above.
-        const SOFTWARE_RULES: &[&str] =
-            &["software-url", "software-source", "structural-validation"];
+        // `path-exists` covers the package's own script/icon `path:`s, which
+        // Fleet resolves relative to the package file and fails on if missing.
+        const SOFTWARE_RULES: &[&str] = &[
+            "software-url",
+            "software-source",
+            "structural-validation",
+            "path-exists",
+        ];
 
         for rule in self.rules.rules() {
             // Skip disabled rules
@@ -774,6 +785,9 @@ fn yaml_syntax_error(content: &str, file_path: &Path) -> Option<LintError> {
         .with_rule_code(crate::codes::YAML_SYNTAX);
     if let Some(location) = e.location() {
         err = err.with_location(location.line(), location.column());
+        if let Some(hint) = super::structural::misaligned_item_key_hint(content, location.line()) {
+            err = err.with_help(hint);
+        }
     }
     Some(err)
 }
@@ -945,7 +959,8 @@ fn check_yaml_hygiene(content: &str, file: &Path, report: &mut LintReport) {
 /// One mapping level: the indent its keys sit at, and the keys seen so far.
 struct KeyScope {
     indent: usize,
-    keys: HashMap<String, usize>,
+    /// key -> (line, whether that line opens a list item)
+    keys: HashMap<String, (usize, bool)>,
 }
 
 /// Whether `rest` (the text after a `- ` marker, or the whole trimmed line)
@@ -978,11 +993,28 @@ fn opens_block_scalar(rest: &str) -> bool {
     }
 }
 
-fn report_duplicate_keys(content: &str, file: &Path, report: &mut LintReport) {
+/// A key repeated in one mapping. YAML (and Fleet) keep the LATER copy.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct DuplicateKey {
+    pub key: String,
+    /// 1-based line of the copy that is discarded, and the last line of its block.
+    pub earlier: usize,
+    pub earlier_end: usize,
+    /// 1-based line of the copy that wins.
+    pub later: usize,
+    pub key_indent: usize,
+    /// The discarded key sits on a `- ` line, so it also opens a list item.
+    pub earlier_opens_item: bool,
+}
+
+/// Every duplicated key in `content`, at every nesting level.
+pub(crate) fn duplicate_keys(content: &str) -> Vec<DuplicateKey> {
+    let lines: Vec<&str> = content.lines().collect();
     let mut stack: Vec<KeyScope> = Vec::new();
     let mut block_scalar_at: Option<usize> = None;
+    let mut found = Vec::new();
 
-    for (idx, raw) in content.lines().enumerate() {
+    for (idx, raw) in lines.iter().enumerate() {
         let line_num = idx + 1;
         if raw.trim().is_empty() {
             continue;
@@ -1010,15 +1042,15 @@ fn report_duplicate_keys(content: &str, file: &Path, report: &mut LintReport) {
         // A `- ` marker starts a NEW mapping, so the previous item's keys stop
         // being siblings. Without this, every `- name:` in a list after the
         // first would report as a duplicate.
-        let (key_indent, rest) = if let Some(r) = trimmed.strip_prefix("- ") {
+        let (key_indent, rest, on_item) = if let Some(r) = trimmed.strip_prefix("- ") {
             let ki = indent + 2;
             stack.retain(|sc| sc.indent < ki);
-            (ki, r.trim_start())
+            (ki, r.trim_start(), true)
         } else if trimmed == "-" {
             stack.retain(|sc| sc.indent < indent + 2);
             continue;
         } else {
-            (indent, trimmed)
+            (indent, trimmed, false)
         };
 
         let Some(key) = mapping_key_of(rest) else {
@@ -1035,38 +1067,106 @@ fn report_duplicate_keys(content: &str, file: &Path, report: &mut LintReport) {
             });
         }
 
-        let top_level = key_indent == 0;
         let scope = stack.last_mut().expect("just ensured non-empty");
-        match scope.keys.get(&key) {
-            Some(prev) => {
-                let msg = format!("Duplicate key '{key}' (first seen at line {prev})");
-                let help = "YAML keeps the LAST occurrence — the earlier value is silently \
-                            discarded. Fleet accepts the file either way, so this does not \
-                            fail an apply; it just does not do what the file says.";
-                let err = if top_level {
-                    // A repeated top-level key drops a whole section.
-                    LintError::error(msg, file)
-                } else {
-                    LintError::warning(msg, file)
-                };
-                report.add(
-                    err.with_span(crate::error::Span::token(
-                        line_num,
-                        key_indent + 1,
-                        key.chars().count(),
-                    ))
-                    .with_rule_code(crate::codes::YAML_DUPLICATE_KEY)
-                    .with_help(help),
-                );
-            }
-            None => {
-                scope.keys.insert(key, line_num);
-            }
+        if let Some(&(prev, prev_on_item)) = scope.keys.get(&key) {
+            found.push(DuplicateKey {
+                key: key.clone(),
+                earlier: prev,
+                earlier_end: block_end(&lines, prev, key_indent),
+                later: line_num,
+                key_indent,
+                earlier_opens_item: prev_on_item,
+            });
         }
+        // The latest copy is the one a third copy replaces.
+        scope.keys.insert(key, (line_num, on_item));
 
         if opens_block_scalar(rest) {
             block_scalar_at = Some(key_indent);
         }
+    }
+    found
+}
+
+/// Last line (1-based) of the block a key at `line` opens: its own line plus
+/// every following line indented deeper than the key (blank lines and
+/// comments inside count; trailing ones do not).
+fn block_end(lines: &[&str], line: usize, key_indent: usize) -> usize {
+    let mut end = line;
+    for (idx, raw) in lines.iter().enumerate().skip(line) {
+        if raw.trim().is_empty() {
+            continue;
+        }
+        if raw.len() - raw.trim_start().len() <= key_indent {
+            break;
+        }
+        end = idx + 1;
+    }
+    end
+}
+
+/// `content` as Fleet reads it: each discarded duplicate's block blanked out,
+/// so only the LAST copy remains and every line keeps its number.
+///
+/// serde_yaml rejects duplicate keys outright, and every rule that parses the
+/// file did so with it — one repeated key silenced unknown-key, path and type
+/// checks for the WHOLE file, including inside the copy Fleet actually uses.
+pub(crate) fn last_copy_view(content: &str) -> std::borrow::Cow<'_, str> {
+    // ponytail: a discarded key that also opens a list item (`- name:` twice in
+    // one item) is left in place — blanking it would drop the item marker.
+    let dups: Vec<DuplicateKey> = duplicate_keys(content)
+        .into_iter()
+        .filter(|d| !d.earlier_opens_item)
+        .collect();
+    if dups.is_empty() {
+        return std::borrow::Cow::Borrowed(content);
+    }
+    let mut lines: Vec<&str> = content.lines().collect();
+    for d in &dups {
+        for l in &mut lines[d.earlier - 1..d.earlier_end] {
+            *l = "";
+        }
+    }
+    let mut out = lines.join("\n");
+    if content.ends_with('\n') {
+        out.push('\n');
+    }
+    std::borrow::Cow::Owned(out)
+}
+
+fn report_duplicate_keys(content: &str, file: &Path, report: &mut LintReport) {
+    for d in duplicate_keys(content) {
+        let (range, verb) = if d.earlier_end > d.earlier {
+            (format!("lines {}–{}", d.earlier, d.earlier_end), "are")
+        } else {
+            (format!("line {}", d.earlier), "is")
+        };
+        let msg = format!(
+            "Duplicate key '{}': line {} replaces line {} ({range} {verb} ignored)",
+            d.key, d.later, d.earlier
+        );
+        let help = format!(
+            "YAML and Fleet keep the LAST '{}' (line {}). Merge the two into one block: \
+             move anything you still want from {} under line {}, then delete {}. Fleet \
+             accepts the file either way, so this does not fail an apply; it just does \
+             not do what the file says.",
+            d.key, d.later, range, d.later, range
+        );
+        let err = if d.key_indent == 0 {
+            // A repeated top-level key drops a whole section.
+            LintError::error(msg, file)
+        } else {
+            LintError::warning(msg, file)
+        };
+        report.add(
+            err.with_span(crate::error::Span::token(
+                d.later,
+                d.key_indent + 1,
+                d.key.chars().count(),
+            ))
+            .with_rule_code(crate::codes::YAML_DUPLICATE_KEY)
+            .with_help(help),
+        );
     }
 }
 
@@ -1899,6 +1999,30 @@ hash_sha256: abc123def456
         );
     }
 
+    /// A package file's own script paths resolve relative to the package
+    /// file; Fleet fails the apply on a missing one, so flint must report it.
+    #[test]
+    fn software_file_reports_missing_install_script_path() {
+        let dir = tempfile::tempdir().unwrap();
+        let sw = dir.path().join("platforms/macos/software");
+        std::fs::create_dir_all(dir.path().join("platforms/macos/scripts")).unwrap();
+        std::fs::create_dir_all(&sw).unwrap();
+        std::fs::write(dir.path().join("platforms/macos/scripts/zoom-config.sh"), "#!/bin/sh\n").unwrap();
+        let file = sw.join("zoom.yml");
+        let linter = Linter::new();
+
+        std::fs::write(&file, "url: https://example.com/Zoom.pkg\npost_install_script:\n  path: ../scripts/zoom-config.sh\n").unwrap();
+        assert!(!linter.lint_file(&file).unwrap().has_errors());
+
+        std::fs::write(&file, "url: https://example.com/Zoom.pkg\npost_install_script:\n  path: ./zoom-config.sh\n").unwrap();
+        let report = linter.lint_file(&file).unwrap();
+        assert!(
+            report.errors.iter().any(|e| e.message.contains("path reference not found: ./zoom-config.sh")),
+            "{:?}",
+            report.errors
+        );
+    }
+
     #[test]
     fn test_agent_options_file_skips_rules() {
         let yaml = r#"
@@ -2099,6 +2223,39 @@ config:
                 r.errors
             );
         }
+    }
+
+    /// The message names the winning line and the ignored block.
+    #[test]
+    fn duplicate_key_names_winning_line_and_ignored_range() {
+        let src = "org_settings:\n  webhook_settings:\n    activities_webhook:\n      enable_activities_webhook: true\n  org_info:\n    org_name: X\n  webhook_settings:\n    interval: 1h\n";
+        let found = dup_findings(src);
+        assert_eq!(found.len(), 1, "{found:?}");
+        assert_eq!(
+            found[0].message,
+            "Duplicate key 'webhook_settings': line 7 replaces line 2 (lines 2–4 are ignored)"
+        );
+        assert_eq!(found[0].span.expect("span").line, 7);
+    }
+
+    /// Rules must check the copy Fleet keeps. serde_yaml rejects duplicate
+    /// keys, which used to silence every parsing rule for the whole file —
+    /// a typo inside the winning copy went unreported.
+    #[test]
+    fn rules_check_the_last_copy_of_a_duplicated_key() {
+        let src = "org_settings:\n  webhook_settings:\n    activities_webhook:\n      enable_activities_webhook: true\n  org_info:\n    org_name: X\n  webhook_settings:\n    activites_webhook:\n      enable_activities_webhook: true\n";
+        let view = last_copy_view(src);
+        assert_eq!(view.lines().count(), src.lines().count(), "line numbers kept");
+        assert!(!view.contains("    activities_webhook:"), "earlier copy blanked");
+        let r = Linter::new()
+            .lint_content(src, std::path::Path::new("default.yml"))
+            .unwrap();
+        let unknown = r
+            .errors
+            .iter()
+            .find(|e| e.message.contains("Unknown key 'activites_webhook'"))
+            .unwrap_or_else(|| panic!("typo in the winning copy unreported: {:?}", r.errors));
+        assert_eq!(unknown.span.expect("span").line, 8);
     }
 
     /// Fleet's Go parser accepts duplicate keys; serde_yaml does not. That is
