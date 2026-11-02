@@ -211,6 +211,43 @@ fn validate_node(
                     let item_path = format!("{}[{}]", path, idx);
                     validate_node(item, item_schema, &item_path, source, file, errors);
                 }
+            } else if let serde_yaml::Value::Mapping(map) = value {
+                // A list key whose lines below became nested keys — usually a
+                // sibling indented one step too far (`app_store_apps:` then
+                // `   fleet_maintained_apps:`). Fleet refuses the object outright.
+                let key_name = path.rsplit('.').next().unwrap_or(path);
+                let key_name = key_name.split('[').next().unwrap_or(key_name);
+                let parent = path.rsplit_once('.').map_or("", |(p, _)| p);
+                // ponytail: exact-path match, so parents inside a list (`x[0]`)
+                // get the generic help; normalize indices if that shows up.
+                let siblings: Vec<&str> = map
+                    .keys()
+                    .filter_map(|k| k.as_str())
+                    .filter(|k| {
+                        KEY_REGISTRY
+                            .lookup(k)
+                            .is_some_and(|paths| paths.contains(&parent))
+                    })
+                    .collect();
+                let (line, col) = find_key_position(source, key_name, parent);
+                let help = if siblings.is_empty() {
+                    format!("Write '{key_name}' as a list of `- ` items")
+                } else {
+                    format!(
+                        "'{}' belongs beside '{key_name}' under '{parent}', not inside it — dedent it to the same column as '{key_name}'",
+                        siblings.join("', '")
+                    )
+                };
+                let mut err = LintError::error(
+                    format!("'{key_name}' must be a list, but the lines under it make it nested keys"),
+                    file,
+                )
+                .with_rule_code(crate::codes::STRUCTURAL_VALIDATION)
+                .with_help(help);
+                if let Some(l) = line {
+                    err = err.with_span(span_for(l, col, key_name));
+                }
+                errors.push(err);
             }
         }
         SchemaNode::BooleanLeaf => {
@@ -529,6 +566,62 @@ pub(crate) fn misplaced_margin_keys(source: &str, file: &Path) -> Vec<LintError>
     out
 }
 
+/// Help for a parse error caused by a list item's key at the wrong column —
+/// the most common hand-edit mistake (`labels_include_all` one space too deep,
+/// `labels_exclude_any` under the `-`). serde_yaml reports it as "did not find
+/// expected '-' indicator" or "mapping values are not allowed", which says
+/// nothing about indentation. `err_line` is the 1-based line the parser
+/// stopped at; only that line is judged, so a clean file never gets a hint.
+pub(crate) fn misaligned_item_key_hint(source: &str, err_line: usize) -> Option<String> {
+    let lines: Vec<&str> = source.lines().collect();
+    let bad = *lines.get(err_line.checked_sub(1)?)?;
+    let t = bad.trim_start();
+    let indent = bad.len() - t.len();
+    if t.starts_with(['-', '#']) {
+        return None;
+    }
+    let key = t.split_once(':')?.0.trim();
+    if key.is_empty() || key.contains(' ') {
+        return None;
+    }
+    // Walk up to the `- key:` line that opens the item, through the item's
+    // own lines; `sibling` is the nearest of them at the item's key column.
+    let mut between: Vec<(usize, usize, &str)> = Vec::new();
+    for i in (0..err_line - 1).rev() {
+        let lt = lines[i].trim_start();
+        if lt.is_empty() || lt.starts_with('#') {
+            continue;
+        }
+        let li = lines[i].len() - lt.len();
+        let Some(rest) = lt.strip_prefix("- ") else {
+            between.push((i, li, lt.split_once(':').map_or("", |(k, _)| k.trim())));
+            continue;
+        };
+        let content = li + 2;
+        // A top-level list item (labels/policies files) or a key already at
+        // the right column is some other mistake.
+        if li == 0 || indent == content || (indent != li && indent < content) {
+            return None;
+        }
+        if between.iter().any(|(_, bi, _)| *bi < content) {
+            return None;
+        }
+        let (line, sib) = between
+            .iter()
+            .find(|(_, bi, _)| *bi == content)
+            .map(|(bl, _, k)| (*bl, *k))
+            .unwrap_or((i, rest.split_once(':')?.0.trim()));
+        return Some(format!(
+            "'{key}' is at column {} but belongs to the list item above: indent it to column {} \
+             to line up with '{sib}:' on line {}.",
+            indent + 1,
+            content + 1,
+            line + 1
+        ));
+    }
+    None
+}
+
 /// Build a span for a key diagnostic from what these rules already know.
 ///
 /// A missing column means the key was not located textually; fall back to
@@ -570,6 +663,31 @@ mod tests {
     use super::*;
     use std::path::PathBuf;
 
+    #[test]
+    fn misaligned_item_key_hint_cases() {
+        let parse_line = |src: &str| {
+            serde_yaml::from_str::<serde_yaml::Value>(src).unwrap_err().location().unwrap().line()
+        };
+        let head = "controls:\n  apple_settings:\n    configuration_profiles:\n      - path: a.json\n";
+        // Under the dash, over-indented, and under a scalar sibling.
+        for (bad, col) in [
+            ("      labels_exclude_any:\n          - Beta\n", 7),
+            ("         labels_include_all:\n          - Eng\n", 10),
+            ("          labels_exclude_any:\n          - Beta\n", 11),
+        ] {
+            let src = format!("{head}{bad}");
+            let hint = misaligned_item_key_hint(&src, parse_line(&src)).expect(bad);
+            assert!(hint.contains(&format!("at column {col}")) && hint.contains("column 9"), "{hint}");
+            assert!(hint.contains("'path:' on line 4"), "{hint}");
+        }
+        let src = "software:\n  packages:\n    - path: z.yml\n      setup_experience: true\n        categories:\n        - C\n";
+        let hint = misaligned_item_key_hint(src, parse_line(src)).unwrap();
+        assert!(hint.contains("column 7 to line up with 'setup_experience:' on line 4"), "{hint}");
+        // A labels file wrapped in `labels:` is a different mistake: no hint.
+        let src = "- name: A\n  query: SELECT 1\nlabels:\n  - name: B\n";
+        assert!(misaligned_item_key_hint(src, parse_line(src)).is_none());
+    }
+
     /// At the top level the "path" IS the key, so the generic phrasing used to
     /// read "Key 'scripts' is not valid at 'scripts'" — true, and useless.
     /// Real occurrence: playground commit 320b43f, one of five windows this
@@ -606,6 +724,23 @@ mod tests {
             "got: {:?}",
             errs.iter().map(|e| e.message.clone()).collect::<Vec<_>>()
         );
+    }
+
+    /// Fleet: "expected type []fleet.TeamSpecAppStoreApp but got object".
+    #[test]
+    fn list_key_given_nested_keys_is_an_error_naming_the_sibling() {
+        let yaml = "name: ABC - X\nsoftware:\n  app_store_apps:\n   fleet_maintained_apps:\n     - slug: aws-vpn-client/darwin\n";
+        let errs = StructuralValidationRule.check(
+            &FleetConfig::default(),
+            std::path::Path::new("fleets/ABC-X.yml"),
+            yaml,
+        );
+        let hit = errs
+            .iter()
+            .find(|e| e.message.contains("'app_store_apps' must be a list"))
+            .unwrap_or_else(|| panic!("got: {errs:?}"));
+        assert_eq!(hit.severity, crate::error::Severity::Error);
+        assert!(hit.help.as_deref().unwrap_or("").contains("'fleet_maintained_apps' belongs beside 'app_store_apps'"));
     }
 
     #[test]

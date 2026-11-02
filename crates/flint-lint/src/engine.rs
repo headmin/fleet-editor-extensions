@@ -352,8 +352,14 @@ impl Linter {
         // Rules that apply to standalone software lib files (which are not
         // fleet configs). These parse the file directly rather than relying on
         // the typed FleetConfig, so they work with the empty config above.
-        const SOFTWARE_RULES: &[&str] =
-            &["software-url", "software-source", "structural-validation"];
+        // `path-exists` covers the package's own script/icon `path:`s, which
+        // Fleet resolves relative to the package file and fails on if missing.
+        const SOFTWARE_RULES: &[&str] = &[
+            "software-url",
+            "software-source",
+            "structural-validation",
+            "path-exists",
+        ];
 
         for rule in self.rules.rules() {
             // Skip disabled rules
@@ -774,6 +780,9 @@ fn yaml_syntax_error(content: &str, file_path: &Path) -> Option<LintError> {
         .with_rule_code(crate::codes::YAML_SYNTAX);
     if let Some(location) = e.location() {
         err = err.with_location(location.line(), location.column());
+        if let Some(hint) = super::structural::misaligned_item_key_hint(content, location.line()) {
+            err = err.with_help(hint);
+        }
     }
     Some(err)
 }
@@ -1895,6 +1904,30 @@ hash_sha256: abc123def456
         assert!(
             !report.has_errors(),
             "Software file should skip structural validation: {:?}",
+            report.errors
+        );
+    }
+
+    /// A package file's own script paths resolve relative to the package
+    /// file; Fleet fails the apply on a missing one, so flint must report it.
+    #[test]
+    fn software_file_reports_missing_install_script_path() {
+        let dir = tempfile::tempdir().unwrap();
+        let sw = dir.path().join("platforms/macos/software");
+        std::fs::create_dir_all(dir.path().join("platforms/macos/scripts")).unwrap();
+        std::fs::create_dir_all(&sw).unwrap();
+        std::fs::write(dir.path().join("platforms/macos/scripts/zoom-config.sh"), "#!/bin/sh\n").unwrap();
+        let file = sw.join("zoom.yml");
+        let linter = Linter::new();
+
+        std::fs::write(&file, "url: https://example.com/Zoom.pkg\npost_install_script:\n  path: ../scripts/zoom-config.sh\n").unwrap();
+        assert!(!linter.lint_file(&file).unwrap().has_errors());
+
+        std::fs::write(&file, "url: https://example.com/Zoom.pkg\npost_install_script:\n  path: ./zoom-config.sh\n").unwrap();
+        let report = linter.lint_file(&file).unwrap();
+        assert!(
+            report.errors.iter().any(|e| e.message.contains("path reference not found: ./zoom-config.sh")),
+            "{:?}",
             report.errors
         );
     }
