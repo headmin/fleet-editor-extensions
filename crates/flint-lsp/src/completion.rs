@@ -1252,17 +1252,17 @@ fn complete_controls_section() -> Vec<CompletionItem> {
         (
             "macos_updates",
             "macOS update requirements (block)",
-            "macos_updates:\n  deadline: ${1:2024-12-31}\n  minimum_version: ${2:15.1}\n  update_new_hosts: ${3:true}",
+            "macos_updates:\n  deadline: \"${1:2026-12-31}\"\n  minimum_version: \"${2:27.1}\"\n  update_new_hosts: ${3:true}",
         ),
         (
             "ios_updates",
             "iOS update requirements (block)",
-            "ios_updates:\n  deadline: ${1:2024-12-31}\n  minimum_version: ${2:18.1}",
+            "ios_updates:\n  deadline: \"${1:2026-12-31}\"\n  minimum_version: \"${2:27.1}\"",
         ),
         (
             "ipados_updates",
             "iPadOS update requirements (block)",
-            "ipados_updates:\n  deadline: ${1:2024-12-31}\n  minimum_version: ${2:18.1}",
+            "ipados_updates:\n  deadline: \"${1:2026-12-31}\"\n  minimum_version: \"${2:27.1}\"",
         ),
         (
             "windows_updates",
