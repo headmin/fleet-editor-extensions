@@ -1368,12 +1368,15 @@ fn check_path_fields(
 ///
 /// gitops rejects it next to `paths:` (an activation names exactly one
 /// declaration — `pkg/spec/gitops.go`); the server accepts it only on an Apple
-/// declaration and validates the activation JSON against that declaration's
-/// Identifier (`MDMAppleRawActivation.ValidateUserProvided` in
+/// configuration declaration (not a management one) and validates the
+/// activation JSON against that declaration's Identifier (`MDMAppleRawActivation.ValidateUserProvided` in
 /// `server/fleet/apple_mdm.go`). A missing file is `path-exists`' finding.
 pub(crate) struct DdmActivationRule;
 
 const ACTIVATION_TYPE_PREFIX: &str = "com.apple.activation.";
+/// `MDMAppleManagementTypePrefix`: these declarations are never activated
+/// (`validateActivation` in `server/service/apple_mdm.go`, Fleet v4.91.0).
+const MANAGEMENT_TYPE_PREFIX: &str = "com.apple.management.";
 /// `MDMAppleDeclarationIdentifierMaxLen`.
 const DECLARATION_IDENTIFIER_MAX_LEN: usize = 64;
 
@@ -1382,7 +1385,7 @@ impl Rule for DdmActivationRule {
         "ddm-activation"
     }
     fn description(&self) -> &'static str {
-        "Checks a declaration's custom activation: only on an Apple declaration, not with 'paths', and naming that declaration's Identifier"
+        "Checks a declaration's custom activation: only on an Apple configuration declaration, not with 'paths', and naming that declaration's Identifier"
     }
     fn category(&self) -> &'static str {
         "semantic"
@@ -1423,6 +1426,17 @@ impl Rule for DdmActivationRule {
                 );
             }
             // fleetctl expands variables before the server parses either file.
+            let declaration_json: Option<serde_json::Value> = (!declaration.contains('$'))
+                .then(|| std::fs::read_to_string(dir.join(declaration)).ok())
+                .flatten()
+                .and_then(|t| serde_json::from_str(&t).ok());
+            let declaration_field = |k: &str| declaration_json.as_ref().and_then(|d| d.get(k)).and_then(|v| v.as_str());
+            if let Some(kind) = declaration_field("Type").filter(|t| t.starts_with(MANAGEMENT_TYPE_PREFIX)) {
+                return report(
+                    format!("'activation' only applies to a configuration declaration (com.apple.configuration.*), not a management declaration ('{kind}')"),
+                    "Management declarations are never activated — remove 'activation'",
+                );
+            }
             if activation.contains('$') {
                 return;
             }
@@ -1452,12 +1466,7 @@ impl Rule for DdmActivationRule {
                 .and_then(|v| v.as_array())
                 .map(|a| a.iter().filter_map(|v| v.as_str()).collect())
                 .unwrap_or_default();
-            let expected = (!declaration.contains('$'))
-                .then(|| std::fs::read_to_string(dir.join(declaration)).ok())
-                .flatten()
-                .and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok())
-                .and_then(|d| d.get("Identifier").and_then(|v| v.as_str()).map(str::to_string))
-                .filter(|id| !id.contains('$'));
+            let expected = declaration_field("Identifier").filter(|id| !id.contains('$'));
             let help = "Payload.StandardConfigurations must list exactly the Identifier of the declaration in 'path'";
             match (configs.as_slice(), expected) {
                 ([], _) => report(format!("'{activation}' references no configuration in Payload.StandardConfigurations"), help),

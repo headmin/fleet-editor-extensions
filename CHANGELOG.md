@@ -13,7 +13,7 @@ Milestones per release. Full notes are on each
 - Key completions insert `key: ` (or an indented section), fix `-key` to `- key`, and say where a key lives; keys are coloured by where they are, misplaced ones as invalid; a section moved to the margin, or lines indented under a value-only key, are flagged where they are.
 - Completion suggests the key names and paths your target Fleet version and repo layout expect (`reports`, `apple_settings`, `../platforms/`), every key the schema accepts at that spot and never one it rejects; the software snippets no longer lose their indentation.
 - `flint fma refresh` regenerates the full FMA list from Fleet as an override file; `[fma] registry` keeps it in the repo (#11).
-- A DDM declaration's `activation:` file counts as referenced (no more orphan warning) and must exist; `ddm-activation` checks it the way Fleet does: not with `paths`, only on an Apple declaration, and naming that declaration's Identifier.
+- A DDM declaration's `activation:` file counts as referenced (no more orphan warning) and must exist; `ddm-activation` checks it the way Fleet does: not with `paths`, only on an Apple configuration declaration (not a management one), and naming that declaration's Identifier.
 
 ## v0.3.3 (2026-10-23)
 
