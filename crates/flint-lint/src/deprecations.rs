@@ -278,7 +278,7 @@ pub static DEPRECATION_REGISTRY: Lazy<DeprecationRegistry> = Lazy::new(|| {
                 kind: DeprecationKind::KeyRename {
                     old_key: "custom_settings",
                     new_key: "configuration_profiles",
-                    context_paths: &["*"],
+                    context_paths: &["controls.apple_settings", "controls.macos_settings", "controls.windows_settings", "controls.android_settings"],
                 },
                 deprecated_in: Version::new(4, 83, 0),
                 error_in: None,
@@ -328,7 +328,7 @@ pub static DEPRECATION_REGISTRY: Lazy<DeprecationRegistry> = Lazy::new(|| {
                 kind: DeprecationKind::KeyRename {
                     old_key: "enable_release_device_manually",
                     new_key: "apple_enable_release_device_manually",
-                    context_paths: &["*"],
+                    context_paths: &["controls.setup_experience", "controls.macos_setup"],
                 },
                 deprecated_in: Version::new(4, 83, 0),
                 error_in: None,
@@ -342,7 +342,7 @@ pub static DEPRECATION_REGISTRY: Lazy<DeprecationRegistry> = Lazy::new(|| {
                 kind: DeprecationKind::KeyRename {
                     old_key: "macos_setup_assistant",
                     new_key: "apple_setup_assistant",
-                    context_paths: &["*"],
+                    context_paths: &["controls.setup_experience", "controls.macos_setup"],
                 },
                 deprecated_in: Version::new(4, 83, 0),
                 error_in: None,
@@ -370,7 +370,7 @@ pub static DEPRECATION_REGISTRY: Lazy<DeprecationRegistry> = Lazy::new(|| {
                 kind: DeprecationKind::KeyRename {
                     old_key: "manual_agent_install",
                     new_key: "macos_manual_agent_install",
-                    context_paths: &["*"],
+                    context_paths: &["controls.setup_experience", "controls.macos_setup"],
                 },
                 deprecated_in: Version::new(4, 83, 0),
                 error_in: None,
@@ -444,6 +444,148 @@ pub static DEPRECATION_REGISTRY: Lazy<DeprecationRegistry> = Lazy::new(|| {
                     "The 'org_logo_url_light_background' key is being renamed to 'org_logo_url_light_mode'",
                 file_patterns: &[],
             },
+            // ── From Fleet's spec.DeprecatedGitOpsKeyMappings; versions are the
+            // first release carrying each `renameto` tag. ─────────────────────
+            // setup_experience.bootstrap_package -> macos_bootstrap_package
+            Deprecation {
+                id: "bootstrap-package-to-macos-bootstrap-package",
+                kind: DeprecationKind::KeyRename {
+                    old_key: "bootstrap_package",
+                    new_key: "macos_bootstrap_package",
+                    context_paths: &["controls.setup_experience", "controls.macos_setup"],
+                },
+                deprecated_in: Version::new(4, 83, 0),
+                error_in: None,
+                removed_in: None,
+                description: "The 'bootstrap_package' key is being renamed to 'macos_bootstrap_package'",
+                file_patterns: &[],
+            },
+            // server_settings.live_query_disabled -> live_reporting_disabled
+            Deprecation {
+                id: "live-query-disabled-to-live-reporting-disabled",
+                kind: DeprecationKind::KeyRename {
+                    old_key: "live_query_disabled",
+                    new_key: "live_reporting_disabled",
+                    context_paths: &["org_settings.server_settings"],
+                },
+                deprecated_in: Version::new(4, 82, 0),
+                error_in: None,
+                removed_in: None,
+                description: "The 'live_query_disabled' key is being renamed to 'live_reporting_disabled'",
+                file_patterns: &[],
+            },
+            // server_settings.query_reports_disabled -> discard_reports_data
+            Deprecation {
+                id: "query-reports-disabled-to-discard-reports-data",
+                kind: DeprecationKind::KeyRename {
+                    old_key: "query_reports_disabled",
+                    new_key: "discard_reports_data",
+                    context_paths: &["org_settings.server_settings"],
+                },
+                deprecated_in: Version::new(4, 82, 0),
+                error_in: None,
+                removed_in: None,
+                description: "The 'query_reports_disabled' key is being renamed to 'discard_reports_data'",
+                file_patterns: &[],
+            },
+            // server_settings.query_report_cap -> report_cap
+            Deprecation {
+                id: "query-report-cap-to-report-cap",
+                kind: DeprecationKind::KeyRename {
+                    old_key: "query_report_cap",
+                    new_key: "report_cap",
+                    context_paths: &["org_settings.server_settings"],
+                },
+                deprecated_in: Version::new(4, 82, 0),
+                error_in: None,
+                removed_in: None,
+                description: "The 'query_report_cap' key is being renamed to 'report_cap'",
+                file_patterns: &[],
+            },
+            // mdm.apple_business_manager -> apple_business
+            Deprecation {
+                id: "apple-business-manager-to-apple-business",
+                kind: DeprecationKind::KeyRename {
+                    old_key: "apple_business_manager",
+                    new_key: "apple_business",
+                    context_paths: &["org_settings.mdm"],
+                },
+                deprecated_in: Version::new(4, 87, 0),
+                error_in: None,
+                removed_in: None,
+                description: "The 'apple_business_manager' key is being renamed to 'apple_business'",
+                file_patterns: &[],
+            },
+            // apple_business[].macos_team -> macos_fleet
+            Deprecation {
+                id: "abm-macos-team-to-macos-fleet",
+                kind: DeprecationKind::KeyRename {
+                    old_key: "macos_team",
+                    new_key: "macos_fleet",
+                    context_paths: &["org_settings.mdm.apple_business[]", "org_settings.mdm.apple_business_manager[]"],
+                },
+                deprecated_in: Version::new(4, 82, 0),
+                error_in: None,
+                removed_in: None,
+                description: "The 'macos_team' key is being renamed to 'macos_fleet'",
+                file_patterns: &[],
+            },
+            // apple_business[].ios_team -> ios_fleet
+            Deprecation {
+                id: "abm-ios-team-to-ios-fleet",
+                kind: DeprecationKind::KeyRename {
+                    old_key: "ios_team",
+                    new_key: "ios_fleet",
+                    context_paths: &["org_settings.mdm.apple_business[]", "org_settings.mdm.apple_business_manager[]"],
+                },
+                deprecated_in: Version::new(4, 82, 0),
+                error_in: None,
+                removed_in: None,
+                description: "The 'ios_team' key is being renamed to 'ios_fleet'",
+                file_patterns: &[],
+            },
+            // apple_business[].ipados_team -> ipados_fleet
+            Deprecation {
+                id: "abm-ipados-team-to-ipados-fleet",
+                kind: DeprecationKind::KeyRename {
+                    old_key: "ipados_team",
+                    new_key: "ipados_fleet",
+                    context_paths: &["org_settings.mdm.apple_business[]", "org_settings.mdm.apple_business_manager[]"],
+                },
+                deprecated_in: Version::new(4, 82, 0),
+                error_in: None,
+                removed_in: None,
+                description: "The 'ipados_team' key is being renamed to 'ipados_fleet'",
+                file_patterns: &[],
+            },
+            // apple_business[].byod_team -> byod_fleet
+            Deprecation {
+                id: "abm-byod-team-to-byod-fleet",
+                kind: DeprecationKind::KeyRename {
+                    old_key: "byod_team",
+                    new_key: "byod_fleet",
+                    context_paths: &["org_settings.mdm.apple_business[]", "org_settings.mdm.apple_business_manager[]"],
+                },
+                deprecated_in: Version::new(4, 89, 0),
+                error_in: None,
+                removed_in: None,
+                description: "The 'byod_team' key is being renamed to 'byod_fleet'",
+                file_patterns: &[],
+            },
+            // volume_purchasing_program[].teams -> fleets
+            Deprecation {
+                id: "vpp-teams-to-fleets",
+                kind: DeprecationKind::KeyRename {
+                    old_key: "teams",
+                    new_key: "fleets",
+                    context_paths: &["org_settings.mdm.volume_purchasing_program[]"],
+                },
+                deprecated_in: Version::new(4, 82, 0),
+                error_in: None,
+                removed_in: None,
+                description: "The 'teams' key is being renamed to 'fleets'",
+                file_patterns: &[],
+            },
         ],
     }
 });
@@ -510,6 +652,51 @@ impl KeyNames {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Fleet's `spec.DeprecatedGitOpsKeyMappings` (via schema-extract) is the
+    /// authority on GitOps key renames. Every one must be in this registry,
+    /// and every key the registry calls deprecated must be one Fleet renames
+    /// — a too-wide context warns about keys Fleet keeps.
+    #[test]
+    fn registry_matches_fleet_gitops_key_mappings() {
+        let snapshot: serde_json::Value =
+            serde_json::from_str(include_str!("../data/fleet-gitops-keys.json")).unwrap();
+        let leaf = |p: &str| -> (String, String) {
+            match p.rsplit_once('.') {
+                Some((parent, k)) => (parent.to_string(), k.to_string()),
+                None => (String::new(), p.to_string()),
+            }
+        };
+        let mut missing = Vec::new();
+        for m in snapshot["deprecated_key_mappings"].as_array().unwrap() {
+            let (parent, old) = leaf(m["old_path"].as_str().unwrap());
+            let (_, new) = leaf(m["new_path"].as_str().unwrap());
+            match DEPRECATION_REGISTRY.find_deprecated_key(&old, &parent).map(|d| &d.kind) {
+                Some(DeprecationKind::KeyRename { new_key, .. }) if *new_key == new => {}
+                other => missing.push(format!("{parent}.{old} -> {new} (registry: {other:?})")),
+            }
+        }
+        assert!(missing.is_empty(), "renames Fleet applies but flint lacks:\n{}", missing.join("\n"));
+
+        // (key, why it is deprecated although Fleet's mapping list omits it)
+        const NOT_IN_FLEET_MAPPINGS: &[(&str, &str)] = &[(
+            "labels",
+            "profile `labels` -> `labels_include_all`: Fleet rejects it in validation, not via the mapping list",
+        )];
+        let mut too_wide = Vec::new();
+        for k in snapshot["keys"].as_array().unwrap() {
+            let (path, key) = (k["path"].as_str().unwrap(), k["key"].as_str().unwrap());
+            if NOT_IN_FLEET_MAPPINGS.iter().any(|(n, _)| *n == key) {
+                continue;
+            }
+            if let Some(d) = DEPRECATION_REGISTRY.find_deprecated_key(key, path) {
+                if k.get("renamed_to").is_none() {
+                    too_wide.push(format!("{path}.{key} (registry id {})", d.id));
+                }
+            }
+        }
+        assert!(too_wide.is_empty(), "flint calls these deprecated, Fleet does not rename them:\n{}", too_wide.join("\n"));
+    }
 
     #[test]
     fn test_dormant_phase() {

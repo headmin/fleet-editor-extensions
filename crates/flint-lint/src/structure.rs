@@ -22,7 +22,6 @@ pub(crate) enum SchemaNode {
     OpenMapping,
 }
 
-
 /// Test-support accessors — production code walks schema nodes through
 /// `structural.rs`'s validator, not these.
 #[cfg(test)]
@@ -50,7 +49,11 @@ pub enum KeyShape {
 /// stepped through) in a file of `file`'s kind: its shape, and where it lives
 /// as a short label (`top level`, `reports[]`, `controls › scripts[]`).
 /// `None` when the schema does not know the key there.
-pub fn describe_key(file: Option<&std::path::Path>, parent: &[&str], key: &str) -> Option<(KeyShape, String)> {
+pub fn describe_key(
+    file: Option<&std::path::Path>,
+    parent: &[&str],
+    key: &str,
+) -> Option<(KeyShape, String)> {
     let mut node: &SchemaNode = file.map_or(&*FLEET_SCHEMA, schema_for_path);
     let mut place: Vec<String> = Vec::new();
     fn child<'a>(node: &'a SchemaNode, k: &str) -> Option<&'a SchemaNode> {
@@ -73,7 +76,11 @@ pub fn describe_key(file: Option<&std::path::Path>, parent: &[&str], key: &str) 
         SchemaNode::Mapping(_) | SchemaNode::OpenMapping => KeyShape::Mapping,
         SchemaNode::Array(_) => KeyShape::List,
     };
-    let place = if place.is_empty() { "top level".to_string() } else { place.join(" › ") };
+    let place = if place.is_empty() {
+        "top level".to_string()
+    } else {
+        place.join(" › ")
+    };
     Some((shape, place))
 }
 
@@ -85,23 +92,60 @@ pub fn keys_under(file: Option<&std::path::Path>, parent: &[&str]) -> Vec<&'stat
         node = item; // a lib file that is a list of items
     }
     for seg in parent {
-        let SchemaNode::Mapping(children) = node else { return Vec::new() };
-        let Some(next) = children.get(seg) else { return Vec::new() };
+        let SchemaNode::Mapping(children) = node else {
+            return Vec::new();
+        };
+        let Some(next) = children.get(seg) else {
+            return Vec::new();
+        };
         node = match next {
             SchemaNode::Array(item) => item,
             other => other,
         };
     }
-    let SchemaNode::Mapping(children) = node else { return Vec::new() };
+    let SchemaNode::Mapping(children) = node else {
+        return Vec::new();
+    };
     let mut keys: Vec<&'static str> = children.keys().copied().collect();
     keys.sort();
     keys
 }
 
 /// Where `key` belongs when it is not valid where it is: its shortest
-/// registered home outside a list (`controls` for `apple_settings`).
+/// registered home outside a list (`controls` for `apple_settings`). A home
+/// that goes through a renamed key (`controls.macos_settings`) loses to one
+/// using the current name (`controls.apple_settings`), even at equal length.
 pub fn key_home(key: &str) -> Option<&'static str> {
-    KEY_REGISTRY.lookup(key)?.iter().copied().filter(|p| !p.is_empty() && !p.contains('[')).min_by_key(|p| p.len())
+    KEY_REGISTRY
+        .lookup(key)?
+        .iter()
+        .copied()
+        .filter(|p| !p.is_empty() && !p.contains('['))
+        .min_by_key(|p| (through_renamed_key(p), p.len()))
+}
+
+/// `(parent path, key)` of every old key name Fleet migrates on GitOps
+/// input, from `renamed_to` in the schema-extract snapshot (Fleet's own
+/// `spec.DeprecatedGitOpsKeyMappings`).
+// ponytail: embeds the whole snapshot (~170 KB) to read one field; generate
+// a const table in build.rs if binary size starts to matter.
+static RENAMED_KEYS: once_cell::sync::Lazy<std::collections::HashSet<(String, String)>> =
+    once_cell::sync::Lazy::new(|| {
+        let snapshot: serde_json::Value =
+            serde_json::from_str(include_str!("../data/fleet-gitops-keys.json")).expect("bundled snapshot");
+        snapshot["keys"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter(|k| k.get("renamed_to").is_some())
+            .filter_map(|k| Some((k["path"].as_str()?.to_string(), k["key"].as_str()?.to_string())))
+            .collect()
+    });
+
+/// Whether some segment of the dotted `path` is an old key name Fleet renames.
+fn through_renamed_key(path: &str) -> bool {
+    let segs: Vec<&str> = path.split('.').collect();
+    (0..segs.len()).any(|i| RENAMED_KEYS.contains(&(segs[..i].join("."), segs[i].to_string())))
 }
 
 /// Whether `key` belongs where it is, for editors.
@@ -121,8 +165,12 @@ pub enum KeyFit {
 pub fn key_fit(file: Option<&std::path::Path>, parent: &[&str], key: &str) -> KeyFit {
     let mut node: &SchemaNode = file.map_or(&*FLEET_SCHEMA, schema_for_path);
     for seg in parent {
-        let SchemaNode::Mapping(children) = node else { return KeyFit::Unjudged };
-        let Some(next) = children.get(seg) else { return KeyFit::Unjudged };
+        let SchemaNode::Mapping(children) = node else {
+            return KeyFit::Unjudged;
+        };
+        let Some(next) = children.get(seg) else {
+            return KeyFit::Unjudged;
+        };
         node = match next {
             SchemaNode::Array(item) => item,
             other => other,
@@ -983,22 +1031,10 @@ fn agent_options_inline() -> SchemaNode {
 /// Schema for `default.yml` files.
 pub(crate) fn default_schema() -> SchemaNode {
     mapping(vec![
-        (
-            "labels",
-            array(with_base_item(label_inline_strict())),
-        ),
-        (
-            "policies",
-            array(with_base_item(policy_inline_strict())),
-        ),
-        (
-            "queries",
-            array(with_base_item(query_inline_strict())),
-        ),
-        (
-            "reports",
-            array(with_base_item(query_inline_strict())),
-        ),
+        ("labels", array(with_base_item(label_inline_strict()))),
+        ("policies", array(with_base_item(policy_inline_strict()))),
+        ("queries", array(with_base_item(query_inline_strict()))),
+        ("reports", array(with_base_item(query_inline_strict()))),
         ("agent_options", agent_options_inline()),
         ("controls", controls_schema()),
         ("software", software_schema()),
@@ -1016,22 +1052,10 @@ pub(crate) fn default_schema() -> SchemaNode {
 pub(crate) fn fleet_schema() -> SchemaNode {
     mapping(vec![
         ("name", leaf()),
-        (
-            "labels",
-            array(with_base_item(label_inline_strict())),
-        ),
-        (
-            "policies",
-            array(with_base_item(policy_inline_strict())),
-        ),
-        (
-            "queries",
-            array(with_base_item(query_inline_strict())),
-        ),
-        (
-            "reports",
-            array(with_base_item(query_inline_strict())),
-        ),
+        ("labels", array(with_base_item(label_inline_strict()))),
+        ("policies", array(with_base_item(policy_inline_strict()))),
+        ("queries", array(with_base_item(query_inline_strict()))),
+        ("reports", array(with_base_item(query_inline_strict()))),
         ("agent_options", agent_options_inline()),
         ("controls", controls_schema()),
         ("software", software_schema()),
@@ -1111,7 +1135,10 @@ pub(crate) static KEY_REGISTRY: Lazy<KeyRegistry> = Lazy::new(|| {
     reg.register("apple_account_provisioning", "controls");
     reg.register("oauth_idp_token_url", "controls.apple_account_provisioning");
     reg.register("oauth_idp_client_id", "controls.apple_account_provisioning");
-    reg.register("oauth_idp_client_secret", "controls.apple_account_provisioning");
+    reg.register(
+        "oauth_idp_client_secret",
+        "controls.apple_account_provisioning",
+    );
     reg.register("enable_turn_on_windows_mdm_manually", "controls");
     reg.register("windows_migration_enabled", "controls");
     reg.register("enable_disk_encryption", "controls");
@@ -1128,7 +1155,10 @@ pub(crate) static KEY_REGISTRY: Lazy<KeyRegistry> = Lazy::new(|| {
     reg.register("windows_settings", "controls");
     reg.register("android_settings", "controls");
     reg.register("linux_settings", "controls");
-    reg.register("enable_escrow_disk_encryption_key", "controls.linux_settings");
+    reg.register(
+        "enable_escrow_disk_encryption_key",
+        "controls.linux_settings",
+    );
     reg.register("only_allow_apple_business_enrollment", "controls");
     reg.register("macos_setup", "controls");
     reg.register("setup_experience", "controls"); // rename of macos_setup
@@ -1359,45 +1389,144 @@ pub(crate) static KEY_REGISTRY: Lazy<KeyRegistry> = Lazy::new(|| {
     reg.register("vulnerabilities_webhook", "org_settings.webhook_settings");
 
     // activities_webhook leaf fields
-    reg.register("enable_activities_webhook", "org_settings.webhook_settings.activities_webhook");
-    reg.register("destination_url", "org_settings.webhook_settings.activities_webhook");
-    reg.register("enable_activities_webhook", "settings.webhook_settings.activities_webhook");
-    reg.register("destination_url", "settings.webhook_settings.activities_webhook");
-    reg.register("enable_activities_webhook", "team_settings.webhook_settings.activities_webhook");
-    reg.register("destination_url", "team_settings.webhook_settings.activities_webhook");
+    reg.register(
+        "enable_activities_webhook",
+        "org_settings.webhook_settings.activities_webhook",
+    );
+    reg.register(
+        "destination_url",
+        "org_settings.webhook_settings.activities_webhook",
+    );
+    reg.register(
+        "enable_activities_webhook",
+        "settings.webhook_settings.activities_webhook",
+    );
+    reg.register(
+        "destination_url",
+        "settings.webhook_settings.activities_webhook",
+    );
+    reg.register(
+        "enable_activities_webhook",
+        "team_settings.webhook_settings.activities_webhook",
+    );
+    reg.register(
+        "destination_url",
+        "team_settings.webhook_settings.activities_webhook",
+    );
 
     // failing_policies_webhook leaf fields
-    reg.register("enable_failing_policies_webhook", "org_settings.webhook_settings.failing_policies_webhook");
-    reg.register("destination_url", "org_settings.webhook_settings.failing_policies_webhook");
-    reg.register("policy_ids", "org_settings.webhook_settings.failing_policies_webhook");
-    reg.register("host_batch_size", "org_settings.webhook_settings.failing_policies_webhook");
-    reg.register("enable_failing_policies_webhook", "settings.webhook_settings.failing_policies_webhook");
-    reg.register("destination_url", "settings.webhook_settings.failing_policies_webhook");
-    reg.register("policy_ids", "settings.webhook_settings.failing_policies_webhook");
-    reg.register("host_batch_size", "settings.webhook_settings.failing_policies_webhook");
-    reg.register("enable_failing_policies_webhook", "team_settings.webhook_settings.failing_policies_webhook");
-    reg.register("destination_url", "team_settings.webhook_settings.failing_policies_webhook");
-    reg.register("policy_ids", "team_settings.webhook_settings.failing_policies_webhook");
-    reg.register("host_batch_size", "team_settings.webhook_settings.failing_policies_webhook");
+    reg.register(
+        "enable_failing_policies_webhook",
+        "org_settings.webhook_settings.failing_policies_webhook",
+    );
+    reg.register(
+        "destination_url",
+        "org_settings.webhook_settings.failing_policies_webhook",
+    );
+    reg.register(
+        "policy_ids",
+        "org_settings.webhook_settings.failing_policies_webhook",
+    );
+    reg.register(
+        "host_batch_size",
+        "org_settings.webhook_settings.failing_policies_webhook",
+    );
+    reg.register(
+        "enable_failing_policies_webhook",
+        "settings.webhook_settings.failing_policies_webhook",
+    );
+    reg.register(
+        "destination_url",
+        "settings.webhook_settings.failing_policies_webhook",
+    );
+    reg.register(
+        "policy_ids",
+        "settings.webhook_settings.failing_policies_webhook",
+    );
+    reg.register(
+        "host_batch_size",
+        "settings.webhook_settings.failing_policies_webhook",
+    );
+    reg.register(
+        "enable_failing_policies_webhook",
+        "team_settings.webhook_settings.failing_policies_webhook",
+    );
+    reg.register(
+        "destination_url",
+        "team_settings.webhook_settings.failing_policies_webhook",
+    );
+    reg.register(
+        "policy_ids",
+        "team_settings.webhook_settings.failing_policies_webhook",
+    );
+    reg.register(
+        "host_batch_size",
+        "team_settings.webhook_settings.failing_policies_webhook",
+    );
 
     // host_status_webhook leaf fields
-    reg.register("enable_host_status_webhook", "org_settings.webhook_settings.host_status_webhook");
-    reg.register("destination_url", "org_settings.webhook_settings.host_status_webhook");
-    reg.register("days_count", "org_settings.webhook_settings.host_status_webhook");
-    reg.register("host_percentage", "org_settings.webhook_settings.host_status_webhook");
-    reg.register("enable_host_status_webhook", "settings.webhook_settings.host_status_webhook");
-    reg.register("destination_url", "settings.webhook_settings.host_status_webhook");
-    reg.register("days_count", "settings.webhook_settings.host_status_webhook");
-    reg.register("host_percentage", "settings.webhook_settings.host_status_webhook");
-    reg.register("enable_host_status_webhook", "team_settings.webhook_settings.host_status_webhook");
-    reg.register("destination_url", "team_settings.webhook_settings.host_status_webhook");
-    reg.register("days_count", "team_settings.webhook_settings.host_status_webhook");
-    reg.register("host_percentage", "team_settings.webhook_settings.host_status_webhook");
+    reg.register(
+        "enable_host_status_webhook",
+        "org_settings.webhook_settings.host_status_webhook",
+    );
+    reg.register(
+        "destination_url",
+        "org_settings.webhook_settings.host_status_webhook",
+    );
+    reg.register(
+        "days_count",
+        "org_settings.webhook_settings.host_status_webhook",
+    );
+    reg.register(
+        "host_percentage",
+        "org_settings.webhook_settings.host_status_webhook",
+    );
+    reg.register(
+        "enable_host_status_webhook",
+        "settings.webhook_settings.host_status_webhook",
+    );
+    reg.register(
+        "destination_url",
+        "settings.webhook_settings.host_status_webhook",
+    );
+    reg.register(
+        "days_count",
+        "settings.webhook_settings.host_status_webhook",
+    );
+    reg.register(
+        "host_percentage",
+        "settings.webhook_settings.host_status_webhook",
+    );
+    reg.register(
+        "enable_host_status_webhook",
+        "team_settings.webhook_settings.host_status_webhook",
+    );
+    reg.register(
+        "destination_url",
+        "team_settings.webhook_settings.host_status_webhook",
+    );
+    reg.register(
+        "days_count",
+        "team_settings.webhook_settings.host_status_webhook",
+    );
+    reg.register(
+        "host_percentage",
+        "team_settings.webhook_settings.host_status_webhook",
+    );
 
     // vulnerabilities_webhook leaf fields (org-only)
-    reg.register("enable_vulnerabilities_webhook", "org_settings.webhook_settings.vulnerabilities_webhook");
-    reg.register("destination_url", "org_settings.webhook_settings.vulnerabilities_webhook");
-    reg.register("host_batch_size", "org_settings.webhook_settings.vulnerabilities_webhook");
+    reg.register(
+        "enable_vulnerabilities_webhook",
+        "org_settings.webhook_settings.vulnerabilities_webhook",
+    );
+    reg.register(
+        "destination_url",
+        "org_settings.webhook_settings.vulnerabilities_webhook",
+    );
+    reg.register(
+        "host_batch_size",
+        "org_settings.webhook_settings.vulnerabilities_webhook",
+    );
 
     // org_settings.mdm
     reg.register("mdm", "org_settings");
@@ -1471,7 +1600,10 @@ pub(crate) static KEY_REGISTRY: Lazy<KeyRegistry> = Lazy::new(|| {
     reg.register("jira", "org_settings.integrations");
     reg.register("zendesk", "org_settings.integrations");
     reg.register("google_workspace", "org_settings.integrations");
-    reg.register("certificates_idp_introspection_urls", "org_settings.integrations");
+    reg.register(
+        "certificates_idp_introspection_urls",
+        "org_settings.integrations",
+    );
     reg.register("certificates_idp_client_ids", "org_settings.integrations");
     reg.register(
         "certificates_disable_host_end_user_binding",
@@ -1775,10 +1907,21 @@ mod tests {
         // enable_managed_local_account → enable_create_local_admin_account) are
         // recognized under controls.macos_setup / controls.setup_experience.
         let reg = &*KEY_REGISTRY;
-        for key in ["enable_managed_local_account", "enable_create_local_admin_account"] {
-            let paths = reg.lookup(key).unwrap_or_else(|| panic!("'{key}' missing from KEY_REGISTRY"));
-            assert!(paths.contains(&"controls.setup_experience"), "{key} not under setup_experience");
-            assert!(paths.contains(&"controls.macos_setup"), "{key} not under macos_setup");
+        for key in [
+            "enable_managed_local_account",
+            "enable_create_local_admin_account",
+        ] {
+            let paths = reg
+                .lookup(key)
+                .unwrap_or_else(|| panic!("'{key}' missing from KEY_REGISTRY"));
+            assert!(
+                paths.contains(&"controls.setup_experience"),
+                "{key} not under setup_experience"
+            );
+            assert!(
+                paths.contains(&"controls.macos_setup"),
+                "{key} not under macos_setup"
+            );
         }
     }
 
@@ -2063,15 +2206,27 @@ mod tests {
     fn strict_schema_accepts_no_key_fleet_rejects() {
         // (path, key, why flint accepts it although Fleet's types don't list it)
         const FLINT_ONLY: &[(&str, &str, &str)] = &[
-            ("labels[]", "host_ids", "inline labels are not key-checked by Fleet's parser (oracle accepts)"),
-            ("labels[]", "host_vitals", "inline labels are not key-checked by Fleet's parser (oracle accepts)"),
+            (
+                "labels[]",
+                "host_ids",
+                "inline labels are not key-checked by Fleet's parser (oracle accepts)",
+            ),
+            (
+                "labels[]",
+                "host_vitals",
+                "inline labels are not key-checked by Fleet's parser (oracle accepts)",
+            ),
         ];
 
         fn collect(node: &SchemaNode, path: &str, out: &mut Vec<(String, String)>) {
             if let SchemaNode::Mapping(m) = node {
                 for (key, child) in m {
                     out.push((path.to_string(), key.to_string()));
-                    let child_path = if path.is_empty() { key.to_string() } else { format!("{path}.{key}") };
+                    let child_path = if path.is_empty() {
+                        key.to_string()
+                    } else {
+                        format!("{path}.{key}")
+                    };
                     match child {
                         SchemaNode::Array(item) => collect(item, &format!("{child_path}[]"), out),
                         other => collect(other, &child_path, out),
@@ -2099,8 +2254,14 @@ mod tests {
         let exempt = |p: &str, k: &str| FLINT_ONLY.iter().any(|(ep, ek, _)| *ep == p && *ek == k);
         let extra: Vec<String> = flint
             .iter()
-            .filter(|(p, k)| fleet_paths.contains(p.as_str()) && !fleet.contains(&(p.as_str(), k.as_str())))
-            .filter(|(p, k)| crate::deprecations::DEPRECATION_REGISTRY.find_deprecated_key(k, p).is_none())
+            .filter(|(p, k)| {
+                fleet_paths.contains(p.as_str()) && !fleet.contains(&(p.as_str(), k.as_str()))
+            })
+            .filter(|(p, k)| {
+                crate::deprecations::DEPRECATION_REGISTRY
+                    .find_deprecated_key(k, p)
+                    .is_none()
+            })
             .filter(|(p, k)| !exempt(p, k))
             .map(|(p, k)| format!("  {p} :: {k}"))
             .collect();
@@ -2114,8 +2275,13 @@ mod tests {
 
         let stale: Vec<_> = FLINT_ONLY
             .iter()
-            .filter(|(p, k, _)| fleet.contains(&(p, k)) || !flint.iter().any(|(fp, fk)| fp == p && fk == k))
+            .filter(|(p, k, _)| {
+                fleet.contains(&(p, k)) || !flint.iter().any(|(fp, fk)| fp == p && fk == k)
+            })
             .collect();
-        assert!(stale.is_empty(), "FLINT_ONLY entries that no longer apply: {stale:?}");
+        assert!(
+            stale.is_empty(),
+            "FLINT_ONLY entries that no longer apply: {stale:?}"
+        );
     }
 }

@@ -296,6 +296,10 @@ type Key struct {
 	Path string `json:"path"`
 	// Type is the Go type name, for triage when a key looks surprising.
 	Type string `json:"type"`
+	// RenamedTo is the new name when Fleet migrates this key on GitOps input
+	// (spec.DeprecatedGitOpsKeyMappings, e.g. macos_settings -> apple_settings).
+	// Fleet accepts both and logs a deprecation warning for the old one.
+	RenamedTo string `json:"renamed_to,omitempty"`
 }
 
 // roots are Fleet's OWN key-validation sites, transcribed from the
@@ -380,6 +384,8 @@ func main() {
 		out[k+"@"] = Key{Key: k, Path: "", Type: "topKeys"}
 	}
 
+	mappings := markRenamed(out)
+
 	keys := make([]Key, 0, len(out))
 	for _, v := range out {
 		keys = append(keys, v)
@@ -416,12 +422,16 @@ func main() {
 		Keys         []Key               `json:"keys"`
 		FleetVars    []string            `json:"fleet_vars"`
 		VarContexts  map[string][]string `json:"fleet_var_contexts"`
+		// Mappings is spec.DeprecatedGitOpsKeyMappings minus the API-only
+		// leaf entries: the renames Fleet applies to GitOps input.
+		Mappings []Mapping `json:"deprecated_key_mappings"`
 	}{
 		FleetVersion: readBuildModule("github.com/fleetdm/fleet/v4"),
 		Count:        len(keys),
 		Keys:         keys,
 		FleetVars:    vars,
 		VarContexts:  varContexts,
+		Mappings:     mappings,
 	}
 
 	enc := json.NewEncoder(os.Stdout)
@@ -430,6 +440,71 @@ func main() {
 		fmt.Fprintln(os.Stderr, "encode:", err)
 		os.Exit(1)
 	}
+}
+
+// Mapping is one GitOps key rename, as dotted paths with [] for list items.
+type Mapping struct {
+	OldPath string `json:"old_path"`
+	NewPath string `json:"new_path"`
+}
+
+// markRenamed sets RenamedTo on every key Fleet migrates on GitOps input and
+// returns those mappings. Fleet applies spec.DeprecatedGitOpsKeyMappings in
+// order, parent renames first, so a child written under the parent's OLD name
+// (controls.macos_setup.bootstrap_package) is migrated too. Leaf-only entries
+// (team_id -> fleet_id) exist for API output only; they match no GitOps key
+// path and are dropped.
+func markRenamed(out map[string]Key) []Mapping {
+	var kept []Mapping
+	var parents []spec.DeprecatedKeyMapping // renames applied before this one
+	for _, m := range spec.DeprecatedGitOpsKeyMappings {
+		hit := false
+		for _, old := range oldSpellings(m.OldPath, parents) {
+			parent, leaf := splitPath(old)
+			if k, ok := out[leaf+"@"+parent]; ok {
+				_, newLeaf := splitPath(m.NewPath)
+				k.RenamedTo = newLeaf
+				out[leaf+"@"+parent] = k
+				hit = true
+			}
+		}
+		// A root like team_settings is no key of its own, only a parent path.
+		if !hit {
+			for _, k := range out {
+				if k.Path == m.OldPath || strings.HasPrefix(k.Path, m.OldPath+".") {
+					hit = true
+					break
+				}
+			}
+		}
+		if hit {
+			kept = append(kept, Mapping{OldPath: m.OldPath, NewPath: m.NewPath})
+		}
+		parents = append(parents, m)
+	}
+	return kept
+}
+
+// oldSpellings is path plus every spelling with an already-renamed ancestor
+// written under its old name.
+func oldSpellings(path string, earlier []spec.DeprecatedKeyMapping) []string {
+	out := []string{path}
+	for _, e := range earlier {
+		for _, p := range out {
+			// The renamed ancestor may be a list: apple_business[].macos_team.
+			if strings.HasPrefix(p, e.NewPath+".") || strings.HasPrefix(p, e.NewPath+"[].") {
+				out = append(out, e.OldPath+strings.TrimPrefix(p, e.NewPath))
+			}
+		}
+	}
+	return out
+}
+
+func splitPath(p string) (parent, leaf string) {
+	if i := strings.LastIndex(p, "."); i >= 0 {
+		return p[:i], p[i+1:]
+	}
+	return "", p
 }
 
 // walk records every json key reachable from t at yamlPath.
