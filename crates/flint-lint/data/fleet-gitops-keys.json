@@ -40,7 +40,8 @@
     {
       "key": "queries",
       "path": "",
-      "type": "topKeys"
+      "type": "topKeys",
+      "renamed_to": "reports"
     },
     {
       "key": "reports",
@@ -120,12 +121,14 @@
     {
       "key": "macos_settings",
       "path": "controls",
-      "type": "interface {}"
+      "type": "interface {}",
+      "renamed_to": "apple_settings"
     },
     {
       "key": "macos_setup",
       "path": "controls",
-      "type": "*MacOSSetup"
+      "type": "*MacOSSetup",
+      "renamed_to": "setup_experience"
     },
     {
       "key": "macos_updates",
@@ -210,7 +213,8 @@
     {
       "key": "custom_settings",
       "path": "controls.android_settings",
-      "type": "Slice[github.com/fleetdm/fleet/v4/server/fleet.MDMProfileSpec]"
+      "type": "Slice[github.com/fleetdm/fleet/v4/server/fleet.MDMProfileSpec]",
+      "renamed_to": "configuration_profiles"
     },
     {
       "key": "certificate_authority_name",
@@ -330,7 +334,8 @@
     {
       "key": "custom_settings",
       "path": "controls.apple_settings",
-      "type": "[]fleet.MDMProfileSpec"
+      "type": "[]fleet.MDMProfileSpec",
+      "renamed_to": "configuration_profiles"
     },
     {
       "key": "enable_disk_encryption",
@@ -520,7 +525,8 @@
     {
       "key": "custom_settings",
       "path": "controls.macos_settings",
-      "type": "[]fleet.MDMProfileSpec"
+      "type": "[]fleet.MDMProfileSpec",
+      "renamed_to": "configuration_profiles"
     },
     {
       "key": "enable_disk_encryption",
@@ -650,7 +656,8 @@
     {
       "key": "bootstrap_package",
       "path": "controls.macos_setup",
-      "type": "String"
+      "type": "String",
+      "renamed_to": "macos_bootstrap_package"
     },
     {
       "key": "enable_create_local_admin_account",
@@ -665,12 +672,14 @@
     {
       "key": "enable_managed_local_account",
       "path": "controls.macos_setup",
-      "type": "Bool"
+      "type": "Bool",
+      "renamed_to": "enable_create_local_admin_account"
     },
     {
       "key": "enable_release_device_manually",
       "path": "controls.macos_setup",
-      "type": "Bool"
+      "type": "Bool",
+      "renamed_to": "apple_enable_release_device_manually"
     },
     {
       "key": "end_user_local_account_type",
@@ -700,12 +709,14 @@
     {
       "key": "macos_setup_assistant",
       "path": "controls.macos_setup",
-      "type": "String"
+      "type": "String",
+      "renamed_to": "apple_setup_assistant"
     },
     {
       "key": "manual_agent_install",
       "path": "controls.macos_setup",
-      "type": "Bool"
+      "type": "Bool",
+      "renamed_to": "macos_manual_agent_install"
     },
     {
       "key": "require_all_software_macos",
@@ -720,7 +731,8 @@
     {
       "key": "script",
       "path": "controls.macos_setup",
-      "type": "String"
+      "type": "String",
+      "renamed_to": "macos_script"
     },
     {
       "key": "software",
@@ -780,7 +792,8 @@
     {
       "key": "bootstrap_package",
       "path": "controls.setup_experience",
-      "type": "String"
+      "type": "String",
+      "renamed_to": "macos_bootstrap_package"
     },
     {
       "key": "enable_create_local_admin_account",
@@ -795,12 +808,14 @@
     {
       "key": "enable_managed_local_account",
       "path": "controls.setup_experience",
-      "type": "Bool"
+      "type": "Bool",
+      "renamed_to": "enable_create_local_admin_account"
     },
     {
       "key": "enable_release_device_manually",
       "path": "controls.setup_experience",
-      "type": "Bool"
+      "type": "Bool",
+      "renamed_to": "apple_enable_release_device_manually"
     },
     {
       "key": "end_user_local_account_type",
@@ -830,12 +845,14 @@
     {
       "key": "macos_setup_assistant",
       "path": "controls.setup_experience",
-      "type": "String"
+      "type": "String",
+      "renamed_to": "apple_setup_assistant"
     },
     {
       "key": "manual_agent_install",
       "path": "controls.setup_experience",
-      "type": "Bool"
+      "type": "Bool",
+      "renamed_to": "macos_manual_agent_install"
     },
     {
       "key": "require_all_software_macos",
@@ -850,7 +867,8 @@
     {
       "key": "script",
       "path": "controls.setup_experience",
-      "type": "String"
+      "type": "String",
+      "renamed_to": "macos_script"
     },
     {
       "key": "software",
@@ -875,7 +893,8 @@
     {
       "key": "custom_settings",
       "path": "controls.windows_settings",
-      "type": "Slice[github.com/fleetdm/fleet/v4/server/fleet.MDMProfileSpec]"
+      "type": "Slice[github.com/fleetdm/fleet/v4/server/fleet.MDMProfileSpec]",
+      "renamed_to": "configuration_profiles"
     },
     {
       "key": "enable_disk_encryption",
@@ -1730,7 +1749,8 @@
     {
       "key": "apple_business_manager",
       "path": "org_settings.mdm",
-      "type": "Slice[github.com/fleetdm/fleet/v4/server/fleet.MDMAppleABMAssignmentInfo]"
+      "type": "Slice[github.com/fleetdm/fleet/v4/server/fleet.MDMAppleABMAssignmentInfo]",
+      "renamed_to": "apple_business"
     },
     {
       "key": "apple_require_hardware_attestation",
@@ -2005,7 +2025,8 @@
     {
       "key": "byod_team",
       "path": "org_settings.mdm.apple_business[]",
-      "type": "string"
+      "type": "string",
+      "renamed_to": "byod_fleet"
     },
     {
       "key": "default",
@@ -2020,7 +2041,8 @@
     {
       "key": "ios_team",
       "path": "org_settings.mdm.apple_business[]",
-      "type": "string"
+      "type": "string",
+      "renamed_to": "ios_fleet"
     },
     {
       "key": "ipados_fleet",
@@ -2030,7 +2052,8 @@
     {
       "key": "ipados_team",
       "path": "org_settings.mdm.apple_business[]",
-      "type": "string"
+      "type": "string",
+      "renamed_to": "ipados_fleet"
     },
     {
       "key": "macos_fleet",
@@ -2040,7 +2063,8 @@
     {
       "key": "macos_team",
       "path": "org_settings.mdm.apple_business[]",
-      "type": "string"
+      "type": "string",
+      "renamed_to": "macos_fleet"
     },
     {
       "key": "organization_name",
@@ -2055,7 +2079,8 @@
     {
       "key": "byod_team",
       "path": "org_settings.mdm.apple_business_manager[]",
-      "type": "string"
+      "type": "string",
+      "renamed_to": "byod_fleet"
     },
     {
       "key": "default",
@@ -2070,7 +2095,8 @@
     {
       "key": "ios_team",
       "path": "org_settings.mdm.apple_business_manager[]",
-      "type": "string"
+      "type": "string",
+      "renamed_to": "ios_fleet"
     },
     {
       "key": "ipados_fleet",
@@ -2080,7 +2106,8 @@
     {
       "key": "ipados_team",
       "path": "org_settings.mdm.apple_business_manager[]",
-      "type": "string"
+      "type": "string",
+      "renamed_to": "ipados_fleet"
     },
     {
       "key": "macos_fleet",
@@ -2090,7 +2117,8 @@
     {
       "key": "macos_team",
       "path": "org_settings.mdm.apple_business_manager[]",
-      "type": "string"
+      "type": "string",
+      "renamed_to": "macos_fleet"
     },
     {
       "key": "organization_name",
@@ -2675,7 +2703,8 @@
     {
       "key": "teams",
       "path": "org_settings.mdm.volume_purchasing_program[]",
-      "type": "[]string"
+      "type": "[]string",
+      "renamed_to": "fleets"
     },
     {
       "key": "default_fleet",
@@ -2835,7 +2864,8 @@
     {
       "key": "org_logo_url",
       "path": "org_settings.org_info",
-      "type": "string"
+      "type": "string",
+      "renamed_to": "org_logo_url_dark_mode"
     },
     {
       "key": "org_logo_url_dark_mode",
@@ -2845,7 +2875,8 @@
     {
       "key": "org_logo_url_light_background",
       "path": "org_settings.org_info",
-      "type": "string"
+      "type": "string",
+      "renamed_to": "org_logo_url_light_mode"
     },
     {
       "key": "org_logo_url_light_mode",
@@ -2885,7 +2916,8 @@
     {
       "key": "live_query_disabled",
       "path": "org_settings.server_settings",
-      "type": "bool"
+      "type": "bool",
+      "renamed_to": "live_reporting_disabled"
     },
     {
       "key": "live_reporting_disabled",
@@ -2895,12 +2927,14 @@
     {
       "key": "query_report_cap",
       "path": "org_settings.server_settings",
-      "type": "int"
+      "type": "int",
+      "renamed_to": "report_cap"
     },
     {
       "key": "query_reports_disabled",
       "path": "org_settings.server_settings",
-      "type": "bool"
+      "type": "bool",
+      "renamed_to": "discard_reports_data"
     },
     {
       "key": "report_cap",
@@ -6717,5 +6751,103 @@
       "HOST_END_USER_IDP_USERNAME",
       "HOST_END_USER_IDP_USERNAME_LOCAL_PART"
     ]
-  }
+  },
+  "deprecated_key_mappings": [
+    {
+      "old_path": "team_settings",
+      "new_path": "settings"
+    },
+    {
+      "old_path": "queries",
+      "new_path": "reports"
+    },
+    {
+      "old_path": "controls.macos_settings",
+      "new_path": "controls.apple_settings"
+    },
+    {
+      "old_path": "controls.apple_settings.custom_settings",
+      "new_path": "controls.apple_settings.configuration_profiles"
+    },
+    {
+      "old_path": "controls.windows_settings.custom_settings",
+      "new_path": "controls.windows_settings.configuration_profiles"
+    },
+    {
+      "old_path": "controls.android_settings.custom_settings",
+      "new_path": "controls.android_settings.configuration_profiles"
+    },
+    {
+      "old_path": "controls.macos_setup",
+      "new_path": "controls.setup_experience"
+    },
+    {
+      "old_path": "controls.setup_experience.bootstrap_package",
+      "new_path": "controls.setup_experience.macos_bootstrap_package"
+    },
+    {
+      "old_path": "controls.setup_experience.macos_setup_assistant",
+      "new_path": "controls.setup_experience.apple_setup_assistant"
+    },
+    {
+      "old_path": "controls.setup_experience.enable_release_device_manually",
+      "new_path": "controls.setup_experience.apple_enable_release_device_manually"
+    },
+    {
+      "old_path": "controls.setup_experience.script",
+      "new_path": "controls.setup_experience.macos_script"
+    },
+    {
+      "old_path": "controls.setup_experience.manual_agent_install",
+      "new_path": "controls.setup_experience.macos_manual_agent_install"
+    },
+    {
+      "old_path": "controls.setup_experience.enable_managed_local_account",
+      "new_path": "controls.setup_experience.enable_create_local_admin_account"
+    },
+    {
+      "old_path": "org_settings.server_settings.live_query_disabled",
+      "new_path": "org_settings.server_settings.live_reporting_disabled"
+    },
+    {
+      "old_path": "org_settings.server_settings.query_reports_disabled",
+      "new_path": "org_settings.server_settings.discard_reports_data"
+    },
+    {
+      "old_path": "org_settings.server_settings.query_report_cap",
+      "new_path": "org_settings.server_settings.report_cap"
+    },
+    {
+      "old_path": "org_settings.org_info.org_logo_url",
+      "new_path": "org_settings.org_info.org_logo_url_dark_mode"
+    },
+    {
+      "old_path": "org_settings.org_info.org_logo_url_light_background",
+      "new_path": "org_settings.org_info.org_logo_url_light_mode"
+    },
+    {
+      "old_path": "org_settings.mdm.apple_business_manager",
+      "new_path": "org_settings.mdm.apple_business"
+    },
+    {
+      "old_path": "org_settings.mdm.apple_business[].macos_team",
+      "new_path": "org_settings.mdm.apple_business[].macos_fleet"
+    },
+    {
+      "old_path": "org_settings.mdm.apple_business[].ios_team",
+      "new_path": "org_settings.mdm.apple_business[].ios_fleet"
+    },
+    {
+      "old_path": "org_settings.mdm.apple_business[].ipados_team",
+      "new_path": "org_settings.mdm.apple_business[].ipados_fleet"
+    },
+    {
+      "old_path": "org_settings.mdm.apple_business[].byod_team",
+      "new_path": "org_settings.mdm.apple_business[].byod_fleet"
+    },
+    {
+      "old_path": "org_settings.mdm.volume_purchasing_program[].teams",
+      "new_path": "org_settings.mdm.volume_purchasing_program[].fleets"
+    }
+  ]
 }
