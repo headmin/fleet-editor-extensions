@@ -93,6 +93,8 @@ pub const BROKEN_REFERENCE: &str = "broken-reference";
 pub const CASE_COLLISION: &str = "case-collision";
 /// A policy runs a script that no fleet registers under `controls.scripts`.
 pub const UNREGISTERED_SCRIPT: &str = "unregistered-script";
+/// Two `controls.scripts` entries resolve to the same file name (Fleet rejects the fleet file).
+pub const DUPLICATE_SCRIPT_BASENAME: &str = "duplicate-script-basename";
 /// Byte-identical payload committed at two paths.
 pub const DUPLICATE_CONTENT: &str = "duplicate-content";
 /// Payload/script file referenced by no fleet/config file.
@@ -158,6 +160,7 @@ pub const CROSS_FILE: &[&str] = &[
     BROKEN_REFERENCE,
     CASE_COLLISION,
     UNREGISTERED_SCRIPT,
+    DUPLICATE_SCRIPT_BASENAME,
     DUPLICATE_CONTENT,
     ORPHANED_FILE,
     DUPLICATE_IDENTIFIER,
@@ -285,6 +288,7 @@ pub static REGISTRY: &[RuleMeta] = &[
     meta!(BROKEN_REFERENCE, "cross-file", None, false, false, "A paths: glob matches no files (typically after a folder rename)"),
     meta!(CASE_COLLISION, "cross-file", None, false, false, "Two repo paths differ only by letter case (breaks case-sensitive checkouts and CI)"),
     meta!(UNREGISTERED_SCRIPT, "cross-file", Some(concat_url!("#run-script")), false, false, "A policy runs a script that no fleet registers under controls.scripts"),
+    meta!(DUPLICATE_SCRIPT_BASENAME, "cross-file", None, false, false, "Two controls.scripts entries resolve to the same file name (Fleet rejects the fleet file)"),
     meta!(DUPLICATE_CONTENT, "cross-file", None, false, false, "The same payload is committed at two paths"),
     meta!(ORPHANED_FILE, "cross-file", None, false, false, "A profile, script or payload that no fleet or config file references"),
     meta!(DUPLICATE_IDENTIFIER, "cross-file", None, false, false, "Two profiles in one fleet share a PayloadIdentifier but differ in content"),
@@ -372,6 +376,7 @@ mod tests {
             BROKEN_REFERENCE,
             CASE_COLLISION,
             UNREGISTERED_SCRIPT,
+            DUPLICATE_SCRIPT_BASENAME,
             DUPLICATE_CONTENT,
     ORPHANED_FILE,
     DUPLICATE_IDENTIFIER,

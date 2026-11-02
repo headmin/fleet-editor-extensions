@@ -132,6 +132,7 @@ pub fn workspace_rules(config: &super::config::FleetLintConfig) -> Vec<Box<dyn W
         Box::new(BrokenReferenceRule),
         Box::new(CaseCollisionRule),
         Box::new(UnregisteredScriptRule),
+        Box::new(DuplicateScriptBasenameRule),
         Box::new(DuplicateContentRule),
         Box::new(OrphanedFileRule {
             allow: config.orphans.clone(),
@@ -622,6 +623,100 @@ fn registered_scripts(fleet: &ParsedFile, ws: &Workspace) -> std::collections::H
         }
     }
     out
+}
+
+// ---------------------------------------------------------------------------
+// duplicate-script-basename: two controls.scripts entries, one file name
+// ---------------------------------------------------------------------------
+
+/// Fleet names a script by its file name, so `controls.scripts` must not reach
+/// the same basename twice — most often one script listed by `path:` AND
+/// matched by a `paths:` glob. fleetctl rejects the whole fleet file
+/// (`expandBaseItems`, `RequireUniqueBasenames`), mirrored here entry by entry.
+pub struct DuplicateScriptBasenameRule;
+
+/// Extensions Fleet keeps when expanding a scripts glob (`allowedScriptExtensions`).
+const SCRIPT_EXTENSIONS: &[&str] = &["sh", "ps1", "py"];
+
+impl WorkspaceRule for DuplicateScriptBasenameRule {
+    fn code(&self) -> &'static str {
+        codes::DUPLICATE_SCRIPT_BASENAME
+    }
+
+    fn check(&self, ws: &Workspace) -> Vec<(PathBuf, LintError)> {
+        let mut findings = Vec::new();
+        for fleet in ws.parsed.iter().filter(|pf| is_fleet_config(pf)) {
+            let Some(items) = fleet
+                .yaml
+                .get("controls")
+                .and_then(|c| c.get("scripts"))
+                .and_then(Value::as_sequence)
+            else {
+                continue;
+            };
+            let base = fleet.path.parent().unwrap_or(Path::new(""));
+            // basename -> the entry string that first claimed it
+            let mut seen: std::collections::HashMap<String, String> = Default::default();
+            for item in items {
+                let (key, entry) = match (
+                    item.get("path").and_then(Value::as_str),
+                    item.get("paths").and_then(Value::as_str),
+                ) {
+                    (Some(p), _) => ("path", p),
+                    (None, Some(g)) => ("paths", g),
+                    _ => continue,
+                };
+                if entry.contains('$') {
+                    continue;
+                }
+                let resolved = normalize_path(&base.join(entry));
+                let mut files: Vec<PathBuf> = if key == "path" {
+                    vec![resolved]
+                } else {
+                    let pat = resolved.to_string_lossy().replace('\\', "/");
+                    let Some(matcher) = compile_glob(&pat) else { continue };
+                    ws.files
+                        .iter()
+                        .filter(|f| matcher.is_match(f.to_string_lossy().replace('\\', "/")))
+                        .filter(|f| {
+                            f.extension()
+                                .and_then(|e| e.to_str())
+                                .is_some_and(|e| SCRIPT_EXTENSIONS.contains(&e))
+                        })
+                        .cloned()
+                        .collect()
+                };
+                files.sort();
+                for file in files {
+                    let Some(name) = file.file_name().and_then(|n| n.to_str()) else {
+                        continue;
+                    };
+                    let Some(first) = seen.get(name) else {
+                        seen.insert(name.to_string(), entry.to_string());
+                        continue;
+                    };
+                    let mut err = LintError::error(
+                        format!(
+                            "duplicate script basename '{name}' in controls.scripts (from '{first}' and '{entry}')"
+                        ),
+                        fleet.path.as_path(),
+                    )
+                    .with_help(
+                        "Fleet names scripts by file name and rejects this fleet file. Remove the \
+                         explicit `path:` entry when a `paths:` glob already matches the script, \
+                         or rename one of the two files.",
+                    )
+                    .with_related(file.clone());
+                    err.rule_code = Some(codes::DUPLICATE_SCRIPT_BASENAME);
+                    if let Some(span) = find_value_span(&fleet.source, key, entry) {
+                        err = err.with_location(span.0, span.1);
+                    }
+                    findings.push((fleet.path.clone(), err));
+                }
+            }
+        }
+        findings
+    }
 }
 
 /// Every policy this fleet applies, paired with the file that declares it —
@@ -1465,6 +1560,33 @@ policies:
         assert_eq!(findings.len(), 1);
         assert!(findings[0].1.message.contains("rogue.sh"));
         assert_eq!(findings[0].1.related, vec![PathBuf::from("scripts/rogue.sh")]);
+    }
+
+    #[test]
+    fn duplicate_script_basename_glob_and_path() {
+        let fleet = parsed(
+            "fleets/ws.yml",
+            r#"
+controls:
+  scripts:
+    - paths: ../scripts/*.ps1
+    - path: ../scripts/set-wallpaper.ps1
+"#,
+        );
+        let binding = [fleet];
+        let ws = Workspace::from_files(
+            vec![
+                PathBuf::from("scripts/set-wallpaper.ps1"),
+                PathBuf::from("scripts/warp.ps1"),
+                PathBuf::from("scripts/notes.txt"),
+            ],
+            &binding,
+        );
+        let findings = DuplicateScriptBasenameRule.check(&ws);
+        assert_eq!(findings.len(), 1, "{findings:?}");
+        let msg = &findings[0].1.message;
+        assert!(msg.contains("'set-wallpaper.ps1'") && msg.contains("../scripts/*.ps1"), "{msg}");
+        assert_eq!(findings[0].1.severity, crate::error::Severity::Error);
     }
 
     #[test]
