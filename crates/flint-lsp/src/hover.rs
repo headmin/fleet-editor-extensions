@@ -78,7 +78,7 @@ pub fn hover_with_place(source: &str, position: Position, future_names: bool, fi
         Some((_, place)) => Some(format!("Subkey of `{place}`")),
         // Known elsewhere but not here: say where it belongs.
         None if flint_lint::key_fit(file, &parent, &word) == flint_lint::KeyFit::Invalid => {
-            flint_lint::key_home(&word).map(|home| format!("Subkey of `{home}` — **not valid here**"))
+            flint_lint::key_home(&word).map(|home| format!("Subkey of `{}` — **not valid here**", home.replace('.', " › ")))
         }
         None => None,
     };
@@ -776,5 +776,11 @@ mod tests {
         assert!(text("name: A\ncontrols:\n  scripts:\n", 2, 4).starts_with("Subkey of `controls`"));
         assert!(text("name: A\ncontrols:\n", 1, 3).starts_with("Top-level key"));
         assert!(text("name: A\napple_settings:\n", 1, 3).starts_with("Subkey of `controls` — **not valid here**"));
+        // Two homes tie on length; the current name wins over the renamed one.
+        assert!(
+            text("name: A\ncontrols:\n  custom_settings:\n", 2, 5).starts_with("Subkey of `controls › apple_settings` — **not valid here**"),
+            "{}",
+            text("name: A\ncontrols:\n  custom_settings:\n", 2, 5)
+        );
     }
 }
