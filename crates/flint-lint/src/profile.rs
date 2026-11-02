@@ -311,7 +311,8 @@ impl Rule for DuplicatePayloadUuidRule {
     }
 
     fn check(&self, _config: &FleetConfig, file: &Path, source: &str) -> Vec<LintError> {
-        let refs = collect_profile_refs(file, source);
+        let mut refs = collect_profile_refs(file, source);
+        let mut errors = listed_twice(file, &mut refs);
 
         // .mobileconfig grouped by PayloadUUID; DDM .json by Identifier.
         let mut by_uuid: HashMap<String, Vec<PathBuf>> = HashMap::new();
@@ -332,7 +333,6 @@ impl Rule for DuplicatePayloadUuidRule {
             }
         }
 
-        let mut errors = Vec::new();
         emit_dups(
             &mut errors,
             file,
@@ -340,7 +340,7 @@ impl Rule for DuplicatePayloadUuidRule {
             "duplicate PayloadUUID",
             "profiles",
             "Each profile needs a unique PayloadUUID — Fleet overwrites or skips duplicates. \
-             Regenerate one with: flint profile <file> --regen-uuid",
+             Regenerate one with: flint gen profile <file> --regen-uuid",
         );
         emit_dups(
             &mut errors,
@@ -352,6 +352,38 @@ impl Rule for DuplicatePayloadUuidRule {
         );
         errors
     }
+}
+
+/// One file reached twice (a `paths:` glob plus an explicit `path:`) is not
+/// two profiles sharing an id — it is one profile listed twice, which Fleet
+/// rejects at apply (duplicate profile name). Report that, then dedupe `refs`
+/// so the id grouping below only sees genuinely distinct files.
+fn listed_twice(file: &Path, refs: &mut Vec<PathBuf>) -> Vec<LintError> {
+    let mut seen = std::collections::HashSet::new();
+    let mut reported = std::collections::HashSet::new();
+    let mut errors = Vec::new();
+    refs.retain(|p| {
+        if seen.insert(p.clone()) {
+            return true;
+        }
+        if reported.insert(p.clone()) {
+            let name = p.file_name().and_then(|n| n.to_str()).unwrap_or("");
+            errors.push(
+                LintError::error(
+                    format!("profile '{name}' is listed more than once in configuration_profiles"),
+                    file,
+                )
+                .with_rule_code(crate::codes::DUPLICATE_PAYLOAD_UUID)
+                .with_help(
+                    "A `paths:` glob and an explicit `path:` (or two entries) both match this file. \
+                     Fleet rejects the apply (duplicate profile name). Remove the glob or the \
+                     explicit entry — keep the one that carries the labels you want.",
+                ),
+            );
+        }
+        false
+    });
+    errors
 }
 
 /// Emit a warning for each key shared by 2+ files.
@@ -409,7 +441,7 @@ fn collect_profile_refs(file: &Path, source: &str) -> Vec<PathBuf> {
                 }
             }
         } else if value.ends_with(".mobileconfig") || value.ends_with(".json") {
-            let resolved = base.join(&value);
+            let resolved = super::util::normalize_path(&base.join(&value));
             if resolved.exists() {
                 out.push(resolved);
             }
@@ -1209,6 +1241,26 @@ mod tests {
         assert!(errors[0].message.contains("duplicate declaration Identifier"));
         assert!(errors[0].message.contains("com.dup.decl"));
         assert!(errors[0].message.contains("a.json") && errors[0].message.contains("b.json"));
+    }
+
+    /// Glob + explicit `path:` reaching ONE file: report "listed twice" as an
+    /// error, not a misleading "two declarations share an Identifier".
+    #[test]
+    fn same_profile_via_glob_and_path_is_listed_twice() {
+        let tmp = TempDir::new().unwrap();
+        let dir = tmp.path().join("platforms/macos/declaration-profiles");
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(dir.join("deferral.json"), r#"{"Type":"com.apple.configuration.x","Identifier":"com.defer"}"#).unwrap();
+        let fleet_dir = tmp.path().join("fleets");
+        fs::create_dir_all(&fleet_dir).unwrap();
+        let fleet = fleet_dir.join("team.yml");
+        let yaml = "controls:\n  apple_settings:\n    configuration_profiles:\n      - paths: ../platforms/macos/declaration-profiles/*.json\n      - path: ../platforms/macos/declaration-profiles/deferral.json\n        labels_exclude_any:\n          - Beta\n";
+        fs::write(&fleet, yaml).unwrap();
+
+        let errors = DuplicatePayloadUuidRule.check(&FleetConfig::default(), &fleet, yaml);
+        assert_eq!(errors.len(), 1, "got: {errors:?}");
+        assert!(errors[0].message.contains("'deferral.json' is listed more than once"));
+        assert_eq!(errors[0].severity, crate::error::Severity::Error);
     }
 
     #[test]
